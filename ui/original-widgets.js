@@ -42,7 +42,7 @@ export function widgetSources(kind, selected, sources) {
     });
 }
 
-export function mountOriginal(box, slot, connections, {native = false} = {}) {
+export function mountOriginal(box, slot, connections, {native = false, colors = null} = {}) {
   const sources = widgetSources(slot.kind, slot.source, connections);
   const viewer = crypto.randomUUID();
   let feed, timer, closed = false, unregister = () => {};
@@ -68,7 +68,7 @@ export function mountOriginal(box, slot, connections, {native = false} = {}) {
       unregister();
       const chosen = connections.find(source => source.kind === slot.kind && source.id === slot.source);
       unregister = registerFrame(frame, {viewer, feed: id, commands: packageInfo.get(slot.kind)?.collector?.commands || [],
-        displayName: chosen?.name?.trim() || '', host: hostOf(chosen?.address), native});
+        displayName: chosen?.name?.trim() || '', host: hostOf(chosen?.address), native, colors});
       frame.src = '/widget-view/' + encodeURIComponent(id) + '/index.html';
       box.replaceChildren(frame);
       timer = setTimeout(check, 8000);
@@ -96,12 +96,15 @@ export function mountOriginal(box, slot, connections, {native = false} = {}) {
     message.textContent = 'Choose a ' + titles[slot.kind] + ' connection in Widget Studio.';
     status.append(button('Settings', () => invoke('open_settings')));
   }
-  return () => { closed = true; clearTimeout(timer); unregister(); release(feed); };
+  const dispose = () => { closed = true; clearTimeout(timer); unregister(); release(feed); };
+  // This placement's colours changed: restyle the live view without reloading it.
+  dispose.colors = next => { colors = next; unregister.colors?.(next); };
+  return dispose;
 }
 
 // An installed API version 2 package: its view runs sandboxed, and the app
 // polls the package's declarative routes or connector and passes the data in.
-export function mountPackage(box, slot, entry, connections, {native = false, openSettings = null} = {}) {
+export function mountPackage(box, slot, entry, connections, {native = false, openSettings = null, colors = null} = {}) {
   const viewer = crypto.randomUUID();
   let saved = slot.packageSettings;
   let feed, timer, rev = 0, closed = false, unregister = () => {};
@@ -131,7 +134,7 @@ export function mountPackage(box, slot, entry, connections, {native = false, ope
       // Permissions come from the package on disk, as the host validated it.
       unregister = registerFrame(frame, {viewer, feed, kind: slot.kind, title: entry.title, actions: entry.actions || [],
         permissions: opened.permissions || [], schema: entry.settings || [], saved, openSettings,
-        displayName: source?.name?.trim() || '', host: hostOf(source?.address), serverField: entry.serverField, native});
+        displayName: source?.name?.trim() || '', host: hostOf(source?.address), serverField: entry.serverField, native, colors});
       frame.src = '/widget-view/' + encodeURIComponent(feed) + '/' + encodeURIComponent(opened.entry);
       box.replaceChildren(frame);
       pump();
@@ -170,5 +173,6 @@ export function mountPackage(box, slot, entry, connections, {native = false, ope
   };
   // This placement's settings changed: update the live view without reloading it.
   dispose.settings = next => { saved = next; unregister.settings?.(next); };
+  dispose.colors = next => { colors = next; unregister.colors?.(next); };
   return dispose;
 }

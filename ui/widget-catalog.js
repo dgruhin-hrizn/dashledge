@@ -83,6 +83,7 @@ export function packageEntry(info){
     for(const key of ['addressLabel','addressPlaceholder','credentialLabel'])if(info.sources[key])entry.sources[key]=info.sources[key];
   }
   if(info.view?.viewport==='native')entry.viewport='native';
+  if(info.view?.theme)entry.theme=true;
   if(info.actions?.length)entry.actions=info.actions.map(a=>a.id);
   if(info.displayName?.serverField)entry.serverField=info.displayName.serverField;
   if(info.permissions?.length)entry.permissions=[...info.permissions];

@@ -166,3 +166,20 @@
 .general-grid .output-screen select {max-width:100%;min-width:0;flex:1 1 15em}
 .general-grid .panel>.row {flex-wrap:wrap;margin-top:10px}
 .general-grid .panel>.sub {display:block;margin-top:8px}
+
+/* Per-placement colours editor */
+.placement-colors {width:min(480px,92vw)}
+.placement-colors .color-sample {display:grid;gap:4px;margin:12px 0;padding:16px 18px;border-radius:12px;background:#141817;border:1px solid #343936;color:var(--sample-text)}
+.placement-colors .color-sample small {color:color-mix(in srgb,var(--sample-text) 62%,#343a38);text-transform:uppercase;letter-spacing:.075em;font-size:12px}
+.placement-colors .color-sample strong {font-size:44px;font-weight:330;font-variant-numeric:tabular-nums}
+.placement-colors .color-sample strong span {font-size:.4em;color:color-mix(in srgb,var(--sample-text) 62%,#343a38)}
+.placement-colors .color-sample i {display:block;height:8px;border-radius:4px;background:linear-gradient(90deg,var(--sample-accent) 72%,#323a35 72%)}
+.placement-colors .color-rows {display:grid;gap:10px}
+.placement-colors .color-row {display:grid;grid-template-columns:80px 56px minmax(0,1fr) auto;gap:10px;align-items:center}
+.placement-colors .color-row input[type=color] {width:56px;height:40px;padding:2px;border-radius:8px;background:#161c1b}
+.placement-colors .color-row input[type=color]:disabled {opacity:.45}
+.placement-colors .color-row code {color:#c1c9c3;font-size:13px}
+.placement-colors .color-follow {display:flex;gap:6px;align-items:center;min-height:44px;font-size:13px}
+.placement-colors .color-follow input {width:20px;height:20px;accent-color:var(--lime)}
+.inspector-colors {display:flex;align-items:center;gap:8px}
+.inspector-colors .swatch {width:22px;height:22px;border-radius:6px;border:1px solid #ffffff30;flex:none}
