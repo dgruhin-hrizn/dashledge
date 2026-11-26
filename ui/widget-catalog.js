@@ -71,6 +71,20 @@ export function useDefault(config,kind,source){
 export function placements(config,kind){
   return config.pages.flatMap(page=>page.slots.flatMap((s,index)=>s.kind===kind?[{page,index}]:[]));
 }
+// Record an installed API version 2 package in the layout. Its files live on disk;
+// the layout keeps what the catalog shows. Updating keeps existing placements.
+export function packageEntry(info){
+  const entry={apiVersion:2,id:info.id,title:info.title,tier:info.tier};
+  for(const key of ['description','version','category','iconData'])if(info[key])entry[key]=info[key];
+  if(info.sources?.max)entry.feed=info.id;
+  return entry;
+}
+export function recordPackage(config,info){
+  const entry=packageEntry(info),i=config.plugins.findIndex(p=>p.id===entry.id),old=config.plugins[i];
+  if(old)config.plugins[i]=entry;else config.plugins.push(entry);
+  if(old&&old.apiVersion!==2)for(const {page,index} of placements(config,entry.id))page.slots[index].source='';
+  return !old;
+}
 export function removeWidget(config,kind){
   for(const {page,index} of placements(config,kind))page.slots[index]={...slot(),id:page.slots[index].id};
   if(Object.hasOwn(titles,kind))config.removedWidgets=[...new Set([...(config.removedWidgets||[]),kind])];

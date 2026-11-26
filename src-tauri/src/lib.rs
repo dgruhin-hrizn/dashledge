@@ -30,6 +30,7 @@ mod tray;
 mod widget_host;
 mod widget_package;
 mod package_manifest;
+mod package_store;
 mod vault;
 
 use std::{path::PathBuf, sync::OnceLock, time::Duration};
@@ -261,7 +262,9 @@ pub fn run() {
             general::preview_control, general::open_preview, general::general_settings, general::save_general, updater::check_and_install, updater::update_status,
             open_project_link, retry_touch, move_to_display,
             rundmd::rundmd_catalog, rundmd::rundmd_import, rundmd::rundmd_clip, rundmd::rundmd_has_default,
-            widget_package::read_widget_package, widget_package::save_widget_example,
+            widget_package::save_widget_example,
+            package_store::inspect_widget_package, package_store::install_widget_package,
+            package_store::list_packages, package_store::remove_widget_package,
             vault::unlock_connections,
             vault::recover_credential,
             widget_host::widget_open,

@@ -7,7 +7,8 @@ import {editWatchlist} from './market-watchlist.js';
 import {marketConnection,marketPicker} from './markets.js';
 import {editPhotos} from './photos.js';
 import {editShortcuts,shortcutPins} from './mac-shortcuts.js';
-import {catalogGroups,widgetInfo,installed,connectionsFor,defaultSource,useDefault,placements,removeWidget} from './widget-catalog.js';
+import {catalogGroups,widgetInfo,installed,connectionsFor,defaultSource,useDefault,placements,removeWidget,recordPackage} from './widget-catalog.js';
+import {permissionSummary} from './package-manifest.js';
 import {general,loadGeneral,updateGeneral,fitDashboard} from './general.js';
 import {icon} from './admin-icons.js';
 import {appendPage,assignWidget,pickWidget} from './page-actions.js';
@@ -316,7 +317,25 @@ function widgetDetail(kind){
 function removePackage(info){
   const uses=placements(config,info.kind),count=uses.length;
   const message=count?'Removing this widget will clear '+count+' '+(count===1?'section':'sections')+' across your pages.':'This widget isn’t used on any pages.';
-  formDialog('Remove '+info.title+'?',[el('p','',message+' Saved connections are kept.')],()=>change(()=>removeWidget(config,info.kind),false),'Remove widget');
+  const v2=config.plugins.find(p=>p.id===info.kind)?.apiVersion===2;
+  formDialog('Remove '+info.title+'?',[el('p','',message+' Saved connections are kept.')],async()=>{
+    if(v2)await invoke('remove_widget_package',{id:info.kind});
+    change(()=>removeWidget(config,info.kind),false);
+  },'Remove widget');
+}
+// API version 2: show what the package may do, then install its files on confirm.
+function installV2(info,bytes){
+  const old=config.plugins.find(p=>p.id===info.id);
+  if(info.origin==='bundled'||Object.hasOwn(titles,info.id))throw Error('A built-in widget already uses this ID.');
+  const permissions=el('ul','package-permissions');
+  for(const line of permissionSummary(info))permissions.append(el('li','',line));
+  const fields=[el('p','',info.description||''),el('h3','','This widget')];
+  fields.push(permissions);
+  formDialog((old?'Update ':'Install ')+info.title,fields,async()=>{
+    const installedInfo=await invoke('install_widget_package',bytes);
+    const saved=change(()=>recordPackage(config,installedInfo),false);
+    if(!saved)throw Error('Could not save this package.');
+  },old?'Update widget':'Install widget');
 }
 function plugins(){
   const upload=input('','file');upload.accept='.zip,.json';upload.hidden=true;
@@ -324,8 +343,10 @@ function plugins(){
     try{
       const f=upload.files[0];if(!f)return;
       const legacy=f.name.toLowerCase().endsWith('.json');
-      if(f.size>(legacy?65536:524288))throw Error('Package exceeds '+(legacy?'64':'512')+' KiB');
-      const manifest=legacy?JSON.parse(await f.text()):await invoke('read_widget_package',{bytes:Array.from(new Uint8Array(await f.arrayBuffer()))});
+      if(f.size>(legacy?65536:8388608))throw Error('Package exceeds '+(legacy?'64 KiB':'8 MiB'));
+      const bytes=legacy?null:new Uint8Array(await f.arrayBuffer());
+      const manifest=legacy?JSON.parse(await f.text()):await invoke('inspect_widget_package',bytes);
+      if(manifest.apiVersion===2)return installV2(manifest,bytes);
       const pkg=plugin(manifest),old=config.plugins.find(p=>p.id===pkg.id);
       if(pkg.iconData){const image=new Image();image.src=pkg.iconData;await image.decode()}
       formDialog((old?'Update ':'Install ')+pkg.title,[el('p','',pkg.description||(pkg.feed==='mac'?'Reads local Mac metrics.':'Reads from a JSON endpoint.'))],()=>{
