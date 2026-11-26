@@ -2,6 +2,7 @@ import {slackSettings,takeSlackSetup} from './slack.js';
 import {slackWidgets,slackTarget} from './slack-catalog.js';
 import {googleSettings,takeGoogleSetup} from './google-desk.js';
 import {mountDmd} from './rundmd/player.js';
+import {editWatchlist} from './market-watchlist.js';
 import {marketConnection,marketPicker} from './markets.js';
 import {editPhotos} from './photos.js';
 import {editShortcuts,shortcutPins} from './mac-shortcuts.js';
@@ -141,7 +142,7 @@ function layouts(){
       change(()=>s.slackTarget=control.value.trim());
     }));
   }
-  if(s.kind==='markets')inspector.append(field('Featured symbol',marketPicker(s.marketSymbol,marketSymbol=>change(()=>s.marketSymbol=marketSymbol))));
+  if(s.kind==='markets')inspector.append(field('Featured symbol',marketPicker(s,marketSymbol=>change(()=>s.marketSymbol=marketSymbol))),button('Edit watchlist',()=>editWatchlist(s,props=>change(()=>Object.assign(s,props)))));
   if(s.kind==='photos')inspector.append(button('Configure photos',()=>configureSection(p,index,'photos')));
   if(s.kind==='shortcuts'){
     const items=shortcutPins(s);

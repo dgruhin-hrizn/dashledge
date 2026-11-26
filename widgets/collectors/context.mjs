@@ -4,6 +4,14 @@ import { createInterface } from 'node:readline';
 
 const input = createInterface({ input: process.stdin });
 const commands = new Map();
+let firstLine=true, latestSymbols;
+const listeners=new Set();
+input.on("line",line=>{
+  if(firstLine){firstLine=false;return}
+  const {symbols}=JSON.parse(line);
+  if(Array.isArray(symbols)){latestSymbols=symbols;for(const fn of listeners)fn(symbols)}
+});
+export function onWatchlist(fn){listeners.add(fn);if(latestSymbols)fn(latestSymbols)}
 export const context = await new Promise((resolve, reject) => {
   input.once('line', line => {
     try { resolve(JSON.parse(line)); } catch (error) { reject(error); }
