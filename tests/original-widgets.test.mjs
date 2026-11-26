@@ -53,3 +53,11 @@ test('ComfyUI reuses only GPU SSH mappings for the exact worker hostname',()=>{
   assert.deepEqual(mapped.gpuGuests,{worker:guests.a});
   assert.equal(plain.gpuGuests,undefined);
 });
+
+test('a ComfyUI connection’s SSH telemetry reaches its collector beside any Proxmox mapping', () => {
+  const sources = [
+    {id: 'c1', kind: 'comfy', name: 'Worker', address: 'http://worker.local:8188', gpuSsh: {target: 'me@worker.local'}},
+    {id: 'p1', kind: 'proxmox', name: 'PVE', address: 'https://pve.local:8006', gpuGuests: {101: 'root@worker.local'}},
+  ];
+  assert.deepEqual(widgetSources('comfy', 'c1', sources)[0].gpuGuests, {worker: 'root@worker.local', ssh: {target: 'me@worker.local'}});
+});

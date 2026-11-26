@@ -25,13 +25,18 @@ export function widgetSources(kind, selected, sources) {
     .map(source => {
       // Collectors label workers and servers with this; a blank name means automatic.
       const {address, gpuGuests} = source, name = connectionLabel(source);
-      if (kind === 'comfy' && guestTargets.length) {
+      if (kind === 'comfy') {
+        // GPU telemetry for a worker: direct SSH from its connection, and/or the
+        // Proxmox guest mapping whose host matches it.
         const host = new URL(address).hostname.toLowerCase();
         const guest = guestTargets.find(mapping => {
           const target = typeof mapping === 'string' ? mapping : mapping?.target;
           return typeof target === 'string' && target.split('@').pop().toLowerCase() === host;
         });
-        if (guest) return {name, address, gpuGuests:{worker:guest}};
+        const telemetry = {};
+        if (guest) telemetry.worker = guest;
+        if (source.gpuSsh?.target) telemetry.ssh = source.gpuSsh;
+        if (Object.keys(telemetry).length) return {name, address, gpuGuests: telemetry};
       }
       return {name, address, gpuGuests};
     });

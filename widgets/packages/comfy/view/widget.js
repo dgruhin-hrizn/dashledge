@@ -24,7 +24,8 @@
     load.title='Worker GPU utilization (highest GPU load)';
     load.setAttribute('role','meter');load.setAttribute('aria-label',load.title);
     load.setAttribute('aria-valuemin','0');load.setAttribute('aria-valuemax','100');
-    readings.append(node,step,track,gpu,queue);body.append(preview,readings);item.append(head,body);
+    const note=el('small','gpu-note');note.hidden=true;
+    readings.append(node,step,track,gpu,queue,note);body.append(preview,readings);item.append(head,body);
     queue.onclick=()=>go(i);
     preview.onclick=()=>{
       const expected=data?.workers?.[i]?.preview;
@@ -35,7 +36,7 @@
       img.src='previews/'+expected;preview.append(img);preview.setAttribute('aria-pressed','true');
       preview.querySelector('b').textContent='Tap to hide';hideTimer=setTimeout(conceal,15000);
     };
-    return {item,name,address,badge,node,step,track,gpu,queue,preview,head,load,percent};
+    return {item,name,address,badge,node,step,track,gpu,queue,preview,head,load,percent,note};
   }
   const cards=[card(0),card(1)];wall.append(...cards.map(c=>c.item));
   function valid(file,i){return typeof file==='string'&&new RegExp('^'+i+'-[a-f0-9]{20}\\.jpg$').test(file);}
@@ -55,11 +56,13 @@
     const rocm=['hip','rocm'].includes(type)||(type==='cuda' && /rocm/i.test(system.torch||''));
     let vendor='',backend='';
     if(type!=='cpu'){
-      if(type==='xpu'||/\bIntel\b/i.test(model))vendor='Intel';
+      if(type==='mps'||/^mps$/i.test(model)||/\bApple\b/i.test(model))vendor='Apple';
+      else if(type==='xpu'||/\bIntel\b/i.test(model))vendor='Intel';
       else if(rocm||/\b(AMD|Radeon|Instinct)\b/i.test(model))vendor='AMD';
       else if(/\bNVIDIA\b/i.test(model))vendor='NVIDIA';
     }
-    if(type==='xpu')backend='XPU';
+    if(type==='mps')backend='Metal';
+    else if(type==='xpu')backend='XPU';
     else if(rocm)backend='ROCm';
     const panel=el('section','accelerator'),head=el('div','accelerator-head');
     panel.dataset.vendor=vendor;
@@ -74,10 +77,10 @@
       badge.append(el('span','','CUDA'),logo);head.append(badge);
     }
     if(load)head.append(load);
-    panel.append(head,el('h3','',model.replace(/^(NVIDIA|AMD|Intel)(?:\(R\))?\s+/i,'')||raw));
+    panel.append(head,el('h3','',vendor==='Apple'&&/^mps$/i.test(model)?'Apple GPU':model.replace(/^(NVIDIA|AMD|Intel)(?:\(R\))?\s+/i,'')||raw));
     const metadata=[prefix?'Device '+prefix[2]:Number.isInteger(d.index)?'Device '+d.index:null,allocator,system.torch?'Torch '+system.torch:null].filter(Boolean);
     if(metadata.length)panel.append(el('small','runtime',metadata.join(' · ')));
-    for(const row of [memoryRow(vendor==='AMD'||vendor==='Intel'?'GPU RAM':'VRAM',d.total,d.free),memoryRow('Host RAM',system.ram,system.ramFree)])if(row)panel.append(row);
+    for(const row of [memoryRow(vendor==='Apple'?'Unified memory':vendor==='AMD'||vendor==='Intel'?'GPU RAM':'VRAM',d.total,d.free),memoryRow('Host RAM',system.ram,system.ramFree)])if(row)panel.append(row);
     return panel;
   }
   function utilization(w){
@@ -110,6 +113,10 @@
         c.gpu.replaceChildren(...devices.map((d,index)=>devicePanel(d,w.hardware,index===0?c.load:null)));
       }
       if(!devices.length && c.load.parentElement!==c.head)c.head.append(c.load);
+      // Say where GPU load comes from, or why there is none and how to add it.
+      c.load.title=w.gpuSource?'GPU load via '+w.gpuSource:'Worker GPU utilization (highest GPU load)';
+      const unavailable=!stale&&w.status!=='Offline'&&load==null&&w.gpuHint;
+      c.note.hidden=!unavailable;c.note.textContent=unavailable?'GPU load unavailable · '+w.gpuHint:'';
       c.queue.textContent='View queue';
       c.queue.dataset.count=w.queued??'—';
       c.queue.setAttribute('aria-label','View '+c.name.textContent+' queue, '+(w.queued??'unknown')+' pending');

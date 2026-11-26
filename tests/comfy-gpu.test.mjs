@@ -67,3 +67,20 @@ test('ComfyUI hardware cards identify Radeon and Arc, including ROCm CUDA aliase
     assert.equal(panel.children[4].firstChild.textContent,'Host RAM');
   }
 });
+
+test('Apple GPUs are labelled and a worker without telemetry says how to add it', async()=>{
+  const {window,card}=await mount();
+  const readings=card.children[1].children[1];
+  const [,,,gpu,,note]=readings.children;
+  window.comfySnapshot({at:Date.now(),workers:[{name:'Mac Studio',status:'Idle',queued:0,active:null,
+    devices:[{name:'mps',type:'mps',total:2**37,free:2**36}],gpuHint:'Install Crystools or add SSH access'}]});
+  const head=gpu.firstChild.firstChild;
+  assert.equal(head.children[0].textContent,'Apple');
+  assert.equal(head.children[1].textContent,'Metal');
+  assert.equal(gpu.firstChild.children[1].textContent,'Apple GPU');
+  assert.equal(note.hidden,false);
+  assert.equal(note.textContent,'GPU load unavailable · Install Crystools or add SSH access');
+  window.comfySnapshot({at:Date.now(),workers:[{name:'Mac Studio',status:'Idle',queued:0,active:null,
+    devices:[{name:'mps',type:'mps'}],gpuLoad:{percent:20,at:Date.now()},gpuSource:'This Mac · ioreg'}]});
+  assert.equal(note.hidden,true);
+});

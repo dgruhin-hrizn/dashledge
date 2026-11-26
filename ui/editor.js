@@ -207,12 +207,22 @@ function sourceForm(widget,existing){
   const addressField=field('',address),secretField=field('',secret);
   const describe=()=>{const [label,hint,credential]=sourceHelp[kind];addressField.firstChild.textContent=label;address.placeholder=hint;secretField.firstChild.textContent=credential};
   describe();
-  formDialog(existing?'Edit connection':'Add connection',[field('Connection name',name),addressField,secretField],async()=>{
+  // ComfyUI: optional SSH access to the worker for GPU load when Crystools isn't installed.
+  const sshTarget=input(existing?.gpuSsh?.target||''),sshKey=input(existing?.gpuSsh?.identityFile||'');
+  sshTarget.placeholder='user@worker.local (optional)';sshKey.placeholder='~/.ssh/id_ed25519 (optional)';
+  const extra=kind==='comfy'?[el('p','sub','GPU load comes from the Crystools node when it’s installed, or from this Mac when ComfyUI runs here. Otherwise add SSH access to the worker.'),field('GPU telemetry over SSH',sshTarget),field('SSH key file',sshKey)]:[];
+  formDialog(existing?'Edit connection':'Add connection',[field('Connection name',name),addressField,secretField,...extra],async()=>{
     const u=new URL(address.value);if(!['http:','https:'].includes(u.protocol)||u.username||u.password||u.search||u.hash)throw Error('Use an HTTP(S) URL without embedded credentials or query');
     const obj={id:existing?.id||id(),name:name.value.trim(),kind,address:u.href};
     if(existing?.widgets)obj.widgets=existing.widgets;
     if(existing?.owner||(!existing&&kind==='json'))obj.owner=existing?.owner||widget;
     if(existing?.gpuGuests&&existing.kind===obj.kind&&existing.address===obj.address)obj.gpuGuests=existing.gpuGuests;
+    if(kind==='comfy'&&sshTarget.value.trim()){
+      const target=sshTarget.value.trim(),identityFile=sshKey.value.trim();
+      if(!/^(?:[a-z_][a-z0-9_.-]*@)?[a-z0-9][a-z0-9.-]*$/i.test(target))throw Error('Enter the SSH destination as user@host');
+      if(identityFile&&!/^(~|\/)[^\0]*$/.test(identityFile))throw Error('Enter the full path of the SSH key file');
+      obj.gpuSsh=identityFile?{target,identityFile}:{target};
+    }
     if(secret.value)await invoke('set_secret',{kind:obj.kind,address:obj.address,secret:secret.value});
     change(()=>{if(existing)config.sources[config.sources.findIndex(item=>item.id===existing.id)]=obj;else config.sources.push(obj);
       if(connectionsFor(config,widget).length===1)useDefault(config,widget,obj.id);
