@@ -22,7 +22,7 @@
 
   <header class="topbar">
     <div class="identity">
-      <img class="mark" src="omlx-icon.svg" alt="" width="33" height="33">
+      <img class="mark" src="omlx-icon.svg" alt="" width="46" height="46">
       <h1>oMLX</h1>
       <span id="mac-specs" class="mac-specs" hidden></span>
     </div>
@@ -32,8 +32,8 @@
       <button type="button" data-view="usage" aria-pressed="false">Usage</button>
     </nav>
     <div class="network">
-      <span id="server-label" class="server-label"></span>
-      <button type="button" id="server-toggle" class="server-toggle" aria-controls="server-picker" aria-expanded="false" hidden>
+      <span id="message" class="notice" role="status" hidden></span>
+      <button type="button" id="server-toggle" class="server-toggle" aria-controls="server-picker" aria-expanded="false" aria-label="Server details" hidden>
         <span id="server-name"></span><svg class="chevron" aria-hidden="true"><use href="#i-chevron"/></svg>
       </button>
       <span id="status" role="status" data-state="offline"><i class="dot" aria-hidden="true"></i><span id="status-text">Connecting</span></span>
@@ -166,7 +166,7 @@
       </div>
       <article class="surface week-card heat-card" aria-label="Token activity, 7 days">
         <div class="card-head">
-          <h2>Token activity · 7 days</h2>
+          <h2>Token activity · 7 days <small class="server-time">server time</small></h2>
           <span class="heat-legend" aria-hidden="true">Less<i data-level="0"></i><i data-level="1"></i><i data-level="2"></i><i data-level="3"></i><i data-level="4"></i>More</span>
         </div>
         <div id="week-grid" class="week-grid"></div>
@@ -178,8 +178,15 @@
       </article>
     </section>
 
-    <section id="server-picker" class="surface server-picker" aria-label="Choose a server" hidden>
-      <div class="card-head"><h2>Servers</h2><span id="fleet"></span></div>
+    <section id="server-picker" class="surface server-picker" aria-label="Server" hidden>
+      <div class="card-head"><h2 id="detail-name">Server</h2><button type="button" id="refresh" class="refresh"><svg aria-hidden="true"><use href="#i-refresh"/></svg>Refresh</button></div>
+      <dl class="server-detail">
+        <div><dt>Address</dt><dd id="detail-address">—</dd></div>
+        <div><dt>oMLX</dt><dd id="detail-version">—</dd></div>
+        <div><dt>Uptime</dt><dd id="detail-uptime">—</dd></div>
+        <div><dt>Status</dt><dd id="detail-status">—</dd></div>
+      </dl>
+      <div id="servers-head" class="card-head servers-head"><h2>Servers</h2><span id="fleet"></span></div>
       <div id="server-options"></div>
       <div id="servers-pages" class="pager" hidden>
         <button type="button" id="servers-prev" aria-label="Previous servers"><svg aria-hidden="true"><use href="#i-chevron"/></svg></button>
@@ -198,10 +205,5 @@
     </section>
   </main>
 
-  <footer>
-    <span id="updated">Waiting for data</span>
-    <span id="message" role="status"></span>
-    <button type="button" id="refresh" aria-label="Refresh dashboard"><svg aria-hidden="true"><use href="#i-refresh"/></svg></button>
-  </footer>
 </body>
 </html>

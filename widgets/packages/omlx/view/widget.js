@@ -14,7 +14,6 @@
   const number = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
   const whole = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
   const seconds = new Intl.NumberFormat(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
-  const time = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit" });
   const windowMs = 120_000;
   const staleAfter = 12_000;
   let view = "overview";
@@ -869,6 +868,10 @@
 
   // ---- Server picker ---------------------------------------------------------
   function showPicker(servers, stale) {
+    const several = servers.length > 1;
+    $("servers-head").hidden = !several;
+    $("server-options").hidden = !several;
+    if (!several) { $("servers-pages").hidden = true; return; }
     const options = $("server-options");
     const pages = $("servers-pages");
     const row = 45 * scale;
@@ -916,7 +919,7 @@
     const servers = snapshot?.servers ?? [];
     const server = servers.find(({ address }) => address === selected) ?? servers[0];
     if (server) selected = server.address;
-    if (servers.length < 2) choosing = false;
+    if (!servers.length) choosing = false;
     const stale = Boolean(snapshot && Date.now() - snapshot.at > staleAfter);
     const data = server?.last ?? (server?.at ? server : null);
     const state = !snapshot ? "Connecting" : stale ? "Stale" :
@@ -925,9 +928,10 @@
     $("status").title = $("status-text").textContent;
     $("status").dataset.state = state.toLowerCase();
     $("status").dataset.activity = state === "Online" ? M.activityState(data) : "";
-    set("server-label", servers.length === 1 ? server.name : "");
+    // The server's name opens its details (address, version, uptime) and, with
+    // several servers, the list to switch between them.
     set("server-name", server?.name ?? "");
-    $("server-toggle").hidden = servers.length < 2;
+    $("server-toggle").hidden = !server;
     $("server-toggle").setAttribute("aria-expanded", String(choosing));
 
     // This Mac's specs describe the server only when it runs on this Mac.
@@ -954,14 +958,19 @@
       $("apply-unload").disabled = confirmation.address !== selected || !currentModel(confirmation.id)?.loaded;
     }
 
-    const footer = [server && new URL(server.address).host, data?.version && "v" + data.version,
-      data?.uptime != null && "Up " + M.duration(data.uptime), view === "usage" && data?.week?.days && "Server local time",
-      data && "Updated " + time.format(data.at)].filter(Boolean);
-    set("updated", footer.join(" · ") || "Waiting for data");
+    if (server) {
+      const address = new URL(server.address);
+      set("detail-name", server.name || address.host);
+      set("detail-address", address.host + (address.pathname === "/" ? "" : address.pathname));
+      set("detail-version", data?.version ? "v" + data.version : "—");
+      set("detail-uptime", data?.uptime != null ? M.duration(data.uptime) : "—");
+      set("detail-status", statusText(state, data));
+    }
     const message = snapshot?.error ?? server?.error ?? (stale ? "Collector stopped updating." :
       (actionMessage?.address === selected ? actionMessage?.text : null) ?? data?.notice);
     set("message", message ?? "");
     $("message").title = message ?? "";
+    $("message").hidden = !message;
 
     if (choosing) showPicker(servers, stale);
     else if (confirmation) return;
