@@ -47,23 +47,37 @@
     return row;
   }
   function devicePanel(d,system={},load){
-    const raw=String(d.name||'Accelerator'),nvidia=/\bNVIDIA\b/i.test(raw);
-    const cuda=raw.match(/\bcuda:(\d+)/i),allocator=raw.match(/:\s*(cudaMalloc\w+)$/i)?.[1];
-    const model=raw.replace(/^cuda:\d+\s*/i,'').replace(/^NVIDIA\s+/i,'').replace(/\s*:\s*cudaMalloc\w+$/i,'').trim();
+    const raw=String(d.name||'Accelerator');
+    const prefix=raw.match(/^(cuda|xpu|hip|rocm):(\d+)\s+/i);
+    const type=String(d.type||prefix?.[1]||'').toLowerCase();
+    const allocator=raw.match(/\s+:\s+(\S+)\s*$/)?.[1];
+    const model=raw.replace(/^(cuda|xpu|hip|rocm):\d+\s+/i,'').replace(/\s+:\s*\S*\s*$/,'').trim();
+    const rocm=['hip','rocm'].includes(type)||(type==='cuda' && /rocm/i.test(system.torch||''));
+    let vendor='',backend='';
+    if(type!=='cpu'){
+      if(type==='xpu'||/\bIntel\b/i.test(model))vendor='Intel';
+      else if(rocm||/\b(AMD|Radeon|Instinct)\b/i.test(model))vendor='AMD';
+      else if(/\bNVIDIA\b/i.test(model))vendor='NVIDIA';
+    }
+    if(type==='xpu')backend='XPU';
+    else if(rocm)backend='ROCm';
     const panel=el('section','accelerator'),head=el('div','accelerator-head');
-    if(nvidia){
+    panel.dataset.vendor=vendor;
+    if(vendor==='NVIDIA'){
       const logo=el('img','nvidia');logo.src='nvidia.svg';logo.alt='NVIDIA';head.append(logo);
     }
-    if(nvidia&&(cuda||d.type==='cuda')){
+    else if(vendor)head.append(el('b','gpu-vendor',vendor));
+    if(backend)head.append(el('span','backend-badge',backend));
+    if(vendor==='NVIDIA'&&type==='cuda'){
       const badge=el('span','cuda-badge'),logo=el('img');
       logo.alt='CUDA';logo.src='cuda.jpg';logo.onerror=()=>logo.remove();
       badge.append(el('span','','CUDA'),logo);head.append(badge);
     }
     if(load)head.append(load);
-    panel.append(head,el('h3','',model||raw));
-    const metadata=[cuda?'Device '+cuda[1]:Number.isInteger(d.index)?'Device '+d.index:null,allocator,system.torch?'Torch '+system.torch:null].filter(Boolean);
+    panel.append(head,el('h3','',model.replace(/^(NVIDIA|AMD|Intel)(?:\(R\))?\s+/i,'')||raw));
+    const metadata=[prefix?'Device '+prefix[2]:Number.isInteger(d.index)?'Device '+d.index:null,allocator,system.torch?'Torch '+system.torch:null].filter(Boolean);
     if(metadata.length)panel.append(el('small','runtime',metadata.join(' · ')));
-    for(const row of [memoryRow('VRAM',d.total,d.free),memoryRow('Host RAM',system.ram,system.ramFree)])if(row)panel.append(row);
+    for(const row of [memoryRow(vendor==='AMD'||vendor==='Intel'?'GPU RAM':'VRAM',d.total,d.free),memoryRow('Host RAM',system.ram,system.ramFree)])if(row)panel.append(row);
     return panel;
   }
   function utilization(w){
