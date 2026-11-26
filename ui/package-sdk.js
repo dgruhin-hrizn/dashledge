@@ -1,0 +1,199 @@
+// Dashledge package SDK. The widget host injects this script into every package
+// view. Views run in a sandboxed frame with no access to the app, so everything
+// they need from Dashledge arrives here by message from the dashboard:
+//   state   theme, display name and instance details (window.Dashledge.subscribe)
+//   touch   touches from the Edge, replayed as pointer events, scrolls and taps
+//   blur    the page holding the view was hidden
+//   reply   the answer to window.Dashledge.command()
+// `window.Zurface` is the same object, for views written against that API.
+(() => {
+  const host = window.parent;
+  if (host === window) return;
+  const send = message => host.postMessage({dashledge: 1, ...message}, '*');
+  let state = {instanceID: '', touchMode: false, displayName: '',
+    theme: {mode: 'dark', primary: '#edf0e6', accent: '#f88d4f'}};
+  const subscribers = new Set(), pending = new Map();
+  let nextId = 1;
+
+  function applyTheme() {
+    const root = document.documentElement.style;
+    root.setProperty('--text', state.theme.primary);
+    root.setProperty('--accent', state.theme.accent);
+  }
+
+  const api = {
+    subscribe(callback) {
+      subscribers.add(callback);
+      callback(state);
+      return () => subscribers.delete(callback);
+    },
+    // Ask the host to run a command the package's manifest declares.
+    command(name, args) {
+      let command = name, payload = args;
+      // The oMLX view predates this API and posts model actions as a storage write.
+      if (name === 'storage.set' && args?.key === 'omlx.modelAction') {
+        command = 'model';
+        payload = JSON.parse(args.value);
+      }
+      return new Promise((resolve, reject) => {
+        const id = nextId++;
+        pending.set(id, {resolve, reject});
+        send({type: 'command', id, name: command, args: payload});
+      });
+    },
+  };
+  window.Dashledge = api;
+  window.Zurface = api;
+
+  // ---- Touch: the same distance, direction and scroll rules as ui/touch.js ----
+  const slop = 12;
+  let gesture;
+  const interactive = 'button,a,label,summary,[role=button],input,textarea';
+  function scroller(target, axis) {
+    for (let node = target; node; node = node.parentElement) {
+      const style = getComputedStyle(node);
+      const vertical = axis === 'y';
+      if (/(auto|scroll)/.test(vertical ? style.overflowY : style.overflowX) &&
+          (vertical ? node.scrollHeight > node.clientHeight : node.scrollWidth > node.clientWidth)) return node;
+    }
+  }
+  function pointer(type, target, x, y) {
+    target?.dispatchEvent(new PointerEvent(type, {bubbles: true, cancelable: true, pointerId: 1,
+      pointerType: 'touch', isPrimary: true, clientX: x, clientY: y, buttons: type === 'pointerdown' ? 1 : 0}));
+  }
+  function rangeTouch(range, x, commit) {
+    const rect = range.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const fraction = Math.min(1, Math.max(0, (x - rect.left) / rect.width));
+    const min = Number(range.min), max = Number(range.max), step = Number(range.step) || 1;
+    range.value = min + Math.round(fraction * (max - min) / step) * step;
+    range.dispatchEvent(new Event('input', {bubbles: true}));
+    if (commit) range.dispatchEvent(new Event('change', {bubbles: true}));
+  }
+  function decide(g, x, y) {
+    const dx = x - g.x, dy = y - g.y;
+    if (g.axis || Math.hypot(dx, dy) <= slop) return;
+    g.axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+    g.pressed?.classList.remove('edge-pressed');
+    const room = dx < 0 ? g.left < g.max - 1 : g.left > 1;
+    // Tell the dashboard whether this horizontal drag belongs to the page.
+    g.page = g.axis === 'x' && !g.blocked && (g.bezel || !g.scrollX || !room);
+    send({type: 'gesture', page: g.page});
+  }
+  function touch(kind, x, y, message) {
+    if (kind === 'down') {
+      const target = document.elementFromPoint(x, y);
+      const pressed = target?.closest(interactive);
+      pressed?.classList.add('edge-pressed');
+      const scrollX = scroller(target, 'x');
+      gesture = {target, pressed, x, y, lastX: x, lastY: y, scrollX, scrollY: scroller(target, 'y'),
+        left: scrollX?.scrollLeft || 0, max: scrollX ? scrollX.scrollWidth - scrollX.clientWidth : 0,
+        bezel: !!message.bezel, blocked: !!(target?.closest('input,textarea,select,[contenteditable=true]') ||
+          document.querySelector('dialog[open]'))};
+      if (pressed?.matches('input[type=range][data-edge-range]') && !pressed.disabled) {
+        gesture.range = pressed;
+        rangeTouch(pressed, x, false);
+        return;
+      }
+      pointer('pointerdown', target, x, y);
+      return;
+    }
+    const g = gesture;
+    if (!g) return;
+    if (g.range) {
+      if (g.range.isConnected && !g.range.disabled) rangeTouch(g.range, x, kind === 'up');
+      if (kind === 'up') { g.range.classList.remove('edge-pressed'); gesture = null; }
+      return;
+    }
+    decide(g, x, y);
+    if (kind === 'move') {
+      if (g.axis === 'x' && !g.page) g.scrollX?.scrollBy(g.lastX - x, 0);
+      if (g.axis === 'y') g.scrollY?.scrollBy(0, g.lastY - y);
+      g.lastX = x; g.lastY = y;
+      return;
+    }
+    gesture = null;
+    g.pressed?.classList.remove('edge-pressed');
+    if (message.turned) { pointer('pointercancel', g.target, x, y); return; }
+    const target = document.elementFromPoint(x, y) || g.target;
+    pointer('pointerup', target, x, y);
+    if (g.axis || !target?.isConnected) return;
+    const released = target.closest(interactive);
+    if (g.pressed !== released) return;
+    // A tap on blank background at the left edge opens the page picker.
+    if (message.edge && !released && ['BODY', 'HTML', 'MAIN'].includes(target.tagName) &&
+        !document.querySelector('dialog[open]')) {
+      send({type: 'pagepicker'});
+      return;
+    }
+    const field = target.closest('input,textarea,[contenteditable=true]');
+    if (field) { send({type: 'focus-window'}); field.focus(); }
+    const options = {bubbles: true, cancelable: true, clientX: x, clientY: y, view: window};
+    for (const type of ['mousedown', 'mouseup']) target.dispatchEvent(new MouseEvent(type, options));
+    if (typeof target.click === 'function') target.click();
+    else target.dispatchEvent(new MouseEvent('click', options));
+  }
+
+  // Mouse and trackpad input in the preview window: same page-swipe rules.
+  let browser, suppressClick = false;
+  document.addEventListener('pointerdown', e => {
+    if (!e.isTrusted || !e.isPrimary || e.button !== 0) return;
+    suppressClick = false;
+    const scrollX = scroller(e.target, 'x');
+    browser = {id: e.pointerId, x: e.clientX, y: e.clientY, scrollX,
+      left: scrollX?.scrollLeft || 0, max: scrollX ? scrollX.scrollWidth - scrollX.clientWidth : 0,
+      bezel: e.clientX <= 24 || e.clientX >= innerWidth - 24,
+      blocked: !!(e.target.closest('input,textarea,select,[contenteditable=true]') || document.querySelector('dialog[open]'))};
+  }, true);
+  document.addEventListener('pointermove', e => {
+    if (e.isTrusted && browser?.id === e.pointerId) decideBrowser(browser, e.clientX, e.clientY);
+  }, true);
+  function decideBrowser(g, x, y) {
+    const dx = x - g.x, dy = y - g.y;
+    if (g.axis || Math.hypot(dx, dy) <= slop) return;
+    g.axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+    const room = dx < 0 ? g.left < g.max - 1 : g.left > 1;
+    g.page = g.axis === 'x' && !g.blocked && (g.bezel || !g.scrollX || !room);
+  }
+  document.addEventListener('pointerup', e => {
+    const g = browser;
+    if (!e.isTrusted || !g || g.id !== e.pointerId) return;
+    browser = null;
+    decideBrowser(g, e.clientX, e.clientY);
+    const dx = e.clientX - g.x, threshold = Math.max(48, Math.min(96, innerWidth * 0.05));
+    if (g.page && Math.abs(dx) >= threshold && Math.abs(dx) >= Math.abs(e.clientY - g.y) * 1.4) {
+      suppressClick = true;
+      send({type: 'swipe', step: dx < 0 ? 1 : -1});
+    }
+  }, true);
+  document.addEventListener('pointercancel', e => { if (e.isTrusted) browser = null; }, true);
+  document.addEventListener('click', e => {
+    if (e.isTrusted && suppressClick) { suppressClick = false; e.preventDefault(); e.stopImmediatePropagation(); }
+  }, true);
+  document.addEventListener('keydown', e => {
+    if (e.altKey && e.code === 'KeyP') { e.preventDefault(); send({type: 'pagepicker'}); }
+  });
+  window.addEventListener('contextmenu', event => event.preventDefault());
+
+  window.addEventListener('message', e => {
+    if (e.source !== host || e.data?.dashledge !== 1) return;
+    const message = e.data;
+    if (message.type === 'state') {
+      state = {...state, ...message.state};
+      applyTheme();
+      for (const callback of subscribers) callback(state);
+    } else if (message.type === 'touch') {
+      touch(message.kind, message.x, message.y, message);
+    } else if (message.type === 'blur') {
+      window.dispatchEvent(new Event('blur'));
+    } else if (message.type === 'reply') {
+      const waiting = pending.get(message.id);
+      if (!waiting) return;
+      pending.delete(message.id);
+      if (message.error) waiting.reject(new Error(message.error));
+      else waiting.resolve(message.value);
+    }
+  });
+  applyTheme();
+  send({type: 'ready'});
+})();

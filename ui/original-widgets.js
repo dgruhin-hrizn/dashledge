@@ -1,6 +1,7 @@
 import {button, el, invoke} from './common.js';
 import {titles} from './model.js';
 import {packageInfo,sourceLimit} from './packages.js';
+import {registerFrame} from './package-bridge.js';
 
 export function widgetSources(kind, selected, sources) {
   const limit = sourceLimit(kind);
@@ -36,7 +37,7 @@ export function widgetSources(kind, selected, sources) {
 export function mountOriginal(box, slot, connections) {
   const sources = widgetSources(slot.kind, slot.source, connections);
   const viewer = crypto.randomUUID();
-  let feed, timer, closed = false;
+  let feed, timer, closed = false, unregister = () => {};
   box.classList.add('original-widget');
   const status = el('div', 'widget-status');
   const message = el('p', '', 'Connecting to ' + titles[slot.kind] + '…');
@@ -53,8 +54,11 @@ export function mountOriginal(box, slot, connections) {
       feed = id;
       const frame = el('iframe', 'original-frame');
       frame.title = titles[slot.kind];
-      frame.dataset.viewer = viewer;
-      frame.sendModelAction = command => invoke('widget_model_action', {id, viewer, command});
+      // Package views run isolated: scripts only, no same-origin access to the app.
+      frame.setAttribute('sandbox', 'allow-scripts');
+      frame.dataset.packageFrame = slot.kind;
+      unregister();
+      unregister = registerFrame(frame, {viewer, feed: id, commands: packageInfo.get(slot.kind)?.collector?.commands || []});
       frame.src = '/widget-view/' + encodeURIComponent(id) + '/index.html';
       box.replaceChildren(frame);
       timer = setTimeout(check, 8000);
@@ -82,5 +86,5 @@ export function mountOriginal(box, slot, connections) {
     message.textContent = 'Choose a ' + titles[slot.kind] + ' connection in Widget Studio.';
     status.append(button('Settings', () => invoke('open_settings')));
   }
-  return () => { closed = true; clearTimeout(timer); release(feed); };
+  return () => { closed = true; clearTimeout(timer); unregister(); release(feed); };
 }
