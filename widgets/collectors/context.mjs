@@ -6,9 +6,12 @@ const input = createInterface({ input: process.stdin });
 const commands = new Map();
 let firstLine=true, latestSymbols;
 const listeners=new Set();
+let refreshListener;
+export function onRefresh(fn){refreshListener=fn;}
 input.on("line",line=>{
   if(firstLine){firstLine=false;return}
-  const {symbols}=JSON.parse(line);
+  const {symbols,refresh}=JSON.parse(line);
+  if(refresh===true)refreshListener?.();
   if(Array.isArray(symbols)){latestSymbols=symbols;for(const fn of listeners)fn(symbols)}
 });
 export function onWatchlist(fn){listeners.add(fn);if(latestSymbols)fn(latestSymbols)}
