@@ -12,6 +12,8 @@ Merge every widget PR intended for a release before signing. Sync a clean `main`
 
 Every widget with its own view is a package. The host reads all of its per-widget details from the package’s `widget.json`, which `src-tauri/src/package_manifest.rs` validates as the only validator.
 
+Read [`docs/widget-packages.md`](docs/widget-packages.md) before building a widget or changing how packages load, talk to Dashledge or store placement state. It maps the code, the data flow, the trust tiers, the bridge and per-placement state, and lists the rules and recipes. The author guide for third-party packages is [`widgets/example/README.md`](widgets/example/README.md).
+
 - Bundled widgets live in `widgets/packages/<kind>/` with `widget.json`, `view/`, and a Node `collector/`. Shared collector code lives in `widgets/packages/_shared/`. Installed packages are extracted to `<app_data>/packages/<id>/` and may not declare a collector.
 - A package may carry its own design rules in `DESIGN.md` (for example `widgets/packages/omlx/DESIGN.md`). They apply only to that widget; follow them when changing it.
 - To add or change a bundled widget, edit its package. Its title, category, icon, connection count, auth header, address label, Test routes, collector outputs and commands, display-name field, and native viewport come from the manifest. Don’t add per-kind cases to `widget_host.rs`, `connections.rs`, `model.js`, `widget-catalog.js`, `dashboard.js` or `editor.js`.
