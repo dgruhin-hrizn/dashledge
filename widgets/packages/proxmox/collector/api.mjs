@@ -65,7 +65,8 @@ export function summarize(resources, status) {
   const used = memoryKnown ? online.reduce((s,n) => s+n.used,0) : null;
   const capacity = memoryKnown ? online.reduce((s,n) => s+n.capacity,0) : null;
   const cluster = status?.find(r => r.type === "cluster");
-  return {name:cluster?.name ?? (nodes.length === 1 ? nodes[0].name : "Proxmox cluster"),
+    // The name the cluster reports, else its only node's; null lets the view use the host.
+  return {name:cluster?.name ?? (nodes.length === 1 ? nodes[0].name : null),
     quorum:cluster?.quorate == null ? null : Boolean(Number(cluster.quorate)),
     nodes, cpu, used, capacity, online:online.length,
     runningVMs, running:runningVMs.length,

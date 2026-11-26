@@ -183,7 +183,8 @@
   function render(){
     signal();
     const data=snapshot?.data;
-    el("cluster").textContent=data?.name??"Cluster overview";
+    const name=window.Dashledge?.displayName(data?.name)||data?.name||"Cluster overview";
+    el("cluster").textContent=name;document.title=name+" · Proxmox";
     el("vm").textContent=data?.running??"—";
     el("guests").textContent=data?data.total+" VMs total · "+data.containers+" LXC running":"Awaiting inventory";
     for (const g of gauges.values()) g.nodes = [];
@@ -214,7 +215,9 @@
     }
     for (const [key,g] of gauges) if (!g.nodes.length) gauges.delete(key);
     const nodes=data?.nodes??[];
-    const perPage=Math.max(1,Math.min(4,Math.floor(el("nodes").clientWidth/275)));
+    // Node cards are 275 reference px wide; --px-scale sizes them for a native view.
+    const scale=Number(getComputedStyle(document.documentElement).getPropertyValue("--px-scale"))||1;
+    const perPage=Math.max(1,Math.min(4,Math.floor(el("nodes").clientWidth/(275*scale))));
     const pages=Math.max(1,Math.ceil(nodes.length/perPage));
     page=Math.min(page,pages-1);
     el("nodes").style.setProperty("--count",Math.max(1,Math.min(nodes.length,perPage)));
@@ -234,8 +237,9 @@
     s.onload=s.onerror=finish;s.src="snapshot.js?t="+Date.now();document.head.append(s);
   }
   window.addEventListener("resize",render);render();
-  (window.Zurface ?? window.Zeon)?.subscribe(({theme}) => {
+  window.Dashledge?.subscribe(({theme}) => {
     if (theme?.accent && CSS.supports("color", theme.accent)) document.documentElement.style.setProperty("--cpu",theme.accent);
+    render();
   });
   if (window.proxmoxDemo) window.proxmoxSample(window.proxmoxDemo);
   else {poll();setInterval(poll,2500);}
