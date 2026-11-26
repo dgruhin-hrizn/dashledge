@@ -241,9 +241,6 @@ nav :is(button,.tap-row)[aria-pressed="true"], #workspace-list :is(button,.tap-r
 .activity-now { padding:8px 14px; background:#26231f; }
 @media (max-width:899px) { #chat-view { grid-template-columns:minmax(0,1.6fr) minmax(0,1fr); } }
 
-.visible-controls { position:fixed; inset:0; pointer-events:none; z-index:3; }
-.visible-controls button { position:absolute; opacity:0; pointer-events:none; padding:0; min-height:0; min-width:0; border:0; }
-.visible-controls button:focus-visible { opacity:1; background:transparent; outline:2px solid var(--ember); }
 
 #activity-now { min-height:0; max-height:24vh; margin:4px; padding:0; overflow-y:auto; overscroll-behavior:contain; scrollbar-width:none; touch-action:pan-y; border:1px solid #45403b; border-radius:8px; background:#211f1e; }
 #activity-now::-webkit-scrollbar { display:none; }

@@ -3,7 +3,7 @@
   "id": "ember",
   "title": "Ember Copper",
   "description": "Workspaces, chat transcripts and usage from your local Ember installation.",
-  "version": "1.20.2",
+  "version": "1.21.0",
   "category": "AI & development",
   "icon": "view/ember-mark.png",
   "view": {
