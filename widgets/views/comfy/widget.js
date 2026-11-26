@@ -19,10 +19,12 @@
     preview.append(el('i','shutter'),el('span','photo-label','LATEST OUTPUT'),el('b','','Tap to reveal'));
     const readings=el('div','readings'),node=el('strong'),step=el('small'),track=el('div','track');
     track.append(el('i'));const gpu=el('div','gpu'),queue=el('button','queue');
-    const load=el('div','gpu-load'),meter=el('meter'),percent=el('b');
-    meter.max=100;meter.setAttribute('aria-label','GPU utilization');
-    load.hidden=true;load.append(el('span','','GPU utilization'),meter,percent);
-    readings.append(node,step,track,load,gpu,queue);body.append(preview,readings);item.append(head,body);
+    const load=el('span','gpu-load'),percent=el('b');
+    load.hidden=true;load.append(percent);
+    load.title='Worker GPU utilization (highest GPU load)';
+    load.setAttribute('role','meter');load.setAttribute('aria-label',load.title);
+    load.setAttribute('aria-valuemin','0');load.setAttribute('aria-valuemax','100');
+    readings.append(node,step,track,gpu,queue);body.append(preview,readings);item.append(head,body);
     queue.onclick=()=>go(i);
     preview.onclick=()=>{
       const expected=data?.workers?.[i]?.preview;
@@ -33,7 +35,7 @@
       img.src='previews/'+expected;preview.append(img);preview.setAttribute('aria-pressed','true');
       preview.querySelector('b').textContent='Tap to hide';hideTimer=setTimeout(conceal,15000);
     };
-    return {item,name,address,badge,node,step,track,gpu,queue,preview,load,meter,percent};
+    return {item,name,address,badge,node,step,track,gpu,queue,preview,head,load,percent};
   }
   const cards=[card(0),card(1)];wall.append(...cards.map(c=>c.item));
   function valid(file,i){return typeof file==='string'&&new RegExp('^'+i+'-[a-f0-9]{20}\\.jpg$').test(file);}
@@ -44,7 +46,7 @@
     row.append(el('span','',label),meter,el('span','amount',gib(used)+' / '+gib(total)+' GiB'));
     return row;
   }
-  function devicePanel(d,system={}){
+  function devicePanel(d,system={},load){
     const raw=String(d.name||'Accelerator'),nvidia=/\bNVIDIA\b/i.test(raw);
     const cuda=raw.match(/\bcuda:(\d+)/i),allocator=raw.match(/:\s*(cudaMalloc\w+)$/i)?.[1];
     const model=raw.replace(/^cuda:\d+\s*/i,'').replace(/^NVIDIA\s+/i,'').replace(/\s*:\s*cudaMalloc\w+$/i,'').trim();
@@ -57,6 +59,7 @@
       logo.alt='CUDA';logo.src='cuda.jpg';logo.onerror=()=>logo.remove();
       badge.append(el('span','','CUDA'),logo);head.append(badge);
     }
+    if(load)head.append(load);
     panel.append(head,el('h3','',model||raw));
     const metadata=[cuda?'Device '+cuda[1]:Number.isInteger(d.index)?'Device '+d.index:null,allocator,system.torch?'Torch '+system.torch:null].filter(Boolean);
     if(metadata.length)panel.append(el('small','runtime',metadata.join(' · ')));
@@ -75,7 +78,10 @@
       const w=workers[i]||{},j=w.active;
       const load=stale?null:utilization(w),busy=!stale && busyGPU(w);
       c.load.hidden=load==null;
-      if(load!=null){c.meter.value=load;c.percent.textContent=load+'%';}
+      if(load!=null){
+        c.load.style.setProperty('--load',load+'%');c.percent.textContent=Math.round(load)+'%';
+        c.load.setAttribute('aria-valuenow',String(load));
+      }
       const status=busy?'Rendering':w.status;
       c.name.textContent=w.name||'Worker '+(i+1);c.item.dataset.state=stale?'Stale':status||'Connecting';
       c.address.textContent=w.host||'';
@@ -87,8 +93,9 @@
       const devices=w.devices||[], signature=JSON.stringify([devices,w.hardware]);
       if(c.gpu.dataset.devices!==signature){
         c.gpu.dataset.devices=signature;
-        c.gpu.replaceChildren(...devices.map(d=>devicePanel(d,w.hardware)));
+        c.gpu.replaceChildren(...devices.map((d,index)=>devicePanel(d,w.hardware,index===0?c.load:null)));
       }
+      if(!devices.length && c.load.parentElement!==c.head)c.head.append(c.load);
       c.queue.textContent='View queue';
       c.queue.dataset.count=w.queued??'—';
       c.queue.setAttribute('aria-label','View '+c.name.textContent+' queue, '+(w.queued??'unknown')+' pending');

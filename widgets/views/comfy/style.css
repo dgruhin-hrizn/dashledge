@@ -72,15 +72,21 @@ meter::-webkit-meter-optimum-value { background:#ad96ef }
 .cuda-badge img { position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#242824 }
 .accelerator h3 { font-size:1.46em;letter-spacing:-.035em;line-height:1.04;margin:0 }
 .runtime { font:normal .65em ui-monospace,Menlo,monospace;color:#c3c9be;overflow-wrap:anywhere }
-.hw-meter { display:grid;align-items:center;grid-template-columns:4.4em minmax(.6em,1fr) auto;gap:.45em;color:#d3dacd;font-size:.79em }
+.hw-meter { display:grid;align-items:center;grid-template-columns:5em minmax(.6em,1fr) auto;gap:.45em;color:#d3dacd;font-size:.79em }
 .hw-meter .amount { font-size:.92em }
 .hw-meter meter { width:100%;height:.47em }
 .hw-meter meter::-webkit-meter-optimum-value { background:var(--hardware) }
 .hw-meter:last-child:not(:first-of-type) meter::-webkit-meter-optimum-value { background:#b29de3 }
 @media(max-height:260px) { .accelerator {gap:.12em;padding:.25em .45em}.accelerator h3 {font-size:1.12em}.runtime {font-size:.62em} }
-.gpu-load {display:grid;grid-template-columns:auto minmax(1em,1fr) 4ch;align-items:center;gap:.55em;font-size:.78em;color:#d4c7e5}
-.gpu-load meter {width:100%;height:.52em}
-.gpu-load b {text-align:right;font-variant-numeric:tabular-nums;color:var(--white)}
+.gpu-load {
+  display:grid;place-items:center;flex:none;width:2em;aspect-ratio:1;border-radius:50%;
+  background:radial-gradient(closest-side,#202423 81%,transparent 84%),
+    conic-gradient(var(--hardware,#a2d661) var(--load,0%),#495146 0);
+}
+.gpu-load b {font:650 .58em/1 -apple-system,BlinkMacSystemFont,sans-serif;font-variant-numeric:tabular-nums}
+.accelerator-head .gpu-load {margin-left:auto}
+.cuda-badge + .gpu-load {margin-left:0}
+.hw-meter > :first-child {white-space:nowrap}
 .track.indeterminate i {width:34%!important;transform:translateX(95%);transition:none}
 @media(prefers-reduced-motion:no-preference) {
   .track.indeterminate i {animation:gpu-sweep 1.8s ease-in-out infinite}
