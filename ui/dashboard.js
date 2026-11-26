@@ -117,9 +117,9 @@ function renderTile(t){
     while(box.children.length>nodes.length)box.lastElementChild.remove();
     return;
   }
-  const offsets=[box,...box.querySelectorAll('.list,.poster-grid')].map(n=>n.scrollTop);
+  const offsets=[box,...box.querySelectorAll('.list')].map(n=>n.scrollTop);
   box.replaceChildren(...(instrumentKinds.includes(kind)?nodes:[el('h2','',title),...nodes]));
-  [box,...box.querySelectorAll('.list,.poster-grid')].forEach((n,i)=>{if(offsets[i])n.scrollTop=offsets[i]});
+  [box,...box.querySelectorAll('.list')].forEach((n,i)=>{if(offsets[i])n.scrollTop=offsets[i]});
 }
 // Preserve original subviews, scroll positions and metric histories across page changes.
 // Keeping the iframe in the document also avoids WebKit reloading it on reattachment.
