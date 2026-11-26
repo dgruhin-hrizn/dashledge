@@ -14,10 +14,24 @@
 @container(max-width:720px){.mw-rail{padding:0;border:0;background:transparent;position:absolute;right:8px;top:8px}.mw-controls h2,.mw-rows{display:none}.mw-main{grid-column:1/-1}.mw-main header{padding-right:84px}.mw-main header strong{display:none}}
 .mw-main[data-direction=down]{background:radial-gradient(ellipse at top left,#32242a 0,transparent 65%)}
 .mw-main header {align-items:center}
-.mw-badge {display:inline-grid;place-items:center;position:relative;overflow:hidden;flex:none;width:1.8em;height:1.8em;border-radius:28%;background:hsl(var(--hue) 30% 25%);color:#fff;font-size:.88em;font-weight:700;letter-spacing:-.035em}
-.mw-badge img {position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:white}
-.mw-main header .mw-badge {width:clamp(36px,8cqh,62px);height:clamp(36px,8cqh,62px)}
-.mw-rows button {display:grid;grid-template-columns:auto minmax(3.4em,1fr) minmax(22px,1fr) minmax(3.8em,auto)}
+.mw-badge {
+  --mark:clamp(30px,5.8cqh,44px);
+  --lockup:clamp(76px,16cqh,120px);
+  display:grid;place-items:center;justify-self:start;box-sizing:border-box;
+  width:var(--mark);height:var(--mark);padding:0;flex:none;border-radius:8px;
+  background:hsl(var(--hue) 22% 22%);color:#ecf3f4;font-size:.78em;font-weight:650;
+}
+.mw-badge[data-surface] {background:transparent;padding:3px}
+.mw-badge[data-surface=paper] {background:#fff;padding:5px}
+.mw-badge[data-surface=reverse] img {filter:brightness(0) invert(.95)}
+.mw-badge.wide {width:var(--lockup);padding:4px 6px}
+.mw-badge.wide[data-surface=paper] {height:calc(var(--mark)*.86)}
+.mw-badge img {display:block;width:100%;height:100%;min-width:0;min-height:0;object-fit:contain}
+.mw-main header .mw-badge {--mark:clamp(40px,9cqh,68px);--lockup:clamp(90px,19cqh,146px)}
+.mw-main header .mw-badge[data-surface=paper] {padding:8px}
+.mw-main header strong {min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mw-rows button {display:grid;grid-template-columns:clamp(76px,16cqh,120px) minmax(3.4em,.7fr) minmax(22px,1fr) minmax(3.8em,auto)}
+.mw-rows .mw-badge {justify-self:center}
 .mw-rows canvas {width:100%}.mw-rows button>span:last-child{text-align:right}
 .mw-session {font-size:clamp(13px,2.8cqh,23px);font-weight:650;color:#efc995;background:#382f26;border:1px solid #716047;border-radius:.5em;padding:.3em .6em}
 .mw-editor {width:min(660px,92vw);color:#edf4ee;background:#15242b;border:1px solid #425b60;padding:24px}
@@ -25,3 +39,11 @@
 .mw-editor footer{justify-content:flex-end}.mw-editor button,.mw-editor input{min-width:44px;min-height:44px}.mw-editor input{padding:8px}.mw-editor h2{font-size:1.4em}
 .mw-editor footer button:last-child{background:#a1e9cf;color:#12241e}.mw-controls{flex-wrap:wrap}
 @container(max-width:720px){.mw-main header{padding-right:164px}.mw-controls{flex-wrap:nowrap}}
+
+@container (min-width:721px) and (max-width:1060px) {
+  .mw-rows button {grid-template-columns:56px minmax(3em,.8fr) minmax(16px,1fr) minmax(3.8em,auto);gap:.3em;padding-inline:.3em}
+  .mw-rows .mw-badge {--lockup:56px}
+}
+@container (max-width:720px) {
+  .mw-main header .mw-badge.wide {--lockup:70px}
+}
