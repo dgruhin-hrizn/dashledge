@@ -208,3 +208,29 @@
 .placement-bar.dirty {background:#1f2919;border-top-color:#4b5f3c}
 .placement-bar.dirty .bar-note {color:var(--lime);font-weight:560}
 @media(max-width:920px){.placement-bar{margin:2px -12px -12px;padding:10px 12px}}
+
+/* Pages & layouts: the live stage (ui/editor.js liveStage). */
+.settings .editor-stage {padding:14px 16px 12px}
+.stage-bar>.layout-tools {margin-bottom:11px}
+.live-screen {position:relative;overflow:hidden;aspect-ratio:32/9;border-radius:8px;background:#080a0a;border:1px solid #0c1010}
+.live-screen[data-vertical="true"] {aspect-ratio:9/32;width:min(100%,240px);margin-inline:auto}
+.live-frame {position:absolute;left:50%;top:50%;border:0;transform-origin:center;pointer-events:none;background:#0c0e0e}
+.stage-hits {position:absolute;inset:0}
+.stage-hit {position:absolute;border-radius:6px}
+.settings .stage-hit>.stage-select {position:absolute;inset:0;width:100%;height:100%;min-height:0;padding:0;border:2px solid transparent;border-radius:inherit;background:transparent}
+.settings .stage-hit>.stage-select:hover {background:#ffffff0d;border-color:#ffffff4d}
+.settings .stage-hit>.stage-select[aria-pressed=true] {border-color:var(--lime);box-shadow:inset 0 0 0 1px #00000080,0 0 0 3px #c4eb9e30}
+.settings .stage-hit.empty>.stage-select {border:2px dashed #c4eb9e80;background:#0c120ed9}
+.stage-label {position:absolute;left:7px;top:7px;display:flex;align-items:center;gap:6px;max-width:calc(100% - 44px);padding:3px 9px 3px 5px;border-radius:999px;background:#0b0e0ee6;color:#e6ece6;font-size:12px;font-weight:600;white-space:nowrap;pointer-events:none;opacity:0;transition:opacity .12s}
+.stage-label>span {overflow:hidden;text-overflow:ellipsis}
+.stage-label .kind-icon,.stage-label .admin-icon {width:16px;height:16px;flex:none}
+.stage-hit:hover .stage-label,.stage-hit.selected .stage-label,.stage-hit.empty .stage-label,.stage-select:focus-visible+.stage-label {opacity:1}
+.stage-hit.selected .stage-label {background:var(--lime);color:#1d2a16}
+.stage-hit.empty .stage-label {inset:0;margin:auto;width:max-content;height:max-content;background:transparent;color:#c8dfa9;font-size:13px}
+.settings .stage-hit .cell-remove {position:absolute;right:6px;top:6px;width:26px;height:26px;min-height:0;padding:0;border:1px solid #59655e;background:#1b211ee6;color:#d3ddd6;border-radius:50%;font:17px/1 -apple-system,BlinkMacSystemFont,sans-serif;opacity:0}
+.stage-hit:hover .cell-remove,.stage-hit.selected .cell-remove,.settings .stage-hit .cell-remove:focus-visible {opacity:1}
+.settings .stage-hit .cell-remove:hover {color:white;background:#713e39;border-color:#bb7970}
+.stage-note {position:absolute;inset:0;display:none;place-content:center;justify-items:center;gap:10px;background:#080a0ad9;color:var(--sub);font-size:13px}
+.live-screen[data-state="elsewhere"] .stage-note {display:grid}
+.live-screen[data-state="loading"]::after {content:"Loading the live page…";position:absolute;inset:0;display:grid;place-items:center;color:var(--sub);font-size:13px;pointer-events:none}
+

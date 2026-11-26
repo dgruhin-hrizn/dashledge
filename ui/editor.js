@@ -13,7 +13,7 @@ import {settingsForm,settingValues} from './package-settings.js';
 import {HIGHLIGHTS,TEXTS,followsColors,placementOverride,writePreview,clearPreview} from './placement-colors.js';
 import {connectionLabel} from './display-name.js';
 import {guestRows,parseGuests} from './proxmox-guests.js';
-import {general,loadGeneral,updateGeneral,fitDashboard} from './general.js';
+import {general,loadGeneral,updateGeneral,fitDashboard,dimensions,onGeneral} from './general.js';
 import {icon} from './admin-icons.js';
 import {appendPage,assignWidget,pickWidget} from './page-actions.js';
 import {presets,titles,id,resize,split,removeSection,layout,plugin} from './model.js';
@@ -224,6 +224,51 @@ function placementPanel(p,i,s,assign,vertical){
   update();
   return box;
 }
+// The live stage: the dashboard itself, scaled into Pages & layouts, under a click
+// target for each section. It renders a full-screen widget at the Edge's real size, as
+// the display does, and shows a placement's draft colours and settings with it.
+const EDGE=[2560,720];
+let stage=null;
+function liveStage(){
+  if(stage?.panel.isConnected)return stage;
+  const panel=el('section','panel editor-stage'),bar=el('div','stage-bar'),screen=el('div','live-screen'),caption=el('div','row stage-caption');
+  const frame=el('iframe','live-frame'),hits=el('div','stage-hits');
+  frame.title='Live page';frame.src='index.html';frame.tabIndex=-1;frame.setAttribute('aria-hidden','true');
+  // The Edge is showing another page (swiped there): offer to bring this one back.
+  const note=el('div','stage-note');
+  note.append(el('span','','The Edge is showing another page.'),button('Show this page',()=>{const target=config.pages.find(v=>v.id===st.page);if(target)activate(target)},'primary'));
+  screen.append(frame,hits,note);panel.append(bar,screen,caption);
+  const st={panel,bar,screen,caption,frame,hits,page:null};
+  const fit=()=>{
+    const vertical=general().vertical,native=frame.hasAttribute('data-native-viewport');
+    const [w,h]=native?(vertical?[EDGE[1],EDGE[0]]:EDGE):dimensions(vertical);
+    screen.dataset.vertical=String(vertical);
+    frame.style.width=w+'px';frame.style.height=h+'px';
+    frame.style.transform='translate(-50%,-50%) scale('+(Math.min(screen.clientWidth/w,screen.clientHeight/h)||0)+')';
+    st.place();
+  };
+  // Lay each click target over its section as the dashboard drew it.
+  st.place=()=>{
+    const doc=frame.contentDocument,grid=doc?.querySelector('.tile-grid[data-page="'+CSS.escape(st.page||'')+'"]:not([hidden])');
+    const tiles=grid?[...grid.children].filter(n=>n.classList.contains('tile')):[];
+    const fr=frame.getBoundingClientRect(),sr=screen.getBoundingClientRect(),scale=fr.width/(frame.offsetWidth||1);
+    for(const hit of hits.children){
+      const r=tiles[+hit.dataset.index]?.getBoundingClientRect();
+      hit.hidden=!r?.width;if(hit.hidden)continue;
+      Object.assign(hit.style,{left:fr.left-sr.left+r.left*scale+'px',top:fr.top-sr.top+r.top*scale+'px',width:r.width*scale+'px',height:r.height*scale+'px'});
+    }
+    const elsewhere=!tiles.length&&!!doc?.querySelector('.tile-grid[data-page="'+CSS.escape(st.page||'')+'"]');
+    screen.dataset.state=tiles.length?'ready':elsewhere?'elsewhere':'loading';
+  };
+  frame.addEventListener('dashboardfit',fit);
+  const resize=new ResizeObserver(fit);resize.observe(screen);
+  const off=onGeneral(fit);
+  // The dashboard redraws as data arrives and pages switch; follow it while the stage is shown.
+  const timer=setInterval(()=>{if(panel.isConnected)st.place();else{clearInterval(timer);resize.disconnect();off();if(stage===st)stage=null}},400);
+  frame.addEventListener('load',fit);
+  stage=st;
+  return st;
+}
 function layouts(){
   const p=page();index=Math.min(index,p.slots.length-1);
   const pages=el('div','page-tabs'),strip=el('div','page-strip');
@@ -236,32 +281,32 @@ function layouts(){
   }
   const add=button('+ Add page',()=>change(()=>{const next=appendPage(config);chosen=next.id;index=0;activate(next)}),'primary');
   strip.append(pages,add);
-  const canvas=el('div','canvas');
+  // Edit the page as it is now: the layout may have been reloaded since this was drawn.
+  const live=()=>config.pages.find(v=>v.id===p.id)||p;
   const assign=(i,kind)=>{
-    if(!['photos','shortcuts','plans'].includes(kind))return change(()=>{p.slots[i]=assignWidget(config,kind,p.slots[i]);index=i});
-    configureSection(p,i,kind);
+    if(!['photos','shortcuts','plans'].includes(kind))return change(()=>{const page=live();page.slots[i]=assignWidget(config,kind,page.slots[i]);index=i});
+    configureSection(live(),i,kind);
   };
-  p.slots.forEach((s,i)=>{
+  const vertical=general().vertical,st=liveStage();st.page=p.id;
+  // A click target over each section of the live page: select, add, remove, or drop a widget.
+  st.hits.replaceChildren(...p.slots.map((s,i)=>{
     const empty=s.kind==='empty';
-    const name=empty?'+ Add widget':titles[s.kind]||config.plugins.find(x=>x.id===s.kind)?.title||'Missing plugin';
-    const b=button(name,()=>{
-      index=i;render();
-      if(empty)pickWidget(config,kind=>assign(i,kind));
-    },[i===index?'selected':'',empty?'empty-slot':''].join(' '));
-    b.prepend(empty?icon('plus'):tag(s.kind));
-    b.setAttribute('aria-pressed',String(i===index));
+    const name=empty?'Empty section':titles[s.kind]||config.plugins.find(x=>x.id===s.kind)?.title||'Missing plugin';
+    const hit=el('div','stage-hit'+(i===index?' selected':'')+(empty?' empty':''));hit.dataset.index=i;hit.hidden=true;
+    const b=button('',()=>{index=i;render();if(empty)pickWidget(config,kind=>assign(i,kind))},'stage-select');
+    b.setAttribute('aria-pressed',String(i===index));b.setAttribute('aria-label',(empty?'Add a widget to':name+',')+' section '+(i+1));
     b.ondragover=e=>e.preventDefault();
     b.ondrop=e=>{e.preventDefault();const k=e.dataTransfer.getData('text/plain');if(installed(config,k))assign(i,k)};
-    const cell=el('div','layout-cell');cell.append(b);
+    const label=el('span','stage-label');label.append(empty?icon('plus'):tag(s.kind),el('span','',empty?'Add widget':name));
+    hit.append(b,label);
     if(!empty||p.slots.length>1){
-      const label=empty?'Remove empty section '+(i+1):'Remove '+name+' from section '+(i+1);
-      const remove=button('−',()=>{if(empty)change(()=>{removeSection(p,i);index=Math.min(i,p.slots.length-1)});else assign(i,'empty')},'cell-remove');
-      remove.title=label;remove.setAttribute('aria-label',label);cell.append(remove);
+      const text=empty?'Remove empty section '+(i+1):'Remove '+name+' from section '+(i+1);
+      const remove=button('−',()=>{if(empty)change(()=>{const page=live();removeSection(page,i);index=Math.min(i,page.slots.length-1)});else assign(i,'empty')},'cell-remove');
+      remove.title=text;remove.setAttribute('aria-label',text);hit.append(remove);
     }
-    canvas.append(cell);
-  });
-  const vertical=general().vertical;canvas.classList.toggle('portrait',vertical);
-  layout(canvas,p.preset,p.regions,vertical);
+    return hit;
+  }));
+  st.place();
   const presetGrid=el('div','preset-grid');
   for(const key of Object.keys(presets)){
     const visual=el('span','preset-diagram');visual.setAttribute('aria-hidden','true');
@@ -271,12 +316,11 @@ function layouts(){
     const control=button(key,()=>change(()=>resize(p,key)),p.preset===key&&!p.regions?'selected':'');
     control.prepend(visual);control.setAttribute('aria-pressed',String(p.preset===key&&!p.regions));presetGrid.append(control);
   }
-  const work=el('div','layout-work'),left=el('div','layout-stage'),screen=el('section','panel editor-stage');
-  const bar=row(el('h2','',p.name),pageControls(p));bar.classList.add('layout-tools');
-  const footer=row(el('small','','XENEON EDGE'),el('small','',p.slots.length+' '+(p.slots.length===1?'section':'sections')));
-  footer.classList.add('stage-caption');screen.append(bar,canvas,footer);
+  const work=el('div','layout-work'),left=el('div','layout-stage');
+  const bar=row(el('h2','',p.name),pageControls(p));bar.classList.add('layout-tools');st.bar.replaceChildren(bar);
+  st.caption.replaceChildren(el('small','','LIVE · XENEON EDGE'),el('small','','Click a widget to edit its placement · '+p.slots.length+' '+(p.slots.length===1?'section':'sections')));
   const s=p.slots[index],inspector=placementPanel(p,index,s,assign,vertical);
-  left.append(screen,inspector,panel('Layout preset',presetGrid));
+  left.append(inspector,panel('Layout preset',presetGrid));
   const lib=el('div','library-list'),search=input();search.type='search';search.placeholder='Find a widget';search.setAttribute('aria-label','Find a widget');
   const searchBox=el('div','search-box');searchBox.append(icon('find'),search);
   const groups=catalogGroups(config);
@@ -298,7 +342,10 @@ function layouts(){
   };
   search.oninput=fill;fill();
   const library=panel('Widget library',searchBox,lib);library.classList.add('library');
-  work.append(left,library);main.append(strip,work);
+  work.append(left,library);
+  // The stage may have survived the redraw (see render()); keep it in place, never move it.
+  if(st.panel.isConnected)main.insertBefore(strip,st.panel);else main.append(strip,st.panel);
+  main.append(work);
   pages.querySelector('[aria-current]')?.scrollIntoView?.({block:'nearest',inline:'nearest'});
 }
 const sourceHelp={
@@ -724,7 +771,9 @@ function render(){
     if(tab===key)b.setAttribute('aria-current','page');
     nav.append(b);
   }
-  main.replaceChildren();
+  // Moving an iframe reloads it, so the live stage stays put while Pages & layouts redraws.
+  const keep=tab==='Layouts'&&stage?.panel.isConnected?stage.panel:null;
+  for(const node of [...main.childNodes])if(node!==keep)node.remove();
   if(tab==='About'){
     main.append(document.querySelector('#about-page').content.cloneNode(true));
     for(const link of main.querySelectorAll('a[href]')){
@@ -734,7 +783,7 @@ function render(){
       });
     }
   }
-  if(tab==='Layouts'){main.append(heading('Pages & layouts'));layouts()}else discardDraft();
+  if(tab==='Layouts'){const h=heading('Pages & layouts');if(keep)main.insertBefore(h,keep);else main.append(h);layouts()}else discardDraft();
   if(tab==='Widget Studio'){if(detail&&installed(config,detail))widgetDetail(detail);else plugins()}
   if(tab==='General')generalTab();
   if(tab==='Preview'){
