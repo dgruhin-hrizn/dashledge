@@ -1,18 +1,30 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-layout="full">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>oMLX Dashboard</title>
   <link rel="stylesheet" href="style.css">
-  
+  <script src="model.js" defer></script>
   <script src="widget.js" defer></script>
 </head>
 <body>
+  <svg class="sprites" aria-hidden="true" focusable="false">
+    <symbol id="g-language" viewBox="0 0 20 20"><path d="M3 5.5A2.5 2.5 0 0 1 5.5 3h9A2.5 2.5 0 0 1 17 5.5v6a2.5 2.5 0 0 1-2.5 2.5H9l-4 3v-3A2 2 0 0 1 3 12z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol>
+    <symbol id="g-vision" viewBox="0 0 20 20"><path d="M1.8 10S5 4.5 10 4.5 18.2 10 18.2 10 15 15.5 10 15.5 1.8 10 1.8 10z" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="10" cy="10" r="2.6" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+    <symbol id="g-embedding" viewBox="0 0 20 20"><circle cx="5" cy="6" r="2" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="15" cy="5" r="2" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="10" cy="14.5" r="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M6.6 7.4 8.6 12.8M13.6 6.6 11.3 12.9" stroke="currentColor" stroke-width="1.4"/></symbol>
+    <symbol id="g-speech" viewBox="0 0 20 20"><path d="M3 9v2M6.5 6v8M10 3.5v13M13.5 6.5v7M17 9v2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+    <symbol id="g-reranker" viewBox="0 0 20 20"><path d="M3 5h14M3 10h9M3 15h5M15 9v7m0 0-2.5-2.5M15 16l2.5-2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-pin" viewBox="0 0 20 20"><path d="M7 2.5h6l-1 5 3 3H5l3-3zM10 10.5V17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 12 12"><path d="M2 4l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 20 20"><path d="M16 10a6 6 0 1 1-1.8-4.3M16 3.5v3.2h-3.2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  </svg>
+
   <header class="topbar">
     <div class="identity">
-      <img class="mark" src="omlx-icon.svg" alt="" width="38" height="38">
+      <img class="mark" src="omlx-icon.svg" alt="" width="33" height="33">
       <h1>oMLX</h1>
+      <span id="mac-specs" class="mac-specs" hidden></span>
     </div>
     <nav aria-label="Dashboard views">
       <button type="button" data-view="overview" aria-pressed="true">Overview</button>
@@ -22,112 +34,157 @@
     <div class="network">
       <span id="server-label" class="server-label"></span>
       <button type="button" id="server-toggle" class="server-toggle" aria-controls="server-picker" aria-expanded="false" hidden>
-        <span id="server-name"></span><i class="chevron" aria-hidden="true"></i>
+        <span id="server-name"></span><svg class="chevron" aria-hidden="true"><use href="#i-chevron"/></svg>
       </button>
-      <span id="status" role="status" data-state="offline">Connecting</span>
+      <span id="status" role="status" data-state="offline"><i class="dot" aria-hidden="true"></i><span id="status-text">Connecting</span></span>
     </div>
   </header>
 
   <main id="content" class="workspace" aria-label="Server metrics">
     <section id="overview" class="overview" aria-label="Overview">
-      <article class="surface throughput">
+      <article id="decode-card" class="surface decode" aria-label="Live decode" data-activity="unavailable">
         <div class="instrument">
-          <div class="decode-heading">
+          <div class="reading-block">
             <h2>Live decode</h2>
-            <div id="mac-specs" hidden>
-              <strong id="mac-chip"></strong>
-              <span id="mac-config"></span>
+            <div class="reading">
+              <strong id="live-decode"><span id="decode-integer">—</span><span id="decode-fraction"></span></strong>
+              <span id="decode-unit" hidden>tok/s</span>
+              <strong id="idle-word" class="idle-word" hidden>Idle</strong>
             </div>
           </div>
-          <div class="reading"><strong id="live-decode"><span id="decode-integer">—</span><span id="decode-fraction"></span></strong><span id="decode-unit" hidden>tok/s</span></div>
-          <div class="throughput-work">
-            <span class="window-peak"><b id="decode-peak">—</b> peak</span>
-            <span><b id="active">—</b> active</span><span><b id="queued">—</b> queued</span>
+          <div class="work">
+            <span id="work-chip" class="chip" hidden><svg class="chip-glyph" aria-hidden="true"><use id="chip-use" href="#g-language"/></svg><span id="chip-text"></span></span>
+            <p id="idle-line" class="idle-line" hidden></p>
+            <p id="idle-meta" class="idle-meta" hidden></p>
+            <div class="work-stats">
+              <span class="peak"><b id="decode-peak">—</b> peak</span>
+              <span><b id="active">—</b> active</span>
+              <span><b id="queued">—</b> queued</span>
+            </div>
           </div>
         </div>
         <figure class="history">
-          <div class="plot">
+          <div id="plot" class="plot">
             <canvas id="trend" role="img" aria-label="Live decode throughput over two minutes"></canvas>
+            <div id="markers" class="markers" aria-hidden="true"></div>
+            <span id="glow" class="glow" aria-hidden="true" hidden></span>
             <span id="trend-state" class="trend-state"></span>
-            <span id="trend-max" class="trend-max"></span>
+            <span id="trend-max" class="axis-label axis-top"></span>
+            <span id="trend-zero" class="axis-label axis-zero">0</span>
           </div>
-          <div class="prefill-strip"><svg id="prefill-plot" viewBox="0 0 500 30" preserveAspectRatio="none" aria-label="Prompt processing speed, independent scale" role="img"><path id="prefill-completed"/><path id="prefill-path"/></svg><small id="prefill-caption">Prefill</small></div>
-          <figcaption><span>2 min ago</span><span>Now</span></figcaption>
+          <div class="prefill-row">
+            <div class="prefill-reading"><span>Prefill</span><strong id="prefill-value">—</strong></div>
+            <canvas id="prefill-plot" role="img" aria-label="Prompt processing speed, independent scale"></canvas>
+          </div>
+          <figcaption><span>2 min ago</span><span>1 min</span><span>Now</span></figcaption>
         </figure>
       </article>
 
-      <div class="secondary">
-        <article class="surface memory">
-          <div class="memory-heading">
+      <div class="middle">
+        <article class="surface memory" aria-label="Unified memory">
+          <div class="card-head">
             <h2>Unified memory</h2><span id="pressure" class="pressure"></span>
           </div>
-          <div class="memory-value"><strong id="memory-total">—</strong><span id="memory-limit"></span></div>
-          <div id="memory-track" class="track" role="meter" aria-label="Memory usage against oMLX ceiling" hidden><span id="memory-fill"></span></div>
-          <div class="headroom"><strong id="overview-room">—</strong> load headroom</div>
-          <div id="memory-detail" class="memory-detail">Model pool —</div>
+          <div class="memory-value">
+            <strong id="memory-total">—</strong><span id="memory-limit"></span>
+            <span class="memory-free"><b id="memory-free">—</b> headroom</span>
+          </div>
+          <div id="memory-bar" class="segments" role="img" aria-label="Memory by resident model"></div>
+          <ul id="memory-legend" class="legend"></ul>
         </article>
-        <article class="surface pace">
-          <h2>Server stats</h2>
-          <dl>
-            <div><dt>Avg. decode</dt><dd><strong id="avg-decode">—</strong> <span>tok/s</span></dd></div>
-            <div><dt>Avg. prefill</dt><dd><strong id="avg-prefill">—</strong> <span>tok/s</span></dd></div>
-            <div><dt>Models loaded</dt><dd><strong id="overview-loaded">—</strong></dd></div>
-            <div><dt>Cache hit</dt><dd><strong id="overview-cache">—</strong></dd></div>
-          </dl>
-        </article>
+        <section class="stats" aria-label="Server stats">
+          <article class="tile">
+            <span class="tile-label">Avg. decode</span>
+            <div class="tile-value"><strong><span id="avg-decode">—</span> <small>tok/s</small></strong>
+              <svg id="decode-spark" class="spark" viewBox="0 0 72 26" preserveAspectRatio="none" aria-hidden="true"><path/></svg></div>
+          </article>
+          <article class="tile">
+            <span class="tile-label">Avg. prefill</span>
+            <div class="tile-value"><strong><span id="avg-prefill">—</span> <small>tok/s</small></strong>
+              <svg id="prefill-spark" class="spark soft" viewBox="0 0 72 26" preserveAspectRatio="none" aria-hidden="true"><path/></svg></div>
+          </article>
+          <article class="tile">
+            <span class="tile-label">Requests · session</span>
+            <div class="tile-value"><strong><span id="session-requests">—</span> <small id="session-tokens"></small></strong></div>
+          </article>
+          <article class="tile ring-tile">
+            <div class="ring-copy"><span class="tile-label">Cache hit</span><strong id="overview-cache" class="accent">—</strong></div>
+            <svg class="ring small" viewBox="0 0 64 64" aria-hidden="true"><circle class="ring-track" cx="32" cy="32" r="26"/><circle id="cache-ring-small" class="ring-fill" cx="32" cy="32" r="26"/></svg>
+          </article>
+        </section>
       </div>
-      <article class="surface live-models">
-        <header><h2>Resident models</h2><span id="resident-count"></span></header>
-        <div id="resident-list" tabindex="0" aria-label="Resident model activity"></div>
+
+      <article class="surface residents" aria-label="Resident models">
+        <header class="card-head"><h2>Resident models</h2><span id="resident-count" class="count"></span></header>
+        <div id="resident-list" class="resident-list" tabindex="0" aria-label="Resident model activity"></div>
+        <ul id="resident-glyphs" class="resident-glyphs" aria-label="Resident models"></ul>
       </article>
     </section>
 
     <section id="models" class="models-view" aria-label="Models" hidden>
-      <div class="view-title model-heading">
+      <div class="models-bar">
         <div class="model-filters" role="group" aria-label="Filter models">
-          <button type="button" data-filter="all" aria-pressed="true">All models</button>
-          <button type="button" data-filter="unloaded" aria-pressed="false">Unloaded</button>
+          <button type="button" data-filter="all" aria-pressed="true">All<span class="filter-count" id="count-all"></span></button>
+          <button type="button" data-filter="loaded" aria-pressed="false">Loaded<span class="filter-count" id="count-loaded"></span></button>
+          <button type="button" data-filter="unloaded" aria-pressed="false">Unloaded<span class="filter-count" id="count-unloaded"></span></button>
         </div>
-        <div class="model-summary">
-          <strong id="models-headroom"></strong>
-          <span id="models-total"></span>
+        <div class="preview">
+          <div id="preview-bar" class="preview-bar" role="img" aria-label="Memory in use"><span id="preview-used" class="used"></span><span id="preview-add" class="add"></span></div>
+          <div class="preview-text"><span id="preview-in-use"></span><span id="preview-note"></span><span id="preview-limit"></span></div>
+        </div>
+        <div class="models-room"><strong id="models-headroom">—</strong><span>load headroom</span></div>
+        <div id="models-pages" class="pager" hidden>
+          <button type="button" id="models-prev" aria-label="Previous models"><svg aria-hidden="true"><use href="#i-chevron"/></svg></button>
+          <span id="models-page"></span>
+          <button type="button" id="models-next" aria-label="Next models"><svg aria-hidden="true"><use href="#i-chevron"/></svg></button>
         </div>
       </div>
       <div id="model-space" class="model-space"><ul id="model-list"></ul><p id="models-empty" class="empty-state" hidden></p></div>
-      <div id="models-pages" class="pager" hidden>
-        <button type="button" id="models-prev" aria-label="Previous models">‹</button>
-        <span id="models-page"></span>
-        <button type="button" id="models-next" aria-label="Next models">›</button>
-      </div>
     </section>
 
     <section id="usage" class="usage-view" aria-label="Session usage" hidden>
-      <article class="surface usage-tokens">
-        <h2>Session tokens</h2>
-        <div class="usage-total"><strong id="tokens-total">—</strong><span><b id="requests">—</b> requests</span></div>
-        <div id="token-track" class="track token-track" hidden><span id="token-fill"></span></div>
-        <dl class="usage-breakdown">
-          <div><dt>Prompt</dt><dd id="tokens-prompt">—</dd></div>
-          <div><dt>Output</dt><dd id="tokens-output">—</dd></div>
-        </dl>
+      <div class="usage-left">
+        <article class="surface usage-tokens" aria-label="Session tokens">
+          <div class="card-head"><h2>Session tokens</h2><span><b id="requests">—</b> requests</span></div>
+          <strong id="tokens-total" class="big-number">—</strong>
+          <div id="token-split" class="split" role="img" aria-label="Prompt and output tokens" hidden><span id="split-prompt"></span><span id="split-output"></span></div>
+          <dl class="split-legend">
+            <div><dt>Prompt</dt><dd id="tokens-prompt">—</dd></div>
+            <div><dt>Output</dt><dd id="tokens-output">—</dd></div>
+          </dl>
+        </article>
+        <article class="surface cache-card" aria-label="Prompt cache hit">
+          <div class="ring-wrap">
+            <svg id="cache-ring-svg" class="ring big" viewBox="0 0 150 150" role="img" aria-label="Prompt cache hit unavailable"><circle class="ring-track" cx="75" cy="75" r="62"/><circle id="cache-ring" class="ring-fill" cx="75" cy="75" r="62"/></svg>
+            <strong id="cache-hit">—</strong>
+          </div>
+          <div class="cache-copy">
+            <h2>Prompt cache hit</h2>
+            <span><b id="tokens-cached">—</b> cached tokens</span>
+          </div>
+        </article>
+      </div>
+      <article class="surface week-card heat-card" aria-label="Token activity, 7 days">
+        <div class="card-head">
+          <h2>Token activity · 7 days</h2>
+          <span class="heat-legend" aria-hidden="true">Less<i data-level="0"></i><i data-level="1"></i><i data-level="2"></i><i data-level="3"></i><i data-level="4"></i>More</span>
+        </div>
+        <div id="week-grid" class="week-grid"></div>
+        <div class="heat-axis" aria-label="Hours in server local time"><span>00</span><span>06</span><span>12</span><span>18</span><span>23</span></div>
       </article>
-      <article class="surface cache-card">
-        <h2>Prompt cache hit</h2>
-        <div class="cache-reading"><strong id="cache-hit">—</strong></div>
-        <div id="cache-track" class="track" role="meter" aria-label="Prompt cache hit rate" hidden><span id="cache-fill"></span></div>
-        <div class="memory-detail"><b id="tokens-cached">—</b> cached tokens</div>
+      <article class="surface week-card speed-card" aria-label="Decode speed, 7 days">
+        <div class="card-head"><h2>Decode speed · 7 days</h2><span>avg tok/s</span></div>
+        <div id="week-speeds" class="week-speeds"></div>
       </article>
-      <article class="surface week-card"><h2>Token activity · 7 days</h2><div id="week-grid"></div><div class="heat-axis" aria-label="Hours in server local time"><span>00</span><span>06</span><span>12</span><span>18</span><span>23</span></div><small>Server local time</small></article>
-      <article class="surface week-card"><h2>Decode speed · 7 days</h2><div id="week-speeds"></div></article>
     </section>
 
     <section id="server-picker" class="surface server-picker" aria-label="Choose a server" hidden>
-      <div class="view-title"><h2>Servers</h2><span id="fleet"></span></div>
+      <div class="card-head"><h2>Servers</h2><span id="fleet"></span></div>
       <div id="server-options"></div>
       <div id="servers-pages" class="pager" hidden>
-        <button type="button" id="servers-prev" aria-label="Previous servers">‹</button>
+        <button type="button" id="servers-prev" aria-label="Previous servers"><svg aria-hidden="true"><use href="#i-chevron"/></svg></button>
         <span id="servers-page"></span>
-        <button type="button" id="servers-next" aria-label="Next servers">›</button>
+        <button type="button" id="servers-next" aria-label="Next servers"><svg aria-hidden="true"><use href="#i-chevron"/></svg></button>
       </div>
     </section>
     <section id="confirm-unload" class="surface confirm-unload" aria-labelledby="unload-title" hidden>
@@ -144,7 +201,7 @@
   <footer>
     <span id="updated">Waiting for data</span>
     <span id="message" role="status"></span>
-    <button type="button" id="refresh" aria-label="Refresh dashboard">↻</button>
+    <button type="button" id="refresh" aria-label="Refresh dashboard"><svg aria-hidden="true"><use href="#i-refresh"/></svg></button>
   </footer>
 </body>
 </html>

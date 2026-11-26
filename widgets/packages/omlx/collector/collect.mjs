@@ -51,12 +51,13 @@ function activityModel(model, activity, wasLoaded) {
     active: finite(activity?.active_requests),
     queued: finite(activity?.waiting_requests),
     idleTtl: finite(activity?.ttl_remaining_seconds),
+    idleSeconds: finite(activity?.idle_seconds),
     decode: activity ? (rates.length ? rates.reduce((sum, rate) => sum + rate, 0) : generating.length ? null : 0) : null,
     loadingElapsed: finite(activity?.loading_elapsed_seconds),
     loadingRemaining: finite(activity?.loading_remaining_seconds_estimate),
     generating: generating.length,
     generations: generating.map(row => ({
-      tokens: finite(row.generated_tokens), elapsed: finite(row.elapsed_seconds),
+      id: label(row.request_id), tokens: finite(row.generated_tokens), elapsed: finite(row.elapsed_seconds),
       rate: finite(row.tokens_per_second)
     })),
     prefilling: prefilling.map((row) => ({
@@ -149,9 +150,13 @@ export async function pollServer(server, fetchJson = fetch) {
 
 export async function weeklyUsage(server, fetchJson = fetch) {
   const {data} = await request(server, "/admin/api/usage?range=7d", fetchJson);
-  if (!data || data.available === false || data.enabled === false ||
+  if (data?.enabled === false) return {disabled: true};
+  if (!data || data.available === false ||
       !Array.isArray(data.heatmap) || !Array.isArray(data.models)) return null;
+  // `end` is the server's next local midnight with its UTC offset.
+  const zone = typeof data.end === "string" ? /([+-])(\d{2}):(\d{2})$/.exec(data.end) : null;
   return {
+    offsetMinutes: zone ? (zone[1] === "-" ? -1 : 1) * (Number(zone[2]) * 60 + Number(zone[3])) : null,
     days: data.heatmap.filter(day => /^\d{4}-\d{2}-\d{2}$/.test(day.date) &&
       Array.isArray(day.tokens) && day.tokens.length === 24).map(day => ({
       date: day.date, tokens: day.tokens.map(finite)
@@ -197,7 +202,8 @@ async function run() {
       const server = servers[index];
       let entry = weeks.get(server.origin);
       if (!entry || entry.key !== server.key || Date.now() >= entry.next) {
-        entry = {key:server.key, next:Date.now()+60000, data:entry?.key === server.key ? entry?.data : null};
+        // `undefined` until the first fetch lands, so the view can say it is loading.
+        entry = {key:server.key, next:Date.now()+60000, data:entry?.key === server.key ? entry?.data : undefined};
         weeks.set(server.origin,entry);
         void weeklyUsage(server).then(data => { entry.data = data; });
 
