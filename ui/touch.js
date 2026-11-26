@@ -4,16 +4,31 @@
   const slop = 12;
   let gesture;
 
+  function local(frame, x, y) {
+    const rect = frame.getBoundingClientRect();
+    return [(x - rect.left) * frame.offsetWidth / rect.width - frame.clientLeft,
+      (y - rect.top) * frame.offsetHeight / rect.height - frame.clientTop];
+  }
   function hit(x, y) {
     let doc = document, target = doc.elementFromPoint(x, y);
     while (target?.tagName === 'IFRAME' && target.contentDocument) {
-      const rect = target.getBoundingClientRect();
-      x = (x - rect.left) * target.offsetWidth / rect.width - target.clientLeft;
-      y = (y - rect.top) * target.offsetHeight / rect.height - target.clientTop;
+      [x, y] = local(target, x, y);
       doc = target.contentDocument;
       target = doc.elementFromPoint(x, y);
     }
-    return {doc, target, x, y};
+    // A sandboxed package frame can't be reached into: its own SDK replays the touch.
+    const remote = target?.tagName === 'IFRAME' && target.dataset.packageFrame ? target : null;
+    return {doc, target, x, y, remote};
+  }
+  // Map root coordinates into a frame, through any same-origin frames around it.
+  function toFrame(frame, x, y) {
+    const chain = [];
+    for (let f = frame; f; f = f.ownerDocument === document ? null : f.ownerDocument.defaultView.frameElement) chain.unshift(f);
+    for (const f of chain) [x, y] = local(f, x, y);
+    return [x, y];
+  }
+  function forward(frame, message) {
+    frame.contentWindow?.postMessage({dashledge: 1, type: 'touch', ...message}, '*');
   }
   function scroller(target, axis) {
     for (let node = target; node; node = node.parentElement) {
@@ -81,6 +96,14 @@
   window.__edgeTouch = (kind, x, y) => {
     const point = hit(x,y);
     window.dispatchEvent(new CustomEvent('edgetouch', {detail:{kind,x,y}}));
+    if (kind === 'down' && point.remote) {
+      gesture = begin(point,x,y);
+      gesture.remote = point.remote;
+      point.remote.__gestureVerdict = false;
+      const [fx, fy] = toFrame(point.remote, x, y);
+      forward(point.remote, {kind, x:fx, y:fy, bezel:gesture.bezel});
+      return;
+    }
     if (kind === 'down') {
       const pressed = point.target?.closest("button,a,label,summary,[role=button],input,textarea");
       pressed?.classList.add('edge-pressed');
@@ -93,6 +116,19 @@
     }
     const g = gesture;
     if (!g) return;
+    if (g.remote) {
+      track(g,x,y);
+      // The frame reports whether a horizontal drag has content of its own to scroll.
+      g.page = g.axis === 'x' && !g.blocked && (g.bezel || g.remote.__gestureVerdict === true);
+      const [fx, fy] = toFrame(g.remote, x, y);
+      if (kind === 'move') { forward(g.remote, {kind, x:fx, y:fy}); return; }
+      gesture = null;
+      const step = direction(g,x,y);
+      const edge = x <= 14 && Math.abs(y - window.innerHeight/2) <= 30;
+      forward(g.remote, {kind, x:fx, y:fy, turned:!!step, edge});
+      if (step) turn(step);
+      return;
+    }
     if(g.range){
       if(g.range.isConnected&&!g.range.disabled)rangeTouch(g.range,x,kind==='up');
       if(kind==='up'){g.range.classList.remove('edge-pressed');gesture=null}

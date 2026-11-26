@@ -339,7 +339,7 @@ fn resource(id: &str, path: &str) -> Option<(Vec<u8>, &'static str)> {
         let html = fs::read_to_string(file).ok()?;
         html.replacen(
             "<head>",
-            "<head><link rel=\"stylesheet\" href=\"/scrollbars.css\"><script src=\"/widget-bridge.js\"></script>",
+            "<head><link rel=\"stylesheet\" href=\"/scrollbars.css\"><script src=\"/package-sdk.js\"></script>",
             1,
         )
         .into_bytes()
@@ -369,7 +369,9 @@ pub fn serve(req: Request<Vec<u8>>, res: &mut Response<Cow<'static, [u8]>>) {
         .and_then(|(id, path)| resource(id, path));
     let builder = Response::builder().header("Cache-Control","no-store")
         .header("X-Content-Type-Options","nosniff")
-        .header("Content-Security-Policy","default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'");
+                // Package frames are sandboxed with an opaque origin, where 'self' matches
+        // nothing, so the app origin is named. No network or nested frames.
+        .header("Content-Security-Policy","default-src tauri://localhost; script-src tauri://localhost; style-src tauri://localhost 'unsafe-inline'; img-src tauri://localhost data: blob:; font-src tauri://localhost; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'");
     *res = if let Some((data, mime)) = asset {
         builder
             .header("Content-Type", mime)

@@ -15,17 +15,24 @@ test('portrait uses the rotated Zurface reference canvas and transposes asymmetr
   assert.deepEqual(grid.children.map(c=>[c.style.gridColumn,c.style.gridRow]),[['1 / 3','1 / 2'],['1 / 2','2 / 3'],['2 / 3','2 / 3']]);
   assert.deepEqual(regions,copy);
 });
-test('a mounted original receives live appearance changes and keeps its viewer identity',async()=>{
-  const script=await readFile(new URL('../ui/widget-bridge.js',import.meta.url),'utf8');
-  const props=new Map(),events=new Map(),frame={dataset:{viewer:'fixture'}};
-  let prefs={primary:'#812345',accent:'#6789ab'};
-  const window={frameElement:frame,addEventListener:(name,cb)=>events.set(name,cb)};
-  vm.runInNewContext(script,{window,document:{documentElement:{style:{setProperty:(k,v)=>props.set(k,v)}}},localStorage:{getItem:()=>JSON.stringify(prefs)}});
+test('a package view receives live appearance changes and keeps its viewer identity',async()=>{
+  const script=await readFile(new URL('../ui/package-sdk.js',import.meta.url),'utf8');
+  const props=new Map(),listeners=new Map(),sent=[];
+  const host={postMessage:message=>sent.push(message)};
+  const window={parent:host,addEventListener:(name,cb)=>listeners.set(name,cb)};
+  const document={documentElement:{style:{setProperty:(k,v)=>props.set(k,v)}},addEventListener(){},querySelector(){return null}};
+  vm.runInNewContext(script,{window,document,Event,setTimeout});
+  assert.equal(sent[0].type,'ready');
+  const deliver=state=>listeners.get('message')({source:host,data:{dashledge:1,type:'state',state}});
   const records=[],stop=window.Zurface.subscribe(s=>records.push(s));
-  prefs={primary:'#001122',accent:'#334455'};events.get('storage')({key:'edge.general.v1'});
-  assert.equal(records.length,2);assert.equal(records[1].theme.primary,prefs.primary);assert.equal(props.get('--accent'),prefs.accent);
-  assert.equal(records[1].instanceID,records[0].instanceID);
-  stop();events.get('storage')({key:'edge.general.v1'});assert.equal(records.length,2);
+  deliver({instanceID:'omlx-dashboard@fixture',theme:{mode:'dark',primary:'#812345',accent:'#6789ab'}});
+  deliver({instanceID:'omlx-dashboard@fixture',theme:{mode:'dark',primary:'#001122',accent:'#334455'}});
+  assert.equal(records.length,3);assert.equal(records[2].theme.primary,'#001122');assert.equal(props.get('--accent'),'#334455');
+  assert.equal(records[2].instanceID,records[1].instanceID);
+  listeners.get('message')({source:{},data:{dashledge:1,type:'state',state:{theme:{primary:'#ffffff'}}}});
+  assert.equal(props.get('--text'),'#001122','messages from anyone but the host are ignored');
+  stop();deliver({theme:{mode:'dark',primary:'#000000',accent:'#000000'}});assert.equal(records.length,3);
+  assert.equal(window.Dashledge,window.Zurface);
 });
 
 import {measurement,animateReading} from '../ui/metric-reading.js';

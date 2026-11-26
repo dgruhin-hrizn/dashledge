@@ -15,6 +15,7 @@ import {mountOriginal,widgetSources} from './original-widgets.js';
 import {titles,layout,readPath,originalKinds} from './model.js';
 import {addBundledDmdPage,ensure,state,current,activate,save,invoke,el,button,num} from './common.js';
 import {loadPackages,nativeViewport} from './packages.js';
+import {blurFrames} from './package-bridge.js';
 const $=s=>document.querySelector(s);
 await loadPackages();
 let config=ensure(),page,tiles=[],timer,metrics={},sample=0;
@@ -127,12 +128,7 @@ function renderTile(t){
 // Preserve original subviews, scroll positions and metric histories across page changes.
 // Keeping the iframe in the document also avoids WebKit reloading it on reattachment.
 const mountedPages=new Map();
-function conceal(grid){
-  for(const frame of grid?.querySelectorAll('iframe')||[]){
-    const child=frame.contentWindow;
-    if(child)child.dispatchEvent(new child.Event('blur'));
-  }
-}
+function conceal(grid){blurFrames(grid)}
 function removePage(view){
   conceal(view.grid);
   for(const tile of view.tiles){tile.dispose?.();tile.readings?.forEach(reading=>reading.stop())}
