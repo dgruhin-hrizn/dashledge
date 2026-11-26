@@ -119,6 +119,10 @@
 .settings .preview-panel {background:#0e1211;padding:9px}.settings .preview {display:block;background:#121617;border:0;border-radius:5px}
 .admin-dialog {width:min(440px,90vw);max-height:90vh;border-radius:13px;padding:22px;background:#202626;box-shadow:0 25px 60px #0007}
 .settings .admin-dialog h2 {margin:0 0 6px;font-size:20px}.settings .fields {margin:0;gap:12px}.settings .form-actions {justify-content:flex-end;margin-top:8px}
+/* Wider for connection forms with extra fields; Save and Cancel stay in view while the form scrolls. */
+.admin-dialog.wide-dialog {width:min(680px,92vw)}
+.settings .admin-dialog .fields > * {min-width:0}
+.settings .admin-dialog .form-actions {position:sticky;bottom:-22px;z-index:1;margin:8px -22px -22px;padding:12px 22px 22px;background:#202626;border-top:1px solid #ffffff14}
 .settings .field span {font-size:12px;font-weight:580;color:#c1c9c3}.settings input,.settings select {border-radius:6px;background:#161c1b}
 .form-error {color:#f2b28d;overflow-wrap:anywhere}.form-error:empty {display:none}
 .settings #notice {z-index:5;border:1px solid #475845;box-shadow:0 5px 16px #0003}
