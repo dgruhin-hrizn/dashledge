@@ -136,7 +136,7 @@ function removePage(view){
   for(const tile of view.tiles){tile.dispose?.();tile.readings?.forEach(reading=>reading.stop())}
   view.grid.remove();
 }
-// Instruments and clocks size their px caps by --px-scale, so a solo page drawn at the
+// Instruments, clocks and Run-DMD size their px values by --px-scale, so a solo page drawn at the
 // native viewport keeps the physical size it had on the scaled 1920 × 540 canvas.
 function pxScale(){
   const native=!!window.frameElement?.hasAttribute('data-native-viewport');
@@ -150,7 +150,7 @@ function mount(){
   document.body.classList.toggle('full-widget',['spotify','applemusic','googledesk','shortcuts','photos','markets','plans'].includes(soloKind)||!!slackWidgets[soloKind]||soloKind==='rundmd'||originalKinds.includes(soloKind)||config.plugins.some(p=>p.id===soloKind&&p.apiVersion===2));
   const frame=window.frameElement;
   if(frame){
-    const music=['spotify','applemusic'].includes(soloKind),native=['applemusic','googledesk','shortcuts','photos','markets','plans','clock','world'].includes(soloKind)||instrumentKinds.includes(soloKind)||!!slackWidgets[soloKind]||nativeViewport(soloKind)||config.plugins.some(p=>p.id===soloKind&&p.viewport==='native');
+    const music=['spotify','applemusic'].includes(soloKind),native=['applemusic','googledesk','shortcuts','photos','markets','plans','clock','world','rundmd'].includes(soloKind)||instrumentKinds.includes(soloKind)||!!slackWidgets[soloKind]||nativeViewport(soloKind)||config.plugins.some(p=>p.id===soloKind&&p.viewport==='native');
     if(frame.hasAttribute('data-full-spotify')!==music||frame.hasAttribute('data-native-viewport')!==native){
       frame.toggleAttribute('data-full-spotify',music);
       frame.toggleAttribute('data-native-viewport',native);

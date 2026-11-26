@@ -151,6 +151,8 @@ export function mountDmd(box){
   });
   const sizeObserver=new ResizeObserver(([{contentRect:{width,height}}])=>{
     if(!width||!height)return;
+    // Full resolution up to the Edge's 2560 device pixels on the long side; a solo page now
+    // lays the screen out at that size directly, so the dots are no longer magnified.
     const density=Math.min(window.devicePixelRatio||1,2560/Math.max(width,height));
     resize(Math.max(1,Math.round(width*density)),Math.max(1,Math.round(height*density)));
     wake();
