@@ -49,6 +49,13 @@ pub struct Manifest {
     /// Per-placement settings, edited in Pages & layouts or from the view's own gear.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub settings: Vec<Setting>,
+    /// Bundled widgets only: `false` keeps a fresh layout from getting a full-screen
+    /// page for this widget. Layouts that already have one keep it.
+    #[serde(default = "yes", skip_serializing_if = "Clone::clone")]
+    pub page: bool,
+}
+fn yes() -> bool {
+    true
 }
 
 /// A Dashledge capability a package view asks for. The dashboard's package bridge
@@ -439,6 +446,9 @@ pub fn validate(raw: &Value, origin: Origin) -> Result<Manifest, String> {
             }
             if manifest.collector.is_some() {
                 return fail("Installed packages can’t run a collector. Use a connector, which runs sandboxed.");
+            }
+            if !manifest.page {
+                return fail("Only bundled widgets get a page of their own, so `page` applies to them only.");
             }
         }
         Origin::Bundled => name(&manifest.id, "Bundled widget ID")?,
@@ -936,6 +946,26 @@ mod tests {
         for bad in ["", "*", "has space", "line\nbreak", &"x".repeat(129)] {
             assert!(!choice_value(bad), "{bad}");
         }
+    }
+
+    #[test]
+    fn page_is_on_by_default_and_only_bundled_widgets_turn_it_off() {
+        let b = validate(&bundled(), Origin::Bundled).unwrap();
+        assert!(b.page);
+        assert!(serde_json::to_value(&b).unwrap().get("page").is_none(), "the default isn't written out");
+        let mut off = bundled();
+        off["page"] = json!(false);
+        let m = validate(&off, Origin::Bundled).unwrap();
+        assert!(!m.page);
+        assert_eq!(serde_json::to_value(&m).unwrap()["page"], json!(false));
+        off["page"] = json!("no");
+        assert!(validate(&off, Origin::Bundled).is_err());
+        let mut installed_off = installed();
+        installed_off["page"] = json!(false);
+        assert!(validate(&installed_off, Origin::Installed).unwrap_err().contains("bundled"));
+        let mut installed_on = installed();
+        installed_on["page"] = json!(true);
+        assert!(validate(&installed_on, Origin::Installed).is_ok());
     }
 
     #[test]

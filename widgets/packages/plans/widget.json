@@ -3,7 +3,7 @@
   "id": "plans",
   "title": "AI Plan Monitor",
   "description": "Claude and Codex subscription limits, remaining allowance and local reset times.",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "category": "AI & development",
   "icon": "view/icon.svg",
   "view": {
@@ -19,6 +19,7 @@
       "refresh"
     ]
   },
+  "page": false,
   "permissions": [
     "settings",
     "settings.choices"

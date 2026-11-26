@@ -1,7 +1,7 @@
 // Bundled widget packages, read from their widget.json manifests through
 // list_packages. Registering one fills the title, catalog and connection tables the
 // rest of the UI reads, so widgets/packages/ is the single source of these details.
-import {titles, originalKinds} from './model.js';
+import {titles, originalKinds, pagelessKinds} from './model.js';
 import {registerCatalog} from './widget-catalog.js';
 import {invoke} from './common.js';
 
@@ -13,6 +13,7 @@ export function registerPackages(list) {
     packageInfo.set(info.id, info);
     titles[info.id] = info.title;
     if (!originalKinds.includes(info.id)) originalKinds.push(info.id);
+    if (info.page === false) pagelessKinds.add(info.id); else pagelessKinds.delete(info.id);
     registerCatalog(info);
   }
 }

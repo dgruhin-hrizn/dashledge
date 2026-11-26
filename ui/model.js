@@ -8,10 +8,13 @@ export const count=p=>presets[p].reduce((x,y)=>x+y,0);
 export function initial(){return {version:1,pages:[makePage('System','Five',['cpu','gpu','memory','disk','network']),makePage('Studio','Featured',['comfy','omlx','spotify']),makePage('Media','One',['emby']),makePage('Everyday','Four',['clock','focus','notes','machine'])],sources:[],plugins:[]}}
 // Bundled package widgets, filled from their manifests by ui/packages.js.
 export const originalKinds = [];
+// Bundled widgets whose manifest says `page: false`: a fresh layout gets no page for them.
+export const pagelessKinds = new Set();
 export function addOriginalPages(config) {
   // Wait until the bundled packages are known, so an unreadable list can't mark this done.
   if (config.originalDashboards || !originalKinds.length) return false;
   for (const kind of originalKinds) {
+    if (pagelessKinds.has(kind)) continue;
     if (config.pages.some(p => p.slots.length === 1 && p.slots[0].kind === kind)) continue;
     const page = makePage(titles[kind], 'One', [kind]);
     page.slots[0].source = config.sources.find(source => source.kind === kind)?.id || '';

@@ -99,6 +99,7 @@ Settings and colours are left out of the dashboard's page signature, so changing
   - The labels shown in the connection form.
 - `displayName.serverField`: the dot path where the server reports its own name. The display name is the user's connection name, else that field, else the address's host.
 - `permissions` and `settings`: capabilities and the per-placement settings schema. Rust fills defaults. `dynamic` settings need `settings.choices`; `multi` values are lists (`["*"]` is every option), `names` values map option values to names.
+- `page` (bundled widgets only): `false` keeps a fresh layout from getting a full-screen page for the widget (`addOriginalPages`), as AI Plan Monitor does. Layouts that already have the page keep it. Installed packages never get one, so the validator refuses the field there.
 - `collector.outputs` / `collector.commands`: the only files served from the collector's directory, and the only commands the bridge forwards. A collector reads its commands with `onCommand(name, fn)` from `_shared/context.mjs`.
 
 ## Rules
