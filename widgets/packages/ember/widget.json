@@ -1,0 +1,20 @@
+{
+  "apiVersion": 2,
+  "id": "ember",
+  "title": "Ember Copper",
+  "description": "Workspaces, chat transcripts and usage from your local Ember installation.",
+  "version": "1.20.2",
+  "category": "AI & development",
+  "icon": "view/ember-mark.png",
+  "view": {
+    "entry": "view/index.html",
+    "viewport": "native"
+  },
+  "collector": {
+    "entry": "collector/collector.mjs",
+    "outputs": [
+      "snapshot.js",
+      "revision.js"
+    ]
+  }
+}

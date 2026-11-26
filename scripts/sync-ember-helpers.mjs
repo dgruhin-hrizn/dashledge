@@ -9,7 +9,7 @@ if (!agentPath || !widgetPath) throw Error('Pass the Ember packages/agent path a
 const agent = resolve(agentPath), widget = resolve(widgetPath);
 const require = createRequire(join(agent,'package.json'));
 const esbuild = require('esbuild');
-const output = fileURLToPath(new URL('../widgets/collectors/ember/',import.meta.url));
+const output = fileURLToPath(new URL('../widgets/packages/ember/collector/',import.meta.url));
 const exports = new Set(['export {parse} from "jsonc-parser";']);
 for (const file of ['collector.mjs','transcripts.mjs','usage-report.mjs']) {
   const source = await readFile(join(widget,file),'utf8');

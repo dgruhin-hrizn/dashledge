@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { modelControls } from "./model-control.mjs";
 
-import { context, preferences } from '../context.mjs';
+import { context, preferences } from '../../_shared/context.mjs';
 const interval = 1000;
 const finite = (value) => Number.isFinite(value) && value >= 0 ? value : null;
 const positive = (value) => finite(value) || null;

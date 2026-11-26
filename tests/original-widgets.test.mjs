@@ -1,3 +1,4 @@
+import './helpers/bundled-packages.mjs';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,rm} from 'node:fs/promises';
@@ -5,7 +6,7 @@ import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {addOriginalPages,initial,originalKinds} from '../ui/model.js';
 import {widgetSources} from '../ui/original-widgets.js';
-import {modelControls} from '../widgets/collectors/omlx/model-control.mjs';
+import {modelControls} from '../widgets/packages/omlx/collector/model-control.mjs';
 
 test('upgrade adds missing full-screen dashboards once and honors later edits', () => {
   const layout=initial();

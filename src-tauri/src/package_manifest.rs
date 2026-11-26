@@ -433,7 +433,6 @@ pub fn validate(raw: &Value, origin: Origin) -> Result<Manifest, String> {
 }
 
 /// Does `file`, requested by a view, match one of a collector's output patterns?
-#[allow(dead_code)] // The manifest-driven widget host serves outputs with this.
 pub fn matches_output(patterns: &[String], file: &str) -> bool {
     patterns.iter().any(|pattern| {
         let (p_dir, p_name) = pattern.rsplit_once('/').map_or(("", pattern.as_str()), |(d, n)| (d, n));

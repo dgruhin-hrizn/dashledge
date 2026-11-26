@@ -1,4 +1,4 @@
-import { context } from "../context.mjs";
+import { context } from "../../_shared/context.mjs";
 import { execFile, execFileSync } from "node:child_process";
 
 import { createHash } from "node:crypto";

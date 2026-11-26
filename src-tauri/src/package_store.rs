@@ -13,6 +13,7 @@ use std::{
     fs,
     io::{Cursor, Read},
     path::{Path, PathBuf},
+    sync::{Mutex, OnceLock},
 };
 use tauri::Manager;
 use zip::ZipArchive;
@@ -206,15 +207,59 @@ pub fn bundled_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(resources)
 }
 
-/// A package by ID: bundled first, so an installed package can never replace one.
-#[allow(dead_code)] // The manifest-driven widget host looks packages up with this.
-pub fn find(app: &tauri::AppHandle, id: &str) -> Option<(PackageInfo, PathBuf)> {
-    for (root, origin) in [(bundled_root(app).ok()?, Origin::Bundled), (installed_root(app).ok()?, Origin::Installed)] {
-        if let Some(found) = read_root(&root, origin).into_iter().find(|p| p.manifest.id == id) {
-            return Some((found, root.join(id)));
+static ROOTS: OnceLock<(PathBuf, PathBuf)> = OnceLock::new();
+static CACHE: Mutex<Option<Vec<(PackageInfo, PathBuf)>>> = Mutex::new(None);
+
+/// Remember where packages live. Called once at startup.
+pub fn init(app: &tauri::AppHandle) -> Result<(), String> {
+    let _ = ROOTS.set((bundled_root(app)?, installed_root(app)?));
+    refresh();
+    Ok(())
+}
+
+/// Forget the cached listing after an install or removal.
+pub fn refresh() {
+    *CACHE.lock().unwrap() = None;
+}
+
+/// Every package with its folder: bundled first, then installed ones whose ID no
+/// bundled package uses, so an installed package can never replace a built-in widget.
+pub fn all() -> Vec<(PackageInfo, PathBuf)> {
+    let mut cache = CACHE.lock().unwrap();
+    if let Some(list) = &*cache {
+        return list.clone();
+    }
+    let (bundled, installed) = match ROOTS.get() {
+        Some((b, i)) => (b.clone(), Some(i.clone())),
+        // Tests and other code running without the app read the project's packages.
+        #[cfg(debug_assertions)]
+        None => (Path::new(env!("CARGO_MANIFEST_DIR")).join("../widgets/packages"), None),
+        #[cfg(not(debug_assertions))]
+        None => return Vec::new(),
+    };
+    let mut list: Vec<_> = read_root(&bundled, Origin::Bundled)
+        .into_iter()
+        .map(|p| { let dir = bundled.join(&p.manifest.id); (p, dir) })
+        .collect();
+    if let Some(installed) = installed {
+        for package in read_root(&installed, Origin::Installed) {
+            if !list.iter().any(|(p, _)| p.manifest.id == package.manifest.id) {
+                let dir = installed.join(&package.manifest.id);
+                list.push((package, dir));
+            }
         }
     }
-    None
+    *cache = Some(list.clone());
+    list
+}
+
+/// A package and its folder by ID.
+pub fn lookup(id: &str) -> Option<(PackageInfo, PathBuf)> {
+    all().into_iter().find(|(p, _)| p.manifest.id == id)
+}
+
+pub fn is_bundled(id: &str) -> bool {
+    lookup(id).is_some_and(|(p, _)| p.origin == "bundled")
 }
 
 fn settings_only(window: &tauri::WebviewWindow) -> Result<(), String> {
@@ -258,15 +303,13 @@ pub fn install_widget_package(
     let manifest = check(&raw, &files)?;
     let root = installed_root(&app)?;
     install_files(&root, &manifest, &files)?;
+    refresh();
     Ok(info(manifest, Origin::Installed, &root.join(&raw["id"].as_str().unwrap_or_default())))
 }
 
 #[tauri::command]
-pub fn list_packages(app: tauri::AppHandle) -> Result<Vec<PackageInfo>, String> {
-    let mut all = read_root(&bundled_root(&app)?, Origin::Bundled);
-    let bundled: Vec<String> = all.iter().map(|p| p.manifest.id.clone()).collect();
-    all.extend(read_root(&installed_root(&app)?, Origin::Installed).into_iter().filter(|p| !bundled.contains(&p.manifest.id)));
-    Ok(all)
+pub fn list_packages() -> Vec<PackageInfo> {
+    all().into_iter().map(|(p, _)| p).collect()
 }
 
 #[tauri::command]
@@ -276,10 +319,12 @@ pub fn remove_widget_package(window: tauri::WebviewWindow, app: tauri::AppHandle
     if rest.is_empty() || !rest.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"-.".contains(&b)) || rest.contains("..") {
         return Err("Unknown package".into());
     }
-    match fs::remove_dir_all(installed_root(&app)?.join(&id)) {
+    let result = match fs::remove_dir_all(installed_root(&app)?.join(&id)) {
         Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.to_string()),
         _ => Ok(()),
-    }
+    };
+    refresh();
+    result
 }
 
 #[cfg(test)]
@@ -389,6 +434,23 @@ mod tests {
         fs::create_dir_all(&broken).unwrap();
         fs::write(broken.join("widget.json"), "{").unwrap();
         assert!(read_root(root.path(), Origin::Installed).is_empty());
+    }
+
+    #[test]
+    fn every_bundled_package_is_valid_and_its_files_exist() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../widgets/packages");
+        let listed = read_root(&root, Origin::Bundled);
+        let ids: Vec<_> = listed.iter().map(|p| p.manifest.id.as_str()).collect();
+        assert_eq!(ids, ["comfy", "ember", "emby", "omlx", "proxmox", "unraid"]);
+        for package in &listed {
+            let dir = root.join(&package.manifest.id);
+            let collector = package.manifest.collector.as_ref().unwrap();
+            for file in [&package.manifest.view.entry, &collector.entry, &package.manifest.icon] {
+                assert!(dir.join(file).is_file(), "{} is missing {file}", package.manifest.id);
+            }
+            assert!(package.icon_data.is_some(), "{} icon", package.manifest.id);
+        }
+        assert!(is_bundled("emby") && !is_bundled("plugin.emby") && !is_bundled("markets"));
     }
 
     #[test]

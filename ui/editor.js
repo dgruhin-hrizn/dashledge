@@ -14,6 +14,8 @@ import {icon} from './admin-icons.js';
 import {appendPage,assignWidget,pickWidget} from './page-actions.js';
 import {presets,titles,id,resize,split,removeSection,layout,plugin} from './model.js';
 import {addBundledDmdPage,ensure,state,current,activate,save,invoke,el,button,field,select} from './common.js';
+import {loadPackages,packageInfo} from './packages.js';
+await loadPackages();
 let config=ensure(),tab='General',chosen=current(config).id,index=0,undo=[],statusTimer;
 const main=document.querySelector('#editor');
 const links=[['General','General','general'],['Layouts','Pages & layouts','pages'],['Widget Studio','Widget Studio','studio'],['Preview','Live preview','preview'],['About','About','info']];
@@ -28,7 +30,7 @@ let detail=null,studioCategory;
 function go(next){tab=next;detail=null;render()}
 function widgetSettings(kind){studioCategory=widgetInfo(config,kind)?.category;tab='Widget Studio';detail=kind;render()}
 
-const sourceNames={comfy:'ComfyUI',emby:'Emby',proxmox:'Proxmox',omlx:'oMLX',unraid:'Unraid',json:'JSON endpoint'};
+const sourceNames={json:'JSON endpoint'};
 function notice(text){const n=document.querySelector('#notice');n.textContent=text;clearTimeout(statusTimer);statusTimer=setTimeout(()=>n.textContent='',6000)}
 function input(value='',type='text'){const n=el('input');n.type=type;n.value=value;return n}
 function section(title,...children){const s=el('section');s.append(el('h2','',title),...children);return s}
@@ -185,13 +187,13 @@ function layouts(){
   pages.querySelector('[aria-current]')?.scrollIntoView?.({block:'nearest',inline:'nearest'});
 }
 const sourceHelp={
-  comfy:['Worker URL','http://worker.local:8188','Optional bearer token'],
-  emby:['Server URL','http://media.local:8096/emby/','Emby API key'],
-  proxmox:['Cluster URL','https://pve.local:8006','API token ID=secret'],
-  omlx:['Server URL','http://localhost:8000','oMLX API key'],
-  unraid:['Monitoring API URL','http://tower.local:8043/api/v1/','Monitoring API token'],
   json:['JSON endpoint','https://service.example/status','Optional bearer token']
 };
+// Bundled widgets describe their own connections in widget.json.
+for(const [kind,info] of packageInfo)if(info.sources){
+  sourceNames[kind]=info.title;
+  sourceHelp[kind]=[info.sources.addressLabel||'Server URL',info.sources.addressPlaceholder||'https://server.local',info.sources.credentialLabel||'Credential'];
+}
 function sourceForm(widget,existing){
   const kind=widgetInfo(config,widget).feed,name=input(existing?.name),address=input(existing?.address,'url'),secret=input('','password');
   name.required=address.required=true;secret.autocomplete='new-password';secret.placeholder=existing?'Leave blank to keep saved credential':'Optional';

@@ -17,7 +17,7 @@ async function mount(){
   const document={hidden:true,querySelector(id){if(!roots.has(id))roots.set(id,element(id));return roots.get(id);},
     createElement(tag){const node=element(tag);node.classList.owner=node;return node;},addEventListener(){}};
   const window={addEventListener(){}};
-  const source=await readFile(new URL('../widgets/views/comfy/widget.js',import.meta.url),'utf8');
+  const source=await readFile(new URL('../widgets/packages/comfy/view/widget.js',import.meta.url),'utf8');
   vm.runInNewContext(source,{document,window,setInterval(){}});
   const card=roots.get('main').firstChild;
   return {window,card,roots};

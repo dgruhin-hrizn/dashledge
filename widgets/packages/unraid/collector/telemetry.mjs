@@ -1,4 +1,4 @@
-import '../../views/unraid/assignments.js';
+import '../view/assignments.js';
 export function diskSampler(){
   let previous=new Map(),latest=0;
   return disks=>{

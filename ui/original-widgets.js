@@ -1,12 +1,14 @@
 import {button, el, invoke} from './common.js';
 import {titles} from './model.js';
+import {packageInfo,sourceLimit} from './packages.js';
 
 export function widgetSources(kind, selected, sources) {
-  if (kind === 'ember') return [];
+  const limit = sourceLimit(kind);
+  if (!limit) return [];
   const primary = sources.find(source => source.kind === kind && source.id === selected);
   if (!primary) return [];
-  // The original render wall pairs workers. The oMLX switcher lists all saved servers.
-  const limit = kind === 'comfy' ? 2 : kind === 'omlx' ? 20 : 1;
+  // ComfyUI's render wall pairs workers and oMLX's switcher lists every saved server,
+  // up to the connection count each manifest declares.
   const endpoints = new Set();
   const guestTargets = kind === 'comfy' ? sources.filter(s => s.kind === 'proxmox')
     .flatMap(s => Object.values(s.gpuGuests || {})) : [];
@@ -75,7 +77,7 @@ export function mountOriginal(box, slot, connections) {
       timer = setTimeout(connect, 1500);
     }
   }
-  if (slot.kind === 'ember' || sources.length) connect();
+  if (!packageInfo.get(slot.kind)?.sources || sources.length) connect();
   else {
     message.textContent = 'Choose a ' + titles[slot.kind] + ' connection in Widget Studio.';
     status.append(button('Settings', () => invoke('open_settings')));

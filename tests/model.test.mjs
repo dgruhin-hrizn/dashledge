@@ -1,3 +1,4 @@
+import './helpers/bundled-packages.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {initial,makePage,resize,plugin,readPath,count,presets} from '../ui/model.js';

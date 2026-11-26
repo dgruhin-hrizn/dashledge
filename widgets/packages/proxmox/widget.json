@@ -1,0 +1,31 @@
+{
+  "apiVersion": 2,
+  "id": "proxmox",
+  "title": "Proxmox",
+  "description": "Cluster health, virtual machines and GPU telemetry.",
+  "version": "1.4.0",
+  "category": "Servers & storage",
+  "icon": "view/icon.svg",
+  "view": {
+    "entry": "view/index.html",
+    "viewport": "reference"
+  },
+  "sources": {
+    "min": 1,
+    "max": 1,
+    "auth": "pve-token",
+    "address": "origin",
+    "test": [
+      "api2/json/cluster/resources"
+    ],
+    "addressLabel": "Cluster URL",
+    "addressPlaceholder": "https://pve.local:8006",
+    "credentialLabel": "API token ID=secret"
+  },
+  "collector": {
+    "entry": "collector/collect.mjs",
+    "outputs": [
+      "snapshot.js"
+    ]
+  }
+}

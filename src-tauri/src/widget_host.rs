@@ -1,5 +1,7 @@
-//! Run the original dashboard feeds while a dashboard or live preview is subscribed.
-//! Each virtual directory serves a signed view plus only that feed's display assets.
+//! Run widget collectors while a dashboard or live preview is subscribed.
+//! Each virtual directory serves the package's view plus only the output files its
+//! manifest declares. Bundled packages come from `widgets/packages/`; Market Watch and
+//! AI Plan Monitor keep their built-in collectors in `widgets/collectors/`.
 use crate::connections::{endpoint, widget_credentials};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -31,7 +33,10 @@ pub struct Source {
 struct Feed {
     kind: String,
     sources: Vec<Source>,
+    /// The package's view folder. Empty for built-in feeds, which have no view.
     assets: PathBuf,
+    outputs: Vec<String>,
+    commands: Vec<String>,
     directory: TempDir,
     child: Child,
     viewers: HashMap<String, String>,
@@ -96,13 +101,38 @@ fn assets(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf), String> {
     Err("The app is missing its widget runtime.".into())
 }
 
-fn launch(kind: &str, sources: &[Source], assets: &Path, node: &Path) -> Result<Feed, String> {
-    let entry = match kind {
-        "comfy" | "emby" | "unraid" => "capture.mjs",
-        "omlx" | "proxmox" | "markets" | "plans" => "collect.mjs",
-        "ember" => "collector.mjs",
+/// What a feed runs and serves: its collector script, view folder, outputs and commands.
+struct Plan {
+    entry: PathBuf,
+    view: PathBuf,
+    outputs: Vec<String>,
+    commands: Vec<String>,
+}
+fn plan(kind: &str, assets: &Path) -> Result<Plan, String> {
+    if let Some((info, dir)) = crate::package_store::lookup(kind) {
+        let collector = info.manifest.collector.ok_or("This widget has no collector.")?;
+        let view_root = Path::new(&info.manifest.view.entry).parent().map(Path::to_path_buf).unwrap_or_default();
+        return Ok(Plan {
+            entry: dir.join(&collector.entry),
+            view: dir.join(view_root),
+            outputs: collector.outputs,
+            commands: collector.commands,
+        });
+    }
+    let outputs: &[&str] = match kind {
+        "markets" => &["market.json", "logos/*.png"],
+        "plans" => &["plans.json"],
         _ => return Err("Unknown widget".into()),
     };
+    Ok(Plan {
+        entry: assets.join("collectors").join(kind).join("collect.mjs"),
+        view: PathBuf::new(),
+        outputs: outputs.iter().map(|s| s.to_string()).collect(),
+        commands: Vec::new(),
+    })
+}
+fn launch(kind: &str, sources: &[Source], assets: &Path, node: &Path) -> Result<Feed, String> {
+    let plan = plan(kind, assets)?;
     let mut settings = Vec::new();
     if kind == "markets" { settings.push(crate::markets::credentials()?); }
     for source in sources {
@@ -118,7 +148,7 @@ fn launch(kind: &str, sources: &[Source], assets: &Path, node: &Path) -> Result<
         .map_err(|e| e.to_string())?;
     let mut child = Command::new(node)
         .arg("--disable-warning=ExperimentalWarning")
-        .arg(assets.join("collectors").join(kind).join(entry))
+        .arg(&plan.entry)
         .env_remove("NODE_OPTIONS")
         .env_remove("NODE_PATH")
         .env_remove("NODE_TLS_REJECT_UNAUTHORIZED")
@@ -136,7 +166,9 @@ fn launch(kind: &str, sources: &[Source], assets: &Path, node: &Path) -> Result<
     Ok(Feed {
         kind: kind.into(),
         sources: sources.to_vec(),
-        assets: assets.join("views").join(kind),
+        assets: plan.view,
+        outputs: plan.outputs,
+        commands: plan.commands,
         directory,
         child,
         viewers: HashMap::new(),
@@ -164,12 +196,13 @@ pub async fn widget_open(
     sources: Vec<Source>,
     viewer: String,
 ) -> Result<String, String> {
-    let count = match kind.as_str() {
-        "ember" | "markets" | "plans" => 0..=0,
-        "comfy" => 1..=2,
-        "omlx" => 1..=20,
-        "emby" | "unraid" | "proxmox" => 1..=1,
-        _ => return Err("Unknown widget".into()),
+    let count = match crate::package_store::lookup(&kind) {
+        Some((info, _)) if info.manifest.collector.is_some() => {
+            info.manifest.sources.map_or(0..=0, |s| (s.min as usize)..=(s.max as usize))
+        }
+        Some(_) => return Err("This widget has no collector.".into()),
+        None if matches!(kind.as_str(), "markets" | "plans") => 0..=0,
+        None => return Err("Unknown widget".into()),
     };
     if !count.contains(&sources.len()) || viewer.len() > 80 {
         return Err("Check the widget connections in Settings.".into());
@@ -253,7 +286,7 @@ pub fn widget_model_action(id: String, viewer: String, command: Value) -> Result
     let mut feeds = FEEDS.lock().unwrap();
     let feed = feeds
         .get_mut(&id)
-        .filter(|f| f.kind == "omlx" && f.viewers.contains_key(&viewer))
+        .filter(|f| f.commands.iter().any(|c| c == "model") && f.viewers.contains_key(&viewer))
         .ok_or("Model controls disconnected")?;
     let message = json!({"instance":format!("omlx-dashboard@{viewer}"),"command":command});
     writeln!(
@@ -276,15 +309,14 @@ fn resource(id: &str, path: &str) -> Option<(Vec<u8>, &'static str)> {
     }
     let feeds = FEEDS.lock().unwrap();
     let feed = feeds.get(id)?;
-    let root = match parts.as_slice() {
-        ["logos", file] if feed.kind == "markets" && file.ends_with(".png") => feed.directory.path(),
-        ["plans.json"] if feed.kind == "plans" => feed.directory.path(),
-        ["market.json"] if feed.kind == "markets" => feed.directory.path(),
-        ["snapshot.js"] | ["revision.js"] => feed.directory.path(),
-        ["art" | "previews", file] if file.ends_with(".jpg") => feed.directory.path(),
-        ["container-icons", file] if file.ends_with("-icon.png") => feed.directory.path(),
-        ["icons", _] | [_] => &feed.assets,
-        _ => return None,
+    // Declared collector outputs come from the feed's private directory; everything
+    // else from the package's view folder. Collector code and other files are never served.
+    let root = if crate::package_manifest::matches_output(&feed.outputs, path) {
+        feed.directory.path()
+    } else if !feed.assets.as_os_str().is_empty() && parts.len() <= 8 {
+        &feed.assets
+    } else {
+        return None;
     };
     let mime = match Path::new(path).extension()?.to_str()? {
         "json" => "application/json",
@@ -295,6 +327,10 @@ fn resource(id: &str, path: &str) -> Option<(Vec<u8>, &'static str)> {
         "jpg" => "image/jpeg",
         "svg" => "image/svg+xml",
         "ttf" => "font/ttf",
+        "woff" => "font/woff",
+        "woff2" => "font/woff2",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
         _ => return None,
     };
     let file = root.join(path);
@@ -314,16 +350,15 @@ fn resource(id: &str, path: &str) -> Option<(Vec<u8>, &'static str)> {
 }
 pub fn serve(req: Request<Vec<u8>>, res: &mut Response<Cow<'static, [u8]>>) {
     if let Some(kind) = req.uri().path().strip_prefix("/widget-icon/") {
-        let (bytes, mime): (&[u8], _) = match kind {
-            "ember" => (include_bytes!("../../widgets/views/ember/ember-mark.png"), "image/png"),
-            "proxmox" => (include_bytes!("../../widgets/views/proxmox/icon.svg"), "image/svg+xml"),
-            "emby" => (include_bytes!("../../widgets/views/emby/icon.svg"), "image/svg+xml"),
-            "omlx" => (include_bytes!("../../widgets/views/omlx/omlx-icon.svg"), "image/svg+xml"),
-            "unraid" => (include_bytes!("../../widgets/views/unraid/unraid.svg"), "image/svg+xml"),
-            "comfy" => (include_bytes!("../../widgets/views/comfy/comfy-icon.svg"), "image/svg+xml"),
-            _ => return,
+        let icon = crate::package_store::lookup(kind).and_then(|(info, dir)| {
+            let mime = if info.manifest.icon.ends_with(".svg") { "image/svg+xml" } else { "image/png" };
+            fs::read(dir.join(&info.manifest.icon)).ok().map(|bytes| (bytes, mime))
+        });
+        *res = match icon {
+            Some((bytes, mime)) => Response::builder().header("Content-Type", mime)
+                .header("X-Content-Type-Options", "nosniff").body(Cow::Owned(bytes)).unwrap(),
+            None => Response::builder().status(404).body(Cow::Borrowed(&[][..])).unwrap(),
         };
-        *res = Response::builder().header("Content-Type", mime).body(Cow::Borrowed(bytes)).unwrap();
         return;
     }
     let Some(route) = req.uri().path().strip_prefix("/widget-view/") else {

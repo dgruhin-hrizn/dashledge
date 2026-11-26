@@ -4,7 +4,7 @@ import {readFile, writeFile, rename, mkdir} from 'node:fs/promises';
 import {join} from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 
-import { context } from '../context.mjs';
+import { context } from '../../_shared/context.mjs';
 const { directory, sources: [server] } = context;
 const target = server.address.replace(/\/*$/, '/');
 const host = new URL(target).hostname;
