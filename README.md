@@ -29,7 +29,7 @@ The menu-bar icon reopens Settings. You can also run the dashboard in a resizabl
 | Proxmox | Monitor cluster nodes, virtual machines, and guest GPU telemetry. |
 | ComfyUI | Follow render queues and worker activity, and preview generated images. GPU load comes from the Crystools node, this Mac, SSH to the ComfyUI host (NVIDIA, AMD, Intel, Apple or Windows counters), or a Proxmox guest, whichever answers first. |
 | oMLX | Watch live decode speed with request markers, memory split by loaded model, cache hits, and a week of usage. Load, unload and compare models by how they fit in memory. |
-| Ember Copper | View local workspaces, chats, plans, and usage. |
+| Ember | View local workspaces, chats, plans, and usage. |
 | Run-DMD | Turn the screen into a pinball dot-matrix clock with selectable animation groups and clips. |
 | Everyday tools | Add local and world clocks, a focus timer, a scratchpad, or a widget backed by your own JSON endpoint. |
 
