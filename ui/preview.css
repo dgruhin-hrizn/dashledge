@@ -1,0 +1,9 @@
+.preview-screen{position:relative;overflow:hidden;margin-inline:auto;background:#0c0f10}
+.preview-screen>.preview{display:block;position:absolute;inset:auto;left:50%;top:50%;border:0;border-radius:0;transform-origin:center}
+.preview-screen[data-vertical="true"]{width:min(100%,calc((100vh - 165px)*9/32))}
+:is(.edge-output,.floating-preview),:is(.edge-output,.floating-preview) .preview-screen{margin:0;width:100vw;height:100vh;overflow:hidden;background:#080a0a}
+.panel-controls{position:fixed;z-index:1;top:0;left:50%;transform:translateX(-50%);display:flex;align-items:center;border-radius:0 0 7px 7px;background:#1d2120;color:#edf0e6;opacity:0;transition:opacity .12s}
+.panel-controls:hover,.panel-controls:focus-within{opacity:1}
+.panel-controls button{color:inherit;background:transparent;border:0;font:18px system-ui;min-width:28px;height:22px;cursor:pointer}
+.panel-controls #move{cursor:grab;touch-action:none}
+.floating-preview:hover .panel-controls{opacity:.55}.floating-preview .panel-controls:hover,.floating-preview .panel-controls:focus-within{opacity:1}

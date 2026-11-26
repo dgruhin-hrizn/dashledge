@@ -22,6 +22,7 @@ pub struct Rect {
     pub y: f64,
     pub w: f64,
     pub h: f64,
+    pub rotation: i32,
 }
 
 /// One touch event, in pixels relative to the Edge's top-left corner.
@@ -81,8 +82,15 @@ impl Tracker {
     }
 
     /// Emit at most one event, scaled to an Edge of `w` x `h` pixels.
+    #[cfg(test)]
     pub fn flush(&mut self, w: f64, h: f64) -> Option<TouchEvent> {
-        let px = |c: &Contact| (c.x * w, c.y * h);
+        self.flush_rotated(w,h,0)
+    }
+    fn flush_rotated(&mut self,w:f64,h:f64,rotation:i32)->Option<TouchEvent> {
+        let px = |c: &Contact| {
+            let (x,y)=oriented(c.x,c.y,rotation);
+            ((x*w).min((w-1.).max(0.)),(y*h).min((h-1.).max(0.)))
+        };
         match self.primary {
             None => {
                 let (&id, c) = self.contacts.iter().filter(|(_, c)| c.down).min_by_key(|(id, _)| **id)?;
@@ -125,6 +133,7 @@ pub fn edge_rect() -> Option<Rect> {
 #[serde(tag = "state", content = "detail", rename_all = "camelCase")]
 pub enum TouchStatus {
     Starting,
+    Off,
     On,
     NeedsPermission,
     Failed(String),
@@ -140,6 +149,25 @@ pub fn status() -> TouchStatus {
 #[allow(dead_code)]
 fn set_status(s: TouchStatus) {
     *STATUS.lock().unwrap() = s;
+}
+
+static CAPTURE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub fn enable(on:bool) {
+    use std::sync::atomic::Ordering::SeqCst;
+    if CAPTURE.swap(on, SeqCst)!=on {
+        GENERATION.fetch_add(1,SeqCst);
+        set_status(if on { TouchStatus::Starting } else { TouchStatus::Off });
+    }
+}
+pub fn retry() { GENERATION.fetch_add(1,std::sync::atomic::Ordering::SeqCst); }
+
+pub fn monitors()->Vec<serde_json::Value>{ mac::monitors() }
+
+fn oriented(x:f64,y:f64,degrees:i32)->(f64,f64) {
+    match degrees.rem_euclid(360) {
+        90=>(1.-y,x), 180=>(1.-x,1.-y), 270=>(y,1.-x), _=>(x,y)
+    }
 }
 
 /// Take over the touchscreen and send its events to `on_event`. Runs on its
@@ -205,13 +233,34 @@ mod mac {
     const PAGE_DIGITIZER: u32 = 0x0D;
     const USAGE_TIP_SWITCH: u32 = 0x42;
 
+    extern "C" {
+        fn ew_display_uuid(id:u32)->*mut std::ffi::c_char;
+        fn ew_display_name(id:u32)->*mut std::ffi::c_char;
+        fn free(p:*mut c_void);
+    }
+    unsafe fn owned(p:*mut std::ffi::c_char)->String {
+        if p.is_null(){return String::new()}
+        let s=std::ffi::CStr::from_ptr(p).to_string_lossy().into_owned();
+        free(p.cast());s
+    }
+    pub fn monitors()->Vec<serde_json::Value>{
+        CGDisplay::active_displays().unwrap_or_default().into_iter().map(|id|{
+            let b=CGDisplay::new(id).bounds();
+            serde_json::json!({"id":unsafe{owned(ew_display_uuid(id))},"name":unsafe{owned(ew_display_name(id))},
+                "width":b.size.width,"height":b.size.height})
+        }).collect()
+    }
     pub fn edge_rect() -> Option<Rect> {
-        let ids = CGDisplay::active_displays().ok()?;
-        ids.into_iter()
-            .map(|id| CGDisplay::new(id).bounds())
-            .filter(|b| b.size.height > 0.0 && b.size.width / b.size.height >= crate::EDGE_MIN_ASPECT)
-            .max_by(|a, b| a.size.width.total_cmp(&b.size.width))
-            .map(|b| Rect { x: b.origin.x, y: b.origin.y, w: b.size.width, h: b.size.height })
+        let selected=crate::general::general_settings().display;
+        CGDisplay::active_displays().ok()?.into_iter().map(CGDisplay::new)
+            .filter(|display|{
+                if !selected.is_empty(){return unsafe{owned(ew_display_uuid(display.id))}==selected;}
+                let s=display.bounds().size;
+                s.width.min(s.height)>0. && s.width.max(s.height)/s.width.min(s.height)>=crate::EDGE_MIN_ASPECT
+            }).map(|display|{
+                let b=display.bounds();
+                Rect{x:b.origin.x,y:b.origin.y,w:b.size.width,h:b.size.height,rotation:display.rotation().round() as i32}
+            }).max_by(|a,b|(a.w*a.h).total_cmp(&(b.w*b.h)))
     }
 
     #[link(name = "CoreFoundation", kind = "framework")]
@@ -286,10 +335,8 @@ mod mac {
             // Shows the Input Monitoring prompt the first time. The answer is
             // only logged: the real test is whether seizing the device works
             // (the access check can say "no" when the grant is in place).
-            let requested = IOHIDRequestAccess(REQUEST_LISTEN_EVENT);
-            let checked = IOHIDCheckAccess(REQUEST_LISTEN_EVENT);
-            crate::log(&format!("touch: access request={requested} check={checked} (0 = granted)"));
-
+            use std::sync::atomic::Ordering::SeqCst;
+            let mut requested_generation=None;
             let tracker: *mut Tracker = Box::into_raw(Box::new(Tracker::default()));
             let run_loop = CFRunLoop::get_current().as_concrete_TypeRef() as Ref;
             let mut logged_first = false;
@@ -303,6 +350,18 @@ mod mac {
                 // touch digitizer, a mouse-emulation interface, a vendor one).
                 // Each must be seized on its own, or macOS keeps getting
                 // touches from whichever one is left and moves the main pointer.
+                if !super::CAPTURE.load(SeqCst) {
+                    super::set_status(super::TouchStatus::Off);
+                    std::thread::sleep(Duration::from_millis(150));
+                    continue;
+                }
+                let generation=super::GENERATION.load(SeqCst);
+                let active=||super::CAPTURE.load(SeqCst) && generation==super::GENERATION.load(SeqCst);
+                if requested_generation!=Some(generation) {
+                    IOHIDRequestAccess(REQUEST_LISTEN_EVENT);
+                    IOHIDCheckAccess(REQUEST_LISTEN_EVENT);
+                    requested_generation=Some(generation);
+                }
                 let devices = touch_devices();
                 if devices.is_empty() {
                     super::set_status(super::TouchStatus::Failed("touchscreen not found".into()));
@@ -310,7 +369,7 @@ mod mac {
                         crate::log("touch: Edge touchscreen not found (is its USB cable connected?); still looking");
                         said_missing = true;
                     }
-                    std::thread::sleep(Duration::from_secs(3));
+                    for _ in 0..20 { if !active(){break;} std::thread::sleep(Duration::from_millis(150)); }
                     continue;
                 }
                 said_missing = false;
@@ -325,7 +384,7 @@ mod mac {
                 // as it is, without restarting the app.
                 let mut seized = vec![false; devices.len()];
                 let mut last: Vec<Option<i32>> = vec![None; devices.len()];
-                while seized.iter().any(|s| !s) {
+                while active() && seized.iter().any(|s| !s) {
                     for (i, &dev) in devices.iter().enumerate() {
                         if seized[i] {
                             continue;
@@ -347,7 +406,7 @@ mod mac {
                     } else {
                         super::TouchStatus::Failed(format!("{:#x}", last.iter().flatten().find(|r| **r != 0).unwrap_or(&0)))
                     });
-                    std::thread::sleep(Duration::from_secs(3));
+                    for _ in 0..20 { if !active(){break;} std::thread::sleep(Duration::from_millis(150)); }
                     if touch_devices().len() != devices.len() {
                         break; // unplugged while waiting; start over
                     }
@@ -359,10 +418,12 @@ mod mac {
                     // Pump HID callbacks, then turn what arrived into touch
                     // events. Every ~3 seconds, check the Edge is still there.
                     let mut ticks = 0u32;
-                    loop {
+                    let mut target=edge_rect();
+                    while active() {
                         CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.008, 0);
-                        if let Some(edge) = edge_rect() {
-                            while let Some(ev) = (*tracker).flush(edge.w, edge.h) {
+                        if ticks%125==0 {target=edge_rect();}
+                        if let Some(edge) = target {
+                            while let Some(ev) = (*tracker).flush_rotated(edge.w, edge.h, edge.rotation) {
                                 if !logged_first {
                                     crate::log(&format!("touch: first touch received {ev:?}"));
                                     logged_first = true;
@@ -397,6 +458,14 @@ mod mac {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn portrait_touch_maps_both_panel_rotations(){
+        let mut tracker=Tracker::default();
+        tracker.update(1,Field::X(0.25)); tracker.update(1,Field::Y(0.75));tracker.update(1,Field::Pressed(true));
+        assert_eq!(tracker.flush_rotated(720.,2560.,90),Some(TouchEvent::Down(180.,640.)));
+        assert_eq!(tracker.flush_rotated(720.,2560.,270),Some(TouchEvent::Move(540.,1920.)));
+    }
 
     #[test]
     fn normalize_maps_logical_range() {

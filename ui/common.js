@@ -1,4 +1,4 @@
-import {initial} from './model.js';
+import {initial,addOriginalPages} from './model.js';
 const KEY='edge-workbench.layout.v1';
 export function state(){
   try {const raw=JSON.parse(localStorage.getItem(KEY));if(raw?.version===1&&Array.isArray(raw.pages)&&raw.pages.length&&Array.isArray(raw.sources)&&Array.isArray(raw.plugins))return raw} catch {}
@@ -7,7 +7,7 @@ export function state(){
 export function save(s){localStorage.setItem(KEY,JSON.stringify(s))}
 export function current(s){return s.pages.find(p=>p.id===localStorage.getItem('edge.current'))||s.pages[0]}
 export function activate(page){localStorage.setItem('edge.current',page.id)}
-export function ensure(){if(!localStorage.getItem(KEY))save(initial());return state()}
+export function ensure(){const config=state();if(addOriginalPages(config))save(config);return config}
 export function invoke(method,args={}){
   const bridge=window.__TAURI__||(window.parent!==window&&window.parent.__TAURI__);
   if(!bridge?.core)return Promise.reject(new Error('Open the dashboard in Edge Workbench'));

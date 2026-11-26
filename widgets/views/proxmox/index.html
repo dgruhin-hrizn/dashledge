@@ -1,0 +1,27 @@
+<!doctype html><html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Proxmox Cluster</title><link rel="stylesheet" href="style.css"><script defer src="widget.js"></script></head>
+<body><header class="mast"><div class="brand"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M2 4h8l9 12-9 12H2l9-12zM17 4h8l-6 8-4-5zM20 17l9 11h-9l-5-6z"/></svg>Proxmox <b>VE</b></div><h1 id="cluster">Cluster overview</h1><div class="health"><b id="signal">Waiting</b><span id="stamp">Awaiting collector</span></div></header>
+<main><div class="overview"><section class="metrics">
+<article class="guests"><h2>Running VMs</h2><strong id="vm">—</strong><div id="guests">Awaiting inventory</div></article>
+<article class="trend"><div class="section-head"><h2>Cluster load</h2><div class="legend"><span>CPU</span><span>Memory</span></div></div>
+<div class="scope"><div class="y-axis"><span>100%</span><span>50%</span><span>0%</span></div>
+<svg id="plot" viewBox="0 0 500 88" preserveAspectRatio="none" role="img" aria-label="CPU and memory utilization over ten minutes"><defs><linearGradient id="wash" x2="0" y2="1" gradientUnits="objectBoundingBox"><stop stop-color="var(--cpu)" stop-opacity=".38"/><stop offset="1" stop-color="var(--cpu)" stop-opacity=".015"/></linearGradient></defs><path class="grid" d="M0 1H500 M0 44H500 M0 87H500 M125 1V87 M250 1V87 M375 1V87"/><path id="area"/><path id="ram-line"/><path id="cpu-line"/>
+<g class="trace-flare" aria-hidden="true"><use href="#ram-line" class="ram-flare"/><use href="#cpu-line" class="cpu-flare"/></g>
+</svg></div>
+<div class="x-axis"><span>−10 min</span><span>−5 min</span><span>Now</span></div></article>
+<article class="vitals"><h2>Utilization</h2><div class="dials"><div><b id="cpu" class="ring"></b><span>CPU</span></div><div><b id="ram" class="ring memory"></b><span>Memory</span></div></div></article></section>
+<div class="fleet-head"><div><h2>Nodes</h2><span id="online">—</span></div><div class="paging" hidden><button id="prev" aria-label="Previous nodes">‹</button><span id="page"></span><button id="next" aria-label="Next nodes">›</button></div><span id="quorum"></span></div>
+<section id="nodes" aria-label="Cluster node metrics"></section><p id="notice" role="status">Waiting for the first cluster snapshot.</p></div>
+<aside class="vm-panel" aria-labelledby="vm-title">
+  <header><h2 id="vm-title">Running VMs</h2></header>
+  <div class="vm-window"><div id="vm-list" role="region" aria-label="Running VM utilization" tabindex="0"></div></div>
+</aside></main>
+<template id="vm-card">
+  <article class="vm-card">
+    <header class="vm-identity"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="4" y="5" width="24" height="17" rx="3"/><path d="M10 27h12m-6-5v5M9 11l4 3-4 3m7 0h5"/></svg><section><small></small><h3></h3></section></header>
+    <section class="vm-reading processor"><header><h4>CPU</h4><strong></strong></header><i class="vm-meter"></i><small></small></section>
+    <section class="vm-reading memory"><header><h4>Memory</h4><strong></strong></header><i class="vm-meter"></i><small></small></section>
+  </article>
+</template>
+</body></html>

@@ -15,6 +15,7 @@ struct Sampler {
     sys: System,
     last: Instant,
     value: Value,
+    history: std::collections::VecDeque<Value>,
 }
 #[tauri::command]
 pub fn read_metrics() -> Value {
@@ -29,6 +30,7 @@ pub fn read_metrics() -> Value {
                 sys,
                 last: Instant::now(),
                 value: Value::Null,
+                history: Default::default(),
             })
         })
         .lock()
@@ -37,6 +39,10 @@ pub fn read_metrics() -> Value {
     if elapsed < 0.85 && !state.value.is_null() {
         return state.value.clone();
     }
+    // The first refresh establishes network counters. There is no elapsed sampling
+    // interval yet, so dividing that traffic by startup time would invent a spike.
+    let rate_ready=!state.value.is_null();
+    let rate=|count:u64|rate_ready.then(||count as f64/elapsed);
     state.last = Instant::now();
     let sys = &mut state.sys;
     sys.refresh_cpu();
@@ -47,7 +53,7 @@ pub fn read_metrics() -> Value {
     let mut interfaces = Vec::new();
     for (name, net) in sys.networks() {
         if name.starts_with("en") {
-            interfaces.push(json!({"name":name,"rx":net.received() as f64/elapsed,"tx":net.transmitted() as f64/elapsed}));
+            interfaces.push(json!({"name":name,"rx":rate(net.received()),"tx":rate(net.transmitted())}));
             rx += net.received();
             tx += net.transmitted();
         }
@@ -64,7 +70,25 @@ pub fn read_metrics() -> Value {
         unsafe { free(ptr.cast()) };
         v
     };
-    state.value = json!({"extra":extra,"interfaces":interfaces,"gpu":if load>=0.{Some(load)}else{None},"cpu":sys.global_cpu_info().cpu_usage(),"cores":sys.cpus().len(),"freeGiB":((sys.available_memory() as f64/1073741824.)*10.).round()/10.,"memory":sys.used_memory(),"capacity":sys.total_memory(),"swap":sys.used_swap(),"rx":rx as f64/elapsed,"tx":tx as f64/elapsed,"disks":disks,"uptime":sys.uptime(),"model":sys.cpus().first().map(|c|c.brand()),"host":sys.host_name()});
+    let now=chrono::Utc::now().timestamp_millis();
+    let cpu=sys.global_cpu_info().cpu_usage();
+    let gpu=(load>=0.).then_some(load);
+    let rx=rate(rx);
+    let tx=rate(tx);
+    let mut snapshot=json!({
+        "extra":extra,"interfaces":interfaces,"gpu":gpu,"cpu":cpu,"cores":sys.cpus().len(),
+        "perCore":sys.cpus().iter().map(|c|c.cpu_usage()).collect::<Vec<_>>(),
+        "freeGiB":((sys.available_memory() as f64/1073741824.)*10.).round()/10.,
+        "memory":sys.used_memory(),"capacity":sys.total_memory(),"swap":sys.used_swap(),
+        "rx":rx,"tx":tx,"disks":disks,"uptime":sys.uptime(),"os":sys.os_version(),
+        "model":sys.cpus().first().map(|c|c.brand()),"host":sys.host_name()
+    });
+    state.history.push_back(json!({"at":now,"cpu":cpu,"gpu":gpu,"rx":rx,"tx":tx}));
+    while state.history.front().is_some_and(|v|v["at"].as_i64().unwrap_or(0)<now-90_000) {
+        state.history.pop_front();
+    }
+    snapshot["history"]=json!(state.history);
+    state.value=snapshot;
     state.value.clone()
 }
 
@@ -102,6 +126,12 @@ mod tests {
         assert!(sample["capacity"].as_u64().unwrap_or(0)>0);
         assert!(sample["cores"].as_u64().unwrap_or(0)>0);
         assert!(sample["disks"].is_array() && sample["interfaces"].is_array());
+        assert!(sample["rx"].is_null() && sample["tx"].is_null(),"startup has no traffic interval");
+        assert!(sample["history"][0]["tx"].is_null());
+        std::thread::sleep(std::time::Duration::from_millis(900));
+        let next=read_metrics();
+        assert!(next["rx"].as_f64().is_some_and(|v|v>=0.0));
+        assert!(next["tx"].as_f64().is_some_and(|v|v>=0.0));
         assert!(sample["cpu"].as_f64().is_some_and(|v|v.is_finite()));
     }
 }

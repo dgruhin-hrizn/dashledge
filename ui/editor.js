@@ -1,13 +1,13 @@
+import {general,loadGeneral,updateGeneral,fitDashboard,checkUpdate,automaticUpdates} from './general.js';
 import {icon} from './admin-icons.js';
 import {appendPage,assignWidget,pickWidget} from './page-actions.js';
 import {importConnections,lastImport} from './migration.js';
 import {presets,titles,id,resize,split,layout,plugin,readPath} from './model.js';
 import {ensure,state,current,activate,save,invoke,el,button,field,select} from './common.js';
-let config=ensure(),tab='Layouts',chosen=current(config).id,index=0,undo=[],statusTimer;
+let config=ensure(),tab='General',chosen=current(config).id,index=0,undo=[],statusTimer;
 const main=document.querySelector('#editor');
-const links=[['Layouts','Pages & layouts','pages'],['Connections','Connections','connections'],['Widget Studio','Widget Studio','studio'],['Preview','Live preview','preview'],['Display','Display & touch','display']];
+const links=[['General','General','general'],['Layouts','Pages & layouts','pages'],['Connections','Connections','connections'],['Widget Studio','Widget Studio','studio'],['Preview','Live preview','preview']];
 const sourcesStatus=new Map();
-let currentHardware;
 function decorated(label,action,symbol,cls=''){const b=button(label,action,cls);b.prepend(icon(symbol));return b}
 function heading(text,actions){const h=el('header','admin-heading');h.append(el('h1','',text));if(actions)h.append(actions);return h}
 function tag(kind){const t=el('span','kind-icon');t.dataset.kind=kind;t.append(icon(kind));return t}
@@ -71,13 +71,14 @@ function layouts(){
     b.ondrop=e=>{e.preventDefault();const k=e.dataTransfer.getData('text/plain');if(Object.hasOwn(titles,k)||config.plugins.some(x=>x.id===k))assign(i,k)};
     canvas.append(b);
   });
-  layout(canvas,p.preset,p.regions);
+  const vertical=general().vertical;canvas.classList.toggle('portrait',vertical);
+  layout(canvas,p.preset,p.regions,vertical);
   const presetGrid=el('div','preset-grid');
   for(const key of Object.keys(presets)){
     const visual=el('span','preset-diagram');visual.setAttribute('aria-hidden','true');
     const cells=presets[key].reduce((a,b)=>a+b,0);
     for(let n=0;n<cells;n++)visual.append(el('i'));
-    layout(visual,key);
+    layout(visual,key,undefined,vertical);
     const control=button(key,()=>change(()=>resize(p,key)),p.preset===key&&!p.regions?'selected':'');
     control.prepend(visual);control.setAttribute('aria-pressed',String(p.preset===key&&!p.regions));presetGrid.append(control);
   }
@@ -96,7 +97,7 @@ function layouts(){
     const choice=select([['','Startup volume']],s.volume,x=>change(()=>s.volume=x));inspector.append(field('Volume',choice));
     invoke('read_metrics').then(m=>{for(const d of m?.disks||[])choice.add(new Option(d.mount,d.mount));choice.value=s.volume}).catch(()=>{});
   }
-  const edits=row(decorated('Split',()=>change(()=>split(p,index,'column')),'split'),decorated('Stack',()=>change(()=>split(p,index,'row')),'stack'));
+  const edits=row(decorated('Split',()=>change(()=>split(p,index,vertical?'row':'column')),'split'),decorated('Stack',()=>change(()=>split(p,index,vertical?'column':'row')),'stack'));
   if(s.kind!=='empty')edits.append(button('Clear section',()=>assign(index,'empty'),'quiet'));
   inspector.append(edits);
   left.append(screen,panel('Layout preset',presetGrid),inspector);
@@ -158,7 +159,9 @@ function connections(){
   });
   main.append(heading('Connections',row(migrate,decorated('Add connection',()=>sourceForm(),'plus','primary'))));
   const sources=el('section','panel service-panel');
-  sources.append(el('h2','','Saved connections'));
+  sources.append(row(el('h2','','Saved connections'),button('Unlock connections',async()=>{
+    try{await invoke('unlock_connections');notice('Connections unlocked')}catch(e){notice(String(e))}
+  })));
   const report=lastImport();
   if(report){
     sources.append(el('p','sub',report.found+' found in Zurface'+(report.ember?' · Ember uses its local database':'')));
@@ -177,7 +180,11 @@ function connections(){
     });
     const menu=el('details','service-menu'),summary=el('summary','','•••');
     summary.setAttribute('aria-label','Options for '+s.name);
-    menu.append(summary,row(button('Edit',()=>sourceForm(s)),button('Remove',()=>formDialog('Remove '+s.name+'?',[el('p','','Widgets using this connection can be reconnected in Pages & layouts.')],async()=>{
+    const recover=button('Recover previous credential',async()=>{
+      try{await invoke('recover_credential',{kind:s.kind,address:s.address});notice('Previous credential recovered')}catch(e){notice(String(e))}
+      menu.open=false;
+    });
+    menu.append(summary,row(button('Edit',()=>sourceForm(s)),recover,button('Remove',()=>formDialog('Remove '+s.name+'?',[el('p','','Widgets using this connection can be reconnected in Pages & layouts.')],async()=>{
       if(!config.sources.some(other=>other.id!==s.id&&other.kind===s.kind&&((other.kind==='json'?other.address:other.address.replace(/\/+$/,''))===(s.kind==='json'?s.address:s.address.replace(/\/+$/,'')))))await invoke('set_secret',{kind:s.kind,address:s.address,secret:''});
       change(()=>{config.sources=config.sources.filter(x=>x.id!==s.id);for(const p of config.pages)for(const w of p.slots)if(w.source===s.id)w.source=''});
     },'Remove'))));
@@ -223,7 +230,72 @@ function plugins(){
   }
   main.append(grid);
 }
+function previewButton(){
+  return decorated('Show Window Preview',()=>invoke('open_preview').catch(e=>notice(String(e))),'preview','primary');
+}
+function settingRow(label,control,extra){
+  const line=el('div','setting-row'),title=el('label','',label);
+  if(control.id)title.htmlFor=control.id;
+  line.append(title,control);if(extra)line.append(extra);return line;
+}
+function preference(key,type){
+  const p=general(),control=el('input');control.type=type;control.id='pref-'+key;
+  if(type==='checkbox')control.checked=p[key];else control.value=p[key];
+  if(type==='number'){control.min=1;control.max=240;control.step=1;}
+  const write=()=>{if(!control.reportValidity()||type==='number'&&!control.value)return;
+    const value=type==='checkbox'?control.checked:type==='number'?control.valueAsNumber:control.value;
+    updateGeneral({[key]:value}).catch(e=>notice(String(e)));
+  };
+  if(type==='color')control.oninput=write;else control.onchange=write;
+  return control;
+}
+function generalTab(){
+  main.append(heading('General',previewButton()));
+  main.append(panel('Appearance',settingRow('Primary · text',preference('primary','color')),settingRow('Secondary · highlights',preference('accent','color')),settingRow('Show seconds on the clock',preference('showSeconds','checkbox'))));
+  const p=general(),orient=el('div','segments');
+  for(const [name,v] of [['Horizontal',false],['Vertical',true]]){
+    const b=button(name,()=>{updateGeneral({vertical:v}).catch(e=>notice(String(e)));render()},p.vertical===v?'selected':'');
+    b.setAttribute('aria-pressed',String(p.vertical===v));orient.append(b);
+  }
+  const display=panel('Display'),touch=panel('Touch'),status=el('small','sub');
+  const retry=button('Retry',async()=>{try{await invoke('retry_touch');refresh()}catch(e){notice(String(e))}});
+  touch.append(settingRow('Direct touch · keep the desktop pointer in place',preference('directTouch','checkbox')),row(status,retry));
+  let displaySignature='';
+  const draw=d=>{
+    if(!display.isConnected)return;
+    const prefs=general();
+    const states={starting:'Connecting…',on:'Direct touch connected',off:'Direct touch off',needsPermission:'Allow Input Monitoring in macOS',failed:d.touch?.detail||'Touch unavailable'};
+    status.textContent=!d.enabled?'Touch released in preview mode':!prefs.directTouch?'Direct touch off':states[d.touch?.state]||'Touch unavailable';
+    retry.disabled=!d.enabled||!prefs.directTouch;
+    const signature=JSON.stringify([d.displays,d.enabled,d.connected,prefs.display]);
+    if(signature===displaySignature)return;
+    displaySignature=signature;
+    const options=[['','Automatic · XENEON EDGE'],...d.displays.map(x=>[x.id,x.name+' · '+x.width+' × '+x.height])];
+    const selected=general().display;
+    if(selected&&!options.some(([id])=>id===selected))options.push([selected,'Disconnected display']);
+    const target=select(options,selected,async v=>{try{await updateGeneral({display:v});refresh()}catch(e){notice(String(e))}});target.id='output-screen';
+    const move=button('Move to display',async()=>{try{await invoke('move_to_display');refresh()}catch(e){notice(String(e))}});
+    const mode=d.enabled?'Physical display enabled':'Preview mode';
+    const actions=row(el('small','sub',mode),...(d.enabled?[button('Return to preview',async()=>{try{await invoke('set_edge_output',{enabled:false});refresh()}catch(e){notice(String(e))}})]:[]));
+    display.replaceChildren(el('h2','','Display'),settingRow('Display',target,move),settingRow('Layout',orient),el('small','sub','For a rotated display, also set its rotation in macOS Displays settings.'),actions);
+    document.querySelector('#device-status').textContent=d.enabled?(d.connected?'Display connected':'Awaiting display'):'Preview mode';
+    document.querySelector('.hardware-status').classList.toggle('online',!!d.connected);
+  };
+  const refresh=()=>invoke('display_info').then(draw).catch(e=>{status.textContent=String(e)});
+  const updateText=el('small','sub'),release=button('View release',()=>invoke('release_page'));release.hidden=true;
+  function showUpdate(r){if(r){updateText.textContent=r.message;release.hidden=!r.available}}
+  const check=button('Check for Updates…',async()=>{check.disabled=true;updateText.textContent='Checking…';try{showUpdate(await checkUpdate(true))}finally{check.disabled=false}});
+  const updates=panel('Updates',settingRow('Automatically check for updates',preference('autoUpdates','checkbox')),row(check,release,updateText));
+  updates.append(el('small','sub','Checks daily. You choose when to download an update.'));
+  main.append(touch,display,updates,panel('Focus',settingRow('Focus length (minutes)',preference('focusMinutes','number'))));
+  const restoreUpdate=()=>{try{showUpdate(JSON.parse(localStorage.getItem('edge.release.check')))}catch{}};
+  restoreUpdate();refresh();
+  const poll=setInterval(()=>{if(!display.isConnected){clearInterval(poll);return}refresh();restoreUpdate()},3000);
+  cleanupTab=()=>clearInterval(poll);
+}
+let cleanupTab;
 function render(){
+  cleanupTab?.();cleanupTab=null;
   const nav=document.querySelector('#nav');nav.replaceChildren();
   for(const [key,label,symbol] of links){
     const b=decorated(label,()=>go(key),symbol,tab===key?'active':'');
@@ -234,27 +306,12 @@ function render(){
   if(tab==='Layouts'){main.append(heading('Pages & layouts'));layouts()}
   if(tab==='Connections')connections();
   if(tab==='Widget Studio')plugins();
-  if(tab==='Display'){
-    main.append(heading('Display & touch'));
-    const info=el('section','panel device-panel');main.append(info);
-    const draw=d=>{
-      info.replaceChildren();
-      const visual=el('div','device-figure');visual.setAttribute('aria-hidden','true');
-      const mini=el('div','device-screen');for(let i=0;i<5;i++)mini.append(el('i'));visual.append(mini);
-      info.append(visual,el('h2','','XENEON EDGE'),el('p','sub',d.connected?'Connected · '+d.size+' points':'Waiting for a connected display'));
-      const mode=row(el('strong','','Output'),el('span','',d.enabled?'Physical display':'Mac preview'));mode.classList.add('device-row');
-      const touch=row(el('strong','','Touch'),el('span','',d.enabled?(typeof d.touch==='string'?d.touch:({starting:'Starting',on:'Touch active',needsPermission:'Allow Input Monitoring in macOS',failed:'Touch unavailable',unsupported:'Unsupported device'})[d.touch?.state]||'Status unavailable'):'Released in preview mode'));touch.classList.add('device-row');
-      info.append(mode,touch,button(d.enabled?'Return to preview…':'Enable Edge output…',()=>formDialog('Restart Edge Workbench?',
-        [el('p','',d.enabled?'The app will reopen in preview mode.':'Quit any other app using Edge touch first. Workbench will reopen on the panel. macOS may ask for Input Monitoring.')],
-        ()=>invoke('set_edge_output',{enabled:!d.enabled}),'Restart Workbench'),'primary'));
-    };
-    if(currentHardware)draw(currentHardware);else info.append(el('p','sub','Detecting display…'));
-    invoke('display_info').then(d=>{currentHardware=d;draw(d)}).catch(e=>info.append(el('p','',String(e))));
-  }
+  if(tab==='General')generalTab();
   if(tab==='Preview'){
-    main.append(heading('Live preview',button('Edit layout',()=>go('Layouts'))));
+    main.append(heading('Live preview',row(button('Edit layout',()=>go('Layouts')),previewButton())));
     const frame=el('section','panel preview-panel'),f=el('iframe','preview');f.title='Current dashboard';f.src='index.html';
-    frame.append(f);main.append(frame);
+    const screen=el('div','preview-screen');screen.append(f);frame.append(screen);main.append(frame);
+    cleanupTab=fitDashboard(screen,f);
   }
 }
 function syncEditor(){
@@ -263,8 +320,8 @@ function syncEditor(){
 }
 window.addEventListener('storage',e=>{if(e.key==='edge-workbench.layout.v1')syncEditor()});
 render();
+loadGeneral().then(()=>{if(tab==='General'||tab==='Layouts')render();automaticUpdates()}).catch(e=>notice(String(e)));
 invoke('display_info').then(d=>{
-  currentHardware=d;
   document.querySelector('#device-status').textContent=d.enabled?(d.connected?'Display connected':'Awaiting display'):'Preview mode';
   document.querySelector('.hardware-status').classList.toggle('online',!!d.connected);
 }).catch(()=>document.querySelector('#device-status').textContent='Status unavailable');

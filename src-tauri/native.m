@@ -1,5 +1,6 @@
 #import <AppKit/AppKit.h>
 #import <IOKit/IOKitLib.h>
+#import <Metal/Metal.h>
 #include <string.h>
 
 double ew_gpu(void) {
@@ -66,6 +67,10 @@ char *ew_ember(void) {
 char *ew_extra_metrics(void) {
     @autoreleasepool {
         NSMutableDictionary *result=[NSMutableDictionary new];
+        static NSString *graphics;
+        static dispatch_once_t once;
+        dispatch_once(&once,^{graphics=MTLCreateSystemDefaultDevice().name;});
+        if(graphics)result[@"gpuName"]=graphics;
         NSProcessInfo *info=NSProcessInfo.processInfo;
         NSArray *thermal=@[@"Nominal",@"Fair",@"Serious",@"Critical"];
         NSInteger t=info.thermalState;
@@ -98,5 +103,40 @@ char *ew_extra_metrics(void) {
         mach_port_deallocate(mach_task_self(),host);
         NSData *payload=[NSJSONSerialization dataWithJSONObject:result options:0 error:nil];
         return strdup([[NSString alloc]initWithData:payload encoding:NSUTF8StringEncoding].UTF8String);
+    }
+}
+
+void ew_preview_size(void *pointer, bool vertical) {
+    NSWindow *window=(__bridge NSWindow *)pointer;
+    NSRect previous=window.frame;
+    NSRect available=(window.screen ?: NSScreen.mainScreen).visibleFrame;
+    CGFloat ratio=vertical?9.0/32.0:32.0/9.0;
+    NSSize current=[window contentRectForFrameRect:previous].size;
+    CGFloat maxHeight=available.size.height-(previous.size.height-current.height);
+    CGFloat span=MAX(current.width,current.height);
+    CGFloat w=MIN(available.size.width,MIN((vertical?span*ratio:span),maxHeight*ratio));
+    NSSize content=NSMakeSize(w,w/ratio);
+    window.contentMinSize=NSZeroSize;
+    window.resizeIncrements=NSMakeSize(1,1);
+    NSRect next=[window frameRectForContentRect:(NSRect){NSZeroPoint,content}];
+    next.origin.x=MAX(NSMinX(available),MIN(NSMaxX(available)-next.size.width,NSMidX(previous)-next.size.width/2));
+    next.origin.y=MAX(NSMinY(available),MIN(NSMaxY(available)-next.size.height,NSMidY(previous)-next.size.height/2));
+    [window setFrame:next display:YES];
+    window.contentMinSize=NSMakeSize(vertical?90:320,vertical?320:90);
+    window.contentAspectRatio=NSMakeSize(vertical?9:32,vertical?32:9);
+}
+
+char *ew_display_uuid(CGDirectDisplayID display) {
+    CFUUIDRef uuid=CGDisplayCreateUUIDFromDisplayID(display);
+    if(!uuid)return NULL;
+    NSString *s=CFBridgingRelease(CFUUIDCreateString(NULL,uuid));
+    CFRelease(uuid);
+    return strdup(s.UTF8String);
+}
+char *ew_display_name(CGDirectDisplayID display) {
+    @autoreleasepool {
+        for(NSScreen *s in NSScreen.screens)
+            if([s.deviceDescription[@"NSScreenNumber"] unsignedIntValue]==display)return strdup(s.localizedName.UTF8String);
+        return NULL;
     }
 }

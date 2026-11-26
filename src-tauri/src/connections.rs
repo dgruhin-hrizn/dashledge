@@ -1,11 +1,7 @@
 use reqwest::{Client, Url};
-use security_framework::passwords::{
-    delete_generic_password, get_generic_password, set_generic_password,
-};
 use serde_json::{json, Value};
 use std::{sync::OnceLock, time::Duration};
 
-const SERVICE: &str = "dev.edgeworkbench.connections";
 pub(crate) fn endpoint(raw: &str) -> Result<Url, String> {
     let url = Url::parse(raw).map_err(|_| "Enter a full server URL".to_string())?;
     if !matches!(url.scheme(), "http" | "https")
@@ -19,7 +15,7 @@ pub(crate) fn endpoint(raw: &str) -> Result<Url, String> {
     }
     Ok(url)
 }
-fn account_ids(kind: &str, base: &Url) -> Vec<String> {
+pub(crate) fn account_ids(kind: &str, base: &Url) -> Vec<String> {
     let exact = format!("{kind}|{base}");
     if base.path() == "/" || !matches!(kind, "emby" | "unraid" | "comfy" | "omlx" | "proxmox") {
         return vec![exact];
@@ -32,15 +28,16 @@ fn account_ids(kind: &str, base: &Url) -> Vec<String> {
     vec![exact, format!("{kind}|{alternate}")]
 }
 fn secret_for(kind: &str, base: &Url) -> Result<Option<Vec<u8>>, String> {
-    for account in account_ids(kind, base) {
-        match get_generic_password(SERVICE, &account) {
-            Ok(value) => return Ok(Some(value)),
-            Err(e) if e.code() == -25300 => continue,
-            Err(_) => return Err("Keychain access unavailable".into()),
-        }
-    }
-    Ok(None)
+    Ok(crate::vault::get(kind, base)?.key.map(String::into_bytes))
 }
+pub(crate) fn widget_credentials(
+    kind: &str,
+    base: &Url,
+) -> Result<(String, Option<String>), String> {
+    let value = crate::vault::get(kind, base)?;
+    Ok((value.key.unwrap_or_default(), value.ca))
+}
+
 #[tauri::command]
 pub fn set_secret(
     window: tauri::WebviewWindow,
@@ -52,26 +49,9 @@ pub fn set_secret(
         return Err("Open Settings to change credentials".into());
     }
     let base = endpoint(&address)?;
-    let id = format!("{kind}|{base}");
-    if secret.is_empty() {
-        for account in account_ids(&kind, &base) {
-            if let Err(e) = delete_generic_password(SERVICE, &account) {
-                if e.code() != -25300 {
-                    return Err("Keychain could not clear the credential".into());
-                }
-            }
-        }
-        if kind == "proxmox" {
-            if let Err(e) = delete_generic_password(CA_SERVICE, base.as_str()) {
-                if e.code() != -25300 {
-                    return Err("Keychain could not clear the certificate".into());
-                }
-            }
-        }
-        return Ok(());
-    }
-    set_generic_password(SERVICE, &id, secret.as_bytes())
-        .map_err(|_| "Keychain could not save the credential".into())
+    crate::vault::set(&kind, &base, secret)?;
+    crate::widget_host::invalidate(&kind, &base);
+    Ok(())
 }
 fn http() -> &'static Client {
     static CLIENT: OnceLock<Client> = OnceLock::new();
@@ -82,26 +62,6 @@ fn http() -> &'static Client {
             .build()
             .expect("HTTP client")
     })
-}
-const CA_SERVICE: &str = "dev.edgeworkbench.proxmox-ca";
-
-fn import_if_missing(service: &str, account: &str, bytes: &[u8]) -> Result<(), String> {
-    match get_generic_password(service, account) {
-        Ok(_) => Ok(()),
-        Err(e) if e.code() == -25300 => set_generic_password(service, account, bytes)
-            .map_err(|_| "Keychain could not save the imported connection".into()),
-        Err(_) => Err("Keychain access unavailable".into()),
-    }
-}
-pub(crate) fn import_secret(kind: &str, address: &str, bytes: &[u8]) -> Result<(), String> {
-    let base = endpoint(address)?;
-    if secret_for(kind, &base)?.is_some() {
-        return Ok(());
-    }
-    import_if_missing(SERVICE, &format!("{kind}|{base}"), bytes)
-}
-pub(crate) fn import_ca(address: &str, bytes: &[u8]) -> Result<(), String> {
-    import_if_missing(CA_SERVICE, endpoint(address)?.as_str(), bytes)
 }
 pub(crate) fn validate_ca(bytes: &[u8]) -> Result<Vec<reqwest::Certificate>, String> {
     let certs = reqwest::Certificate::from_pem_bundle(bytes)
@@ -115,20 +75,19 @@ fn service_client(kind: &str, base: &Url) -> Result<Client, String> {
     if kind != "proxmox" {
         return Ok(http().clone());
     }
-    match get_generic_password(CA_SERVICE, base.as_str()) {
-        Ok(bytes) => {
+    match crate::vault::get(kind, base)?.ca {
+        Some(pem) => {
             let mut builder = Client::builder()
                 .timeout(Duration::from_secs(5))
                 .redirect(reqwest::redirect::Policy::none());
-            for cert in validate_ca(&bytes)? {
+            for cert in validate_ca(pem.as_bytes())? {
                 builder = builder.add_root_certificate(cert);
             }
             builder
                 .build()
                 .map_err(|_| "Could not load Proxmox CA certificate".into())
         }
-        Err(e) if e.code() == -25300 => Ok(http().clone()),
-        Err(_) => Err("Cannot read Proxmox certificate from Keychain".into()),
+        None => Ok(http().clone()),
     }
 }
 
@@ -186,6 +145,28 @@ fn play_method(session: &Value) -> &str {
     } else {
         "Unknown"
     }
+}
+
+// One in-flight JSON request per endpoint for all dashboard and preview windows.
+// Keep samples in process memory. The Test button uses an independent fresh read.
+type Reading = std::sync::Arc<tauri::async_runtime::Mutex<Option<(std::time::Instant, Result<Value,String>)>>>;
+static READINGS: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String,Reading>>> =
+    std::sync::LazyLock::new(Default::default);
+pub(crate) fn invalidate_reading(kind:&str,base:&Url) {
+    if kind=="json"{READINGS.lock().unwrap().remove(base.as_str());}
+}
+#[tauri::command]
+pub async fn widget_source_read(kind:String,address:String)->Result<Value,String>{
+    if kind!="json"{return Err("Choose a JSON connection for this widget".into());}
+    let base=endpoint(&address)?;
+    let cell=READINGS.lock().unwrap().entry(base.to_string()).or_default().clone();
+    let mut sample=cell.lock().await;
+    if let Some((at,value))=&*sample{
+        if at.elapsed()<Duration::from_secs(5){return value.clone();}
+    }
+    let result=source_read(kind,address).await;
+    *sample=Some((std::time::Instant::now(),result.clone()));
+    result
 }
 
 #[tauri::command]

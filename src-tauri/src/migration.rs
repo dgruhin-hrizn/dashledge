@@ -1,6 +1,6 @@
 //! Import the installed collectors' local connection settings. Only public connection
 //! fields cross the webview bridge. Put credentials under the host's normal Keychain IDs.
-use crate::connections::{endpoint, import_ca, import_secret, validate_ca};
+use crate::connections::{endpoint, validate_ca};
 use reqwest::Url;
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -292,15 +292,42 @@ fn discover(home: &Path) -> (Vec<Candidate>, Report) {
     }
     (entries, report)
 }
+pub(crate) fn installed_credential(kind: &str, base: &Url) -> Option<crate::vault::Credential> {
+    let home = dirs::home_dir()?;
+    let entries = match kind {
+        "emby" => goliath(&home, "emby").ok()?,
+        "unraid" => goliath(&home, "unraid").ok()?,
+        "proxmox" => proxmox(&home).ok()?,
+        "omlx" => omlx(&home, &mut vec![]).ok()?,
+        "comfy" => comfy(&home, &mut vec![]).ok()?,
+        _ => return None,
+    };
+    let entry = entries
+        .into_iter()
+        .find(|e| e.source.address.trim_end_matches('/') == base.as_str().trim_end_matches('/'))?;
+    Some(crate::vault::Credential {
+        key: entry.secret,
+        ca: entry.ca.and_then(|c| String::from_utf8(c).ok()),
+    })
+}
 fn migrate(home: &Path) -> Report {
     let (entries, mut report) = discover(home);
     for entry in entries {
         let store = || -> Result<(), String> {
-            if let Some(bytes) = entry.ca {
-                import_ca(&entry.source.address, &bytes)?
-            }
-            if let Some(secret) = entry.secret.filter(|s| !s.is_empty()) {
-                import_secret(entry.source.kind, &entry.source.address, secret.as_bytes())?
+            if entry.secret.is_some() || entry.ca.is_some() {
+                let base = endpoint(&entry.source.address)?;
+                crate::vault::import(
+                    entry.source.kind,
+                    &base,
+                    crate::vault::Credential {
+                        key: entry.secret.filter(|s| !s.is_empty()),
+                        ca: entry
+                            .ca
+                            .map(String::from_utf8)
+                            .transpose()
+                            .map_err(|_| "Invalid certificate")?,
+                    },
+                )?;
             }
             Ok(())
         };

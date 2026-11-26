@@ -26,7 +26,8 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     let at_login = app.autolaunch().is_enabled().unwrap_or(false);
     let login =
         CheckMenuItem::with_id(app, "login", "Open at login", true, at_login, None::<&str>)?;
-    let settings = MenuItem::with_id(app, "settings", "Settings and Preview…", true, None::<&str>)?;
+    let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
+    let preview=MenuItem::with_id(app,"preview","Show Window Preview",true,None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Edge Workbench", true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
@@ -35,6 +36,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
             &PredefinedMenuItem::separator(app)?,
             &show,
             &settings,
+            &preview,
             &login,
             &PredefinedMenuItem::separator(app)?,
             &quit,
@@ -64,6 +66,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
             "settings" => {
                 let _ = crate::open_settings(app.clone());
             }
+            "preview" => {let handle=app.clone(); tauri::async_runtime::spawn(async move {let _=crate::general::open_preview(handle).await;});}
             "quit" => app.exit(0),
             _ => {}
         })

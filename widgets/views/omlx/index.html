@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>oMLX Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="touch-map.js" defer></script>
+  <script src="widget.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="identity">
+      <img class="mark" src="omlx-icon.svg" alt="" width="38" height="38">
+      <h1>oMLX</h1>
+    </div>
+    <nav aria-label="Dashboard views">
+      <button type="button" data-view="overview" aria-pressed="true">Overview</button>
+      <button type="button" data-view="models" aria-pressed="false">Models</button>
+      <button type="button" data-view="usage" aria-pressed="false">Usage</button>
+    </nav>
+    <div class="network">
+      <span id="server-label" class="server-label"></span>
+      <button type="button" id="server-toggle" class="server-toggle" aria-controls="server-picker" aria-expanded="false" hidden>
+        <span id="server-name"></span><i class="chevron" aria-hidden="true"></i>
+      </button>
+      <span id="status" role="status" data-state="offline">Connecting</span>
+    </div>
+  </header>
+
+  <main id="content" class="workspace" aria-label="Server metrics">
+    <section id="overview" class="overview" aria-label="Overview">
+      <article class="surface throughput">
+        <div class="instrument">
+          <div class="decode-heading">
+            <h2>Live decode</h2>
+            <div id="mac-specs" hidden>
+              <strong id="mac-chip"></strong>
+              <span id="mac-config"></span>
+            </div>
+          </div>
+          <div class="reading"><strong id="live-decode"><span id="decode-integer">—</span><span id="decode-fraction"></span></strong><span id="decode-unit" hidden>tok/s</span></div>
+          <div class="throughput-work">
+            <span class="window-peak"><b id="decode-peak">—</b> peak</span>
+            <span><b id="active">—</b> active</span><span><b id="queued">—</b> queued</span>
+          </div>
+        </div>
+        <figure class="history">
+          <div class="plot">
+            <canvas id="trend" role="img" aria-label="Live decode throughput over two minutes"></canvas>
+            <span id="trend-state" class="trend-state"></span>
+            <span id="trend-max" class="trend-max"></span>
+          </div>
+          <div class="prefill-strip"><svg id="prefill-plot" viewBox="0 0 500 30" preserveAspectRatio="none" aria-label="Prompt processing speed, independent scale" role="img"><path id="prefill-completed"/><path id="prefill-path"/></svg><small id="prefill-caption">Prefill</small></div>
+          <figcaption><span>2 min ago</span><span>Now</span></figcaption>
+        </figure>
+      </article>
+
+      <div class="secondary">
+        <article class="surface memory">
+          <div class="memory-heading">
+            <h2>Unified memory</h2><span id="pressure" class="pressure"></span>
+          </div>
+          <div class="memory-value"><strong id="memory-total">—</strong><span id="memory-limit"></span></div>
+          <div id="memory-track" class="track" role="meter" aria-label="Memory usage against oMLX ceiling" hidden><span id="memory-fill"></span></div>
+          <div class="headroom"><strong id="overview-room">—</strong> load headroom</div>
+          <div id="memory-detail" class="memory-detail">Model pool —</div>
+        </article>
+        <article class="surface pace">
+          <h2>Server stats</h2>
+          <dl>
+            <div><dt>Avg. decode</dt><dd><strong id="avg-decode">—</strong> <span>tok/s</span></dd></div>
+            <div><dt>Avg. prefill</dt><dd><strong id="avg-prefill">—</strong> <span>tok/s</span></dd></div>
+            <div><dt>Models loaded</dt><dd><strong id="overview-loaded">—</strong></dd></div>
+            <div><dt>Cache hit</dt><dd><strong id="overview-cache">—</strong></dd></div>
+          </dl>
+        </article>
+      </div>
+      <article class="surface live-models">
+        <header><h2>Resident models</h2><span id="resident-count"></span></header>
+        <div id="resident-list" tabindex="0" aria-label="Resident model activity"></div>
+      </article>
+    </section>
+
+    <section id="models" class="models-view" aria-label="Models" hidden>
+      <div class="view-title model-heading">
+        <div class="model-filters" role="group" aria-label="Filter models">
+          <button type="button" data-filter="all" aria-pressed="true">All models</button>
+          <button type="button" data-filter="unloaded" aria-pressed="false">Unloaded</button>
+        </div>
+        <div class="model-summary">
+          <strong id="models-headroom"></strong>
+          <span id="models-total"></span>
+        </div>
+      </div>
+      <div id="model-space" class="model-space"><ul id="model-list"></ul><p id="models-empty" class="empty-state" hidden></p></div>
+      <div id="models-pages" class="pager" hidden>
+        <button type="button" id="models-prev" aria-label="Previous models">‹</button>
+        <span id="models-page"></span>
+        <button type="button" id="models-next" aria-label="Next models">›</button>
+      </div>
+    </section>
+
+    <section id="usage" class="usage-view" aria-label="Session usage" hidden>
+      <article class="surface usage-tokens">
+        <h2>Session tokens</h2>
+        <div class="usage-total"><strong id="tokens-total">—</strong><span><b id="requests">—</b> requests</span></div>
+        <div id="token-track" class="track token-track" hidden><span id="token-fill"></span></div>
+        <dl class="usage-breakdown">
+          <div><dt>Prompt</dt><dd id="tokens-prompt">—</dd></div>
+          <div><dt>Output</dt><dd id="tokens-output">—</dd></div>
+        </dl>
+      </article>
+      <article class="surface cache-card">
+        <h2>Prompt cache hit</h2>
+        <div class="cache-reading"><strong id="cache-hit">—</strong></div>
+        <div id="cache-track" class="track" role="meter" aria-label="Prompt cache hit rate" hidden><span id="cache-fill"></span></div>
+        <div class="memory-detail"><b id="tokens-cached">—</b> cached tokens</div>
+      </article>
+      <article class="surface week-card"><h2>Token activity · 7 days</h2><div id="week-grid"></div><div class="heat-axis" aria-label="Hours in server local time"><span>00</span><span>06</span><span>12</span><span>18</span><span>23</span></div><small>Server local time</small></article>
+      <article class="surface week-card"><h2>Decode speed · 7 days</h2><div id="week-speeds"></div></article>
+    </section>
+
+    <section id="server-picker" class="surface server-picker" aria-label="Choose a server" hidden>
+      <div class="view-title"><h2>Servers</h2><span id="fleet"></span></div>
+      <div id="server-options"></div>
+      <div id="servers-pages" class="pager" hidden>
+        <button type="button" id="servers-prev" aria-label="Previous servers">‹</button>
+        <span id="servers-page"></span>
+        <button type="button" id="servers-next" aria-label="Next servers">›</button>
+      </div>
+    </section>
+    <section id="confirm-unload" class="surface confirm-unload" aria-labelledby="unload-title" hidden>
+      <h2 id="unload-title">Unload model?</h2>
+      <p id="unload-model"></p>
+      <p>oMLX can stop active requests on this model.</p>
+      <div class="confirm-actions">
+        <button type="button" id="cancel-unload">Cancel</button>
+        <button type="button" id="apply-unload">Unload</button>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span id="updated">Waiting for data</span>
+    <span id="message" role="status"></span>
+    <button type="button" id="refresh" aria-label="Refresh dashboard">↻</button>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,20 @@
+{
+  "lscr.io/linuxserver/radarr": "https://raw.githubusercontent.com/linuxserver/templates/main/unraid/radarr.xml",
+  "lscr.io/linuxserver/nzbhydra2": "https://raw.githubusercontent.com/linuxserver/templates/master/unraid/nzbhydra2.xml",
+  "lscr.io/linuxserver/sonarr": "https://raw.githubusercontent.com/linuxserver/templates/main/unraid/sonarr.xml",
+  "ghcr.io/advplyr/audiobookshelf": "https://raw.githubusercontent.com/advplyr/docker-templates/master/audiobookshelf.xml",
+  "jlesage/nginx-proxy-manager": "https://raw.githubusercontent.com/jlesage/docker-templates/master/jlesage/nginx-proxy-manager.xml",
+  "qmcgaw/gluetun": "https://raw.githubusercontent.com/binhex/templates/main/unraid/binhex/templates/official-gluetun.xml",
+  "ghcr.io/dispatcharr/dispatcharr": "https://raw.githubusercontent.com/slamanna212/UnraidTemplates/main/Dispatcharr.xml",
+  "lscr.io/linuxserver/nginx": "https://raw.githubusercontent.com/linuxserver/templates/master/unraid/nginx.xml",
+  "seerr/seerr": "https://raw.githubusercontent.com/ibracorp/unraid-templates/master/jellyseerr/jellyseerr.xml",
+  "emby/embyserver": "https://raw.githubusercontent.com/MediaBrowser/Emby.Build/master/unraid-templates/emby/EmbyServerBeta.xml",
+  "a1ex4/ownfoil": "https://raw.githubusercontent.com/type0dev/Unraid-Template/main/ownfoil/ownfoil.xml",
+  "ghcr.io/railline/crowdsec-threat-map-docker": "https://raw.githubusercontent.com/Railline/unraid-community-apps/main/templates/CrowdSec-Threat-Map.xml",
+  "binhex/arch-sabnzbd": "https://raw.githubusercontent.com/binhex/docker-templates/master/binhex/sabnzbd.xml",
+  "josh5/unmanic": "https://raw.githubusercontent.com/Josh5/unraid-docker-templates/master/josh5/unmanic.xml",
+  "flaresolverr/flaresolverr": "https://raw.githubusercontent.com/selfhosters/unRAID-CA-templates/master/templates/flaresolverr.xml",
+  "crowdsecurity/crowdsec": "https://raw.githubusercontent.com/ibracorp/unraid-templates/master/crowdsec/crowdsec.xml",
+  "spants/mqtt": "https://raw.githubusercontent.com/spants/unraidtemplates/master/Spants/MQTT.xml",
+  "henrywhitaker3/speedtest-tracker": "https://raw.githubusercontent.com/selfhosters/unRAID-CA-templates/master/templates/speedtest-tracker.xml"
+}

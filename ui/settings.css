@@ -99,3 +99,16 @@
 .settings #notice {z-index:5;border:1px solid #475845;box-shadow:0 5px 16px #0003}
 @media(max-width:920px){.settings{grid-template-columns:150px minmax(0,1fr)}.wordmark{font-size:13px}.settings main{padding:18px}.layout-work{grid-template-columns:minmax(0,1fr) 196px;gap:9px}.settings .panel{padding:12px}.layout-tools .page-options summary{padding:5px}.service-type{display:none}.service-row{grid-template-columns:auto minmax(0,1fr) auto}}
 @media(max-width:735px){.layout-work{grid-template-columns:minmax(0,1fr)}.settings .library{position:static;max-height:340px}.settings .admin-heading{flex-wrap:wrap}.settings .side{padding-left:6px;padding-right:6px}.settings{grid-template-columns:139px minmax(0,1fr)}.settings main{padding:12px}.preset-grid{gap:2px}}
+
+.preview-screen {position:relative;width:100%;overflow:hidden}.preview-screen .preview {position:absolute;inset:0;transform-origin:top left;border-radius:0}
+.settings .setting-row{display:flex;align-items:center;gap:14px;min-height:42px}
+.setting-row label{min-width:190px}
+.setting-row input[type=checkbox]{width:34px;height:20px;appearance:none;border-radius:20px;background:#414847;cursor:pointer;position:relative}
+.setting-row input[type=checkbox]::after{content:'';position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:50%;background:#edf0e6}
+.setting-row input[type=checkbox]:checked{background:#8baf72}
+.setting-row input[type=checkbox]:checked::after{left:16px}
+.settings .setting-row input[type=color]{width:54px;height:29px;padding:2px;cursor:pointer}
+.setting-row input[type=number]{width:84px;padding:5px}.setting-row select{max-width:55%}
+.segments{display:flex}.segments button{border-radius:0}.segments button:first-child{border-radius:7px 0 0 7px}.segments button:last-child{border-radius:0 7px 7px 0}
+.settings .canvas.portrait{aspect-ratio:9/32;width:min(100%,135px);margin-inline:auto}
+.settings #editor>.panel+.panel{margin-top:12px}

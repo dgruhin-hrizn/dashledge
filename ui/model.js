@@ -1,10 +1,22 @@
 export const presets={One:[1],Two:[1,1],Three:[1,1,1],Four:[1,1,1,1],Five:[1,1,1,1,1],Six:[2,2,2],Featured:[1,2]};
-export const titles={cpu:'CPU',gpu:'GPU',memory:'Memory',disk:'Disk space',network:'Network',machine:'This Mac',power:'Power & thermal',interfaces:'Network interfaces',volumes:'Storage volumes',world:'World clocks',clock:'Local time',focus:'Focus timer',notes:'Scratchpad',spotify:'Spotify',emby:'Emby',comfy:'ComfyUI',proxmox:'Proxmox',omlx:'oMLX',unraid:'Unraid',ember:'Ember',empty:'Empty section'};
+export const titles={cpu:'CPU',gpu:'GPU',memory:'Memory',disk:'Disk space',network:'Network',machine:'This Mac',power:'Power & thermal',interfaces:'Network interfaces',volumes:'Storage volumes',world:'World clocks',clock:'Local time',focus:'Focus timer',notes:'Scratchpad',spotify:'Spotify',emby:'Emby',comfy:'ComfyUI',proxmox:'Proxmox',omlx:'oMLX',unraid:'Unraid',ember:'Ember Copper',empty:'Empty section'};
 export const id=()=>crypto.randomUUID();
 export const slot=(kind='empty')=>({id:id(),kind,source:'',volume:''});
 export function makePage(name,preset,kinds=[]){return {id:id(),name,preset,slots:Array.from({length:count(preset)},(_,i)=>slot(kinds[i]))}}
 export const count=p=>presets[p].reduce((x,y)=>x+y,0);
 export function initial(){return {version:1,pages:[makePage('System','Five',['cpu','gpu','memory','disk','network']),makePage('Studio','Featured',['comfy','omlx','spotify']),makePage('Media','One',['emby']),makePage('Everyday','Four',['clock','focus','notes','machine'])],sources:[],plugins:[]}}
+export const originalKinds = ['omlx', 'ember', 'proxmox', 'unraid', 'emby', 'comfy'];
+export function addOriginalPages(config) {
+  if (config.originalDashboards) return false;
+  for (const kind of originalKinds) {
+    if (config.pages.some(p => p.slots.length === 1 && p.slots[0].kind === kind)) continue;
+    const page = makePage(titles[kind], 'One', [kind]);
+    page.slots[0].source = config.sources.find(source => source.kind === kind)?.id || '';
+    config.pages.push(page);
+  }
+  config.originalDashboards = true;
+  return true;
+}
 export function resize(page,preset){
   if(!Object.hasOwn(presets,preset))throw Error('Unknown preset');
   const n=count(preset), occupied=page.slots.filter(s=>s.kind!=='empty');
@@ -40,8 +52,10 @@ export function split(page,index,axis){
   boxes.splice(index+1,0,{...first,[coordinate]:first[coordinate]+first[dimension]});
   page.slots.splice(index+1,0,slot());page.regions=boxes;
 }
-export function layout(grid,preset,custom){
-  const boxes=custom||regions({preset}),round=v=>Math.round(v*1000000)/1000000;
+export function layout(grid,preset,custom,vertical=false){
+  const source=custom||regions({preset});
+  const boxes=vertical?source.map(({x,y,w,h})=>({x:y,y:x,w:h,h:w})):source;
+  const round=v=>Math.round(v*1000000)/1000000;
   const bounds=(a,b)=>[...new Set(boxes.flatMap(r=>[round(r[a]),round(r[a]+r[b])]))].sort((a,b)=>a-b);
   const x=bounds('x','w'),y=bounds('y','h');
   const tracks=edges=>edges.slice(1).map((v,i)=>'minmax(0,'+round(v-edges[i])+'fr)').join(' ');

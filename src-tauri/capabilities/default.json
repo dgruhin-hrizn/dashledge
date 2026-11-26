@@ -2,6 +2,6 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Lets the page call focus_window and touch_status.",
-  "windows": ["main","settings"],
+  "windows": ["main","settings","preview"],
   "permissions": ["core:default"]
 }

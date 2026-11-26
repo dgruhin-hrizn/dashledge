@@ -15,10 +15,13 @@
 
 mod connections;
 mod instruments;
+mod general;
 mod migration;
 mod touch;
 mod transcript;
 mod tray;
+mod widget_host;
+mod vault;
 
 use std::{path::PathBuf, sync::OnceLock, time::Duration};
 use tauri::{
@@ -132,6 +135,7 @@ fn display_info(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
         "enabled": output_file(&app)?.exists(),
         "connected": rect.is_some(),
         "size": rect.map(|r| format!("{} × {}", r.w, r.h)),
+        "displays": touch::monitors(),
         "touch": touch::status()
     }))
 }
@@ -153,7 +157,36 @@ fn set_edge_output(
     } else if path.exists() {
         std::fs::remove_file(path).map_err(|e| e.to_string())?;
     }
-    app.request_restart();
+    sync_touch(&app);
+    if enabled {
+        ensure_main(&app)?;
+        show_on_edge(&app);
+    } else if let Some(win)=app.get_webview_window("main"){win.close().map_err(|e|e.to_string())?;}
+    tray::set_status(if !enabled {"Preview mode"} else if touch::edge_rect().is_some(){"Display connected"}else{"Waiting for display"});
+    Ok(())
+}
+
+pub fn sync_touch(app:&tauri::AppHandle){
+    touch::enable(output_file(app).is_ok_and(|p|p.exists()) && general::general_settings().direct_touch);
+}
+#[tauri::command]
+fn retry_touch(app:tauri::AppHandle){sync_touch(&app);touch::retry();}
+#[tauri::command]
+fn move_to_display(app:tauri::AppHandle,window:WebviewWindow)->Result<(),String>{
+    if touch::edge_rect().is_none(){return Err("The selected display is disconnected.".into());}
+    set_edge_output(window,app,true)
+}
+#[tauri::command]
+fn release_page()->Result<(),String>{
+    std::process::Command::new("/usr/bin/open").arg("https://github.com/dgruhin-hrizn/edge-workbench/releases")
+        .spawn().map(|_|()).map_err(|e|e.to_string())
+}
+fn ensure_main(app:&tauri::AppHandle)->Result<(),String>{
+    if app.get_webview_window("main").is_none(){
+        WebviewWindowBuilder::new(app,"main",WebviewUrl::App("edge.html".into()))
+            .on_web_resource_request(widget_host::serve).title("Edge Workbench").decorations(false)
+            .background_color(tauri::window::Color(0,0,0,255)).visible(false).build().map_err(|e|e.to_string())?;
+    }
     Ok(())
 }
 
@@ -190,6 +223,7 @@ fn open_settings(app: tauri::AppHandle) -> Result<(), String> {
         return win.set_focus().map_err(|e| e.to_string());
     }
     WebviewWindowBuilder::new(&app, "settings", WebviewUrl::App("settings.html".into()))
+        .on_web_resource_request(widget_host::serve)
         .title("Edge Workbench Settings")
         .inner_size(1060., 680.)
         .build()
@@ -205,6 +239,14 @@ pub fn run() {
             None,
         ))
         .invoke_handler(tauri::generate_handler![
+            general::preview_control, general::open_preview, general::general_settings, general::save_general, general::check_release,
+            release_page, retry_touch, move_to_display,
+            vault::unlock_connections,
+            vault::recover_credential,
+            widget_host::widget_open,
+            widget_host::widget_ping,
+            widget_host::widget_close,
+            widget_host::widget_model_action,
             focus_window,
             touch_status,
             instruments::ember_chats,
@@ -214,6 +256,7 @@ pub fn run() {
             migration::import_zurface_connections,
             connections::set_secret,
             connections::source_read,
+            connections::widget_source_read,
             connections::poster,
             connections::comfy_preview,
             open_settings,
@@ -222,6 +265,8 @@ pub fn run() {
         ])
         .setup(|app| {
             let _ = APP.set(app.handle().clone());
+            general::init(app.handle())?;
+            widget_host::reap_idle(app.handle().clone());
 
             // Example: start sampling CPU / memory / network for system_snapshot.
 
@@ -234,12 +279,7 @@ pub fn run() {
             }
             tray::build(app.handle())?;
 
-            if !output_file(app.handle()).is_ok_and(|file| file.exists()) {
-                tray::set_status("Preview mode");
-                let _ = open_settings(app.handle().clone());
-                return Ok(());
-            }
-
+            sync_touch(app.handle());
             // Touches go straight into the page. The mouse never moves.
             let handle = app.handle().clone();
             touch::start(move |ev| {
@@ -256,25 +296,14 @@ pub fn run() {
                 ));
             });
 
-            let win = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                .title("Edge Workbench")
-                .decorations(false)
-                .background_color(tauri::window::Color(0, 0, 0, 255))
-                .visible(false)
-                .build()?;
-            let edge = touch::edge_rect();
-            if edge.is_none() {
-                log("window: Edge not connected; waiting in the menu bar");
+            let enabled=output_file(app.handle()).is_ok_and(|p|p.exists());
+            let edge=touch::edge_rect();
+            if enabled {
+                ensure_main(app.handle())?;
+                show_on_edge(app.handle());
             }
-            place(&win, edge);
-            if edge.is_none() {
-                let _ = open_settings(app.handle().clone());
-            }
-            tray::set_status(if edge.is_some() {
-                "On the Edge"
-            } else {
-                "Waiting for the Edge"
-            });
+            if !enabled || edge.is_none(){open_settings(app.handle().clone())?;}
+            tray::set_status(if !enabled {"Preview mode"} else if edge.is_some() {"Display connected"}else{"Waiting for display"});
 
             // Follow the Edge when it's plugged in, unplugged or rearranged, and
             // put the window back fullscreen if something knocked it out.
@@ -284,7 +313,7 @@ pub fn run() {
                 loop {
                     std::thread::sleep(Duration::from_secs(3));
                     let Some(win) = handle.get_webview_window("main") else {
-                        break;
+                        last=None; continue;
                     };
                     let now = touch::edge_rect();
                     let knocked_out = now.is_some_and(|r| !on_edge(&win, r));
@@ -308,6 +337,11 @@ pub fn run() {
             });
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running Edge Workbench");
+        .build(tauri::generate_context!())
+        .expect("error while building Edge Workbench")
+        .run(|_, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                widget_host::shutdown();
+            }
+        });
 }
