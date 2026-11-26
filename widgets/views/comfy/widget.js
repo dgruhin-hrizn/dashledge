@@ -19,7 +19,10 @@
     preview.append(el('i','shutter'),el('span','photo-label','LATEST OUTPUT'),el('b','','Tap to reveal'));
     const readings=el('div','readings'),node=el('strong'),step=el('small'),track=el('div','track');
     track.append(el('i'));const gpu=el('div','gpu'),queue=el('button','queue');
-    readings.append(node,step,track,gpu,queue);body.append(preview,readings);item.append(head,body);
+    const load=el('div','gpu-load'),meter=el('meter'),percent=el('b');
+    meter.max=100;meter.setAttribute('aria-label','GPU utilization');
+    load.hidden=true;load.append(el('span','','GPU utilization'),meter,percent);
+    readings.append(node,step,track,load,gpu,queue);body.append(preview,readings);item.append(head,body);
     queue.onclick=()=>go(i);
     preview.onclick=()=>{
       const expected=data?.workers?.[i]?.preview;
@@ -30,7 +33,7 @@
       img.src='previews/'+expected;preview.append(img);preview.setAttribute('aria-pressed','true');
       preview.querySelector('b').textContent='Tap to hide';hideTimer=setTimeout(conceal,15000);
     };
-    return {item,name,address,badge,node,step,track,gpu,queue,preview};
+    return {item,name,address,badge,node,step,track,gpu,queue,preview,load,meter,percent};
   }
   const cards=[card(0),card(1)];wall.append(...cards.map(c=>c.item));
   function valid(file,i){return typeof file==='string'&&new RegExp('^'+i+'-[a-f0-9]{20}\\.jpg$').test(file);}
@@ -60,17 +63,27 @@
     for(const row of [memoryRow('VRAM',d.total,d.free),memoryRow('Host RAM',system.ram,system.ramFree)])if(row)panel.append(row);
     return panel;
   }
+  function utilization(w){
+    const reading=w.gpuLoad;
+    return w.status!=='Offline' && Date.now()-reading?.at<=15000 ? reading.percent : null;
+  }
+  function busyGPU(w){return w.status==='Idle' && !w.active && utilization(w)>5;}
   function draw(){
     const workers=data?.workers||[],stale=data&&Date.now()-data.at>45000;
-    document.querySelector('#summary').textContent=!data?'Waiting for capture':stale?'Last reading':workers.filter(w=>w.status==='Rendering').length+' rendering · '+workers.reduce((n,w)=>n+(w.queued||0),0)+' queued';
+    document.querySelector('#summary').textContent=!data?'Waiting for capture':stale?'Last reading':workers.filter(w=>w.status==='Rendering'||busyGPU(w)).length+' rendering · '+workers.reduce((n,w)=>n+(w.queued||0),0)+' queued';
     cards.forEach((c,i)=>{
       const w=workers[i]||{},j=w.active;
-      c.name.textContent=w.name||'Worker '+(i+1);c.item.dataset.state=stale?'Stale':w.status||'Connecting';
+      const load=stale?null:utilization(w),busy=!stale && busyGPU(w);
+      c.load.hidden=load==null;
+      if(load!=null){c.meter.value=load;c.percent.textContent=load+'%';}
+      const status=busy?'Rendering':w.status;
+      c.name.textContent=w.name||'Worker '+(i+1);c.item.dataset.state=stale?'Stale':status||'Connecting';
       c.address.textContent=w.host||'';
-      c.badge.textContent=stale?'Last reading':w.status||'Connecting';
-      c.node.textContent=j?.node||(j?'Workflow running':w.status==='Idle'?'Ready to render':w.status==='Offline'?'Server unreachable':'Awaiting queue');
-      const p=j?.progress;c.step.textContent=p?'Node step '+p[0]+' of '+p[1]:j?j.steps+' workflow nodes':'';
-      c.track.firstChild.style.width=p?Math.min(100,100*p[0]/p[1])+'%':'0%';c.track.hidden=!j;
+      c.badge.textContent=stale?'Last reading':status||'Connecting';
+      c.node.textContent=j?.node||(j?'Workflow running':busy?'Rendering':w.status==='Idle'?'Ready to render':w.status==='Offline'?'Server unreachable':'Awaiting queue');
+      const p=j?.progress;c.step.textContent=p?'Node step '+p[0]+' of '+p[1]:j?j.steps+' workflow nodes':busy?'GPU activity outside the queue':'';
+      c.track.firstChild.style.width=p?Math.min(100,100*p[0]/p[1])+'%':'0%';c.track.hidden=!j&&!busy;
+      c.track.classList.toggle('indeterminate',busy);
       const devices=w.devices||[], signature=JSON.stringify([devices,w.hardware]);
       if(c.gpu.dataset.devices!==signature){
         c.gpu.dataset.devices=signature;

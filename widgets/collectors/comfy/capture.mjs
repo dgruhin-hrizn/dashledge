@@ -8,7 +8,8 @@ import {setTimeout as delay} from 'node:timers/promises';
 const run=promisify(execFile);
 import { context } from '../context.mjs';
 const root = context.directory;
-const configs = context.sources.map(s => ({ name: s.name, url: s.address, key: s.key }));
+import { sample as sampleGPUs } from '../proxmox/gpu.mjs';
+const configs = context.sources.map(s => ({ name: s.name, url: s.address, key: s.key, gpuGuest:s.gpuGuests?.worker }));
 const thumbs=join(root,'previews');mkdirSync(thumbs,{recursive:true,mode:0o700});
 const states=configs.map(({name,url})=>({name,host:new URL(url).host,status:'Connecting',active:null,pending:[],recent:[]}));
 let timer;
@@ -30,6 +31,27 @@ async function worker(config,index){
   const state=states[index],base=new URL(config.url);if(!['http:','https:'].includes(base.protocol))throw Error('Invalid worker URL');
   base.pathname=base.pathname.replace(/\/*$/,'/');
   let ws,nodes={},nextStats=0,nextHistory=0,lastJob,failures=0,nextImage=0;
+  let streamAt = 0;
+  function recordGPU(values){
+    const loads=values.filter(v=>Number.isFinite(v) && v>=0 && v<=100);
+    if(!loads.length)return false;
+    state.gpuLoad={percent:Math.max(...loads),at:Date.now()};
+    publish();return true;
+  }
+  async function pollGuest(mapping){
+    const target=typeof mapping==='string'?mapping:mapping?.target;
+    if(typeof target!=='string'||target.split('@').pop().toLowerCase()!==base.hostname.toLowerCase())return;
+    while(true){
+      if(Date.now()-streamAt>15000 && state.status!=='Offline'){
+        try{
+          const devices=await sampleGPUs(target,mapping.identityFile);
+          if(Date.now()-streamAt>15000 && state.status!=='Offline')recordGPU(devices.map(d=>d.load));
+        }catch{/* Optional telemetry expires independently of the queue. */}
+      }
+      await delay(5000);
+    }
+  }
+  if(config.gpuGuest)void pollGuest(config.gpuGuest);
   function socket(){
     if(ws)return;
     const u=new URL('ws',base);u.protocol=base.protocol==='https:'?'wss:':'ws:';
@@ -40,6 +62,10 @@ async function worker(config,index){
       if(typeof e.data!=='string')return;
       let msg;try{msg=JSON.parse(e.data);}catch{return;}
       const d=msg.data;
+      if(msg.type==='crystools.monitor' && Array.isArray(d?.gpus)){
+        if(state.status!=='Offline' && recordGPU(d.gpus.map(g=>g?.gpu_utilization)))streamAt=Date.now();
+        return;
+      }
       if(!d||!state.active||state.active.id!==String(d.prompt_id))return;
       if(msg.type==='executing' && d.node!=null){
         state.active.node=nodes[d.node]||'Node '+d.node;state.active.progress=null;publish();
@@ -98,7 +124,7 @@ async function worker(config,index){
         now<nextHistory?null:(async()=>{nextHistory=now+30000;try{await updateHistory(now);}catch{/* Queue remains usable if history or an image is unavailable. */}})()
       ]);
     }catch(e){
-      state.status='Offline';state.error=e.message==='fetch failed'?'Unreachable':e.message;
+      delete state.gpuLoad;streamAt=0;state.status='Offline';state.error=e.message==='fetch failed'?'Unreachable':e.message;
       state.active=null;lastJob=undefined;state.pending=[];delete state.queued;delete state.devices;delete state.hardware;delete state.preview;nextStats=nextHistory=0;ws?.close();failures++;
     }
     if(state.status!=='Offline')delete state.error;publish();
