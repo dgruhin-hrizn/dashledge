@@ -292,6 +292,7 @@ pub fn run() {
             google_desk::desk_mail,
             google_desk::desk_calendar,
             google_desk::desk_open,
+            widget_host::markets_watch,
             markets::markets_connect,
             photos::photos_read,
             mac_shortcuts::mac_shortcuts_list,

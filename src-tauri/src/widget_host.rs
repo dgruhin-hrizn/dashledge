@@ -35,6 +35,7 @@ struct Feed {
     directory: TempDir,
     child: Child,
     viewers: HashMap<String, String>,
+    watchlists: HashMap<String, Vec<String>>,
     last_attached: Instant,
 }
 impl Drop for Feed {
@@ -52,6 +53,9 @@ pub fn reap_idle(app: tauri::AppHandle) {
         let windows=app.webview_windows();
         FEEDS.lock().unwrap().retain(|_, feed| {
             feed.viewers.retain(|_,label| windows.contains_key(label));
+            let before=feed.watchlists.len();
+            feed.watchlists.retain(|v,_| feed.viewers.contains_key(v));
+            if before!=feed.watchlists.len(){let _=send_watchlists(feed);}
             if !feed.viewers.is_empty(){feed.last_attached=Instant::now();}
             feed.last_attached.elapsed()<Duration::from_secs(90) && feed.child.try_wait().is_ok_and(|exit| exit.is_none())
         });
@@ -136,6 +140,7 @@ fn launch(kind: &str, sources: &[Source], assets: &Path, node: &Path) -> Result<
         directory,
         child,
         viewers: HashMap::new(),
+        watchlists: HashMap::new(),
         last_attached: Instant::now(),
     })
 }
@@ -202,11 +207,35 @@ pub fn widget_ping(id: String, viewer: String) -> bool {
     }
     false
 }
+fn send_watchlists(feed: &mut Feed) -> Result<(), String> {
+    let symbols: std::collections::BTreeSet<_> = feed.watchlists.values().flatten().collect();
+    if symbols.len() > 30 {return Err("Alpaca Basic supports 30 distinct symbols across open placements.".into());}
+    writeln!(feed.child.stdin.as_mut().ok_or("Collector disconnected")?, "{}", json!({"symbols":symbols}))
+        .map_err(|_| "Collector disconnected".to_string())
+}
+
+#[tauri::command]
+pub fn markets_watch(id: String, viewer: String, symbols: Vec<String>) -> Result<(), String> {
+    if symbols.is_empty() || symbols.len()>30 || symbols.iter().any(|s| s.is_empty() || s.len()>12 ||
+        !s.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b==b'.' || b==b'-')) {
+        return Err("Choose between 1 and 30 valid ticker symbols.".into());
+    }
+    let mut feeds = FEEDS.lock().unwrap();
+    let feed=feeds.get_mut(&id).filter(|f| f.kind=="markets" && f.viewers.contains_key(&viewer)).ok_or("Market feed disconnected")?;
+    let old=feed.watchlists.insert(viewer.clone(),symbols);
+    if let Err(error)=send_watchlists(feed) {
+        feed.watchlists.remove(&viewer);
+        if let Some(previous)=old {feed.watchlists.insert(viewer,previous);}
+        return Err(error);
+    }
+    Ok(())
+}
 #[tauri::command]
 pub fn widget_close(id: String, viewer: String) {
     let mut feeds = FEEDS.lock().unwrap();
     if let Some(feed) = feeds.get_mut(&id) {
         feed.viewers.remove(&viewer);
+        if feed.watchlists.remove(&viewer).is_some(){let _=send_watchlists(feed);}
         feed.last_attached=Instant::now();
     }
 }
@@ -239,6 +268,7 @@ fn resource(id: &str, path: &str) -> Option<(Vec<u8>, &'static str)> {
     let feeds = FEEDS.lock().unwrap();
     let feed = feeds.get(id)?;
     let root = match parts.as_slice() {
+        ["logos", file] if feed.kind == "markets" && file.ends_with(".png") => feed.directory.path(),
         ["market.json"] if feed.kind == "markets" => feed.directory.path(),
         ["snapshot.js"] | ["revision.js"] => feed.directory.path(),
         ["art" | "previews", file] if file.ends_with(".jpg") => feed.directory.path(),

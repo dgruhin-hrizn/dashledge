@@ -1,9 +1,9 @@
 import {button,el,field,invoke,select} from './common.js';
 
-const tickers=['SPY','QQQ','DIA','IWM','AAPL','NVDA','MSFT','AMZN','GOOGL','TSLA'];
+import {editWatchlist,watchlist} from './market-watchlist.js';
 const money=new Intl.NumberFormat('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 const stamp=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',second:'2-digit'});
-export const marketPicker=(value,save)=>select(tickers.map(t=>[t,t]),value||'SPY',save);
+export const marketPicker=(slot,save)=>select(watchlist(slot).map(t=>[t,t]),slot.marketSymbol||watchlist(slot)[0],save);
 
 export function marketConnection(){
   const wrap=el('div','fields'),key=el('input'),secret=el('input'),message=el('p','sub');
@@ -24,7 +24,7 @@ export function marketConnection(){
   return wrap;
 }
 
-function plot(canvas,points,color,fill){
+function plot(canvas,points,color,fill,extendedStart){
   const rect=canvas.getBoundingClientRect(),w=rect.width,h=rect.height;
   if(!w||!h)return;
   const scale=window.devicePixelRatio||1;
@@ -42,6 +42,10 @@ function plot(canvas,points,color,fill){
   const start=points[0][0],duration=Math.max(1,points.at(-1)[0]-start);
   const x=t=>pad+(w-2*pad)*(t-start)/duration;
   const y=p=>hi===lo?h/2:h-pad-(h-2*pad)*(p-lo)/(hi-lo);
+  if(fill && Number.isFinite(extendedStart)){
+    const boundary=x(extendedStart);ctx.fillStyle='#eab76416';ctx.fillRect(boundary,0,w-boundary,h);
+    ctx.strokeStyle='#eab76488';ctx.setLineDash([3,5]);ctx.beginPath();ctx.moveTo(boundary,0);ctx.lineTo(boundary,h);ctx.stroke();ctx.setLineDash([]);
+  }
   ctx.beginPath();points.forEach(([t,p],i)=>i?ctx.lineTo(x(t),y(p)):ctx.moveTo(x(t),y(p)));
   ctx.strokeStyle=color;ctx.lineWidth=fill?2.6:1.5;ctx.lineJoin='round';ctx.stroke();
   const [t,p]=points.at(-1);
@@ -53,20 +57,32 @@ function plot(canvas,points,color,fill){
 }
 
 export function mountMarkets(box,slot,save){
-  let selected=tickers.includes(slot.marketSymbol)?slot.marketSymbol:'SPY',feed,disposed=false,visible=true,running=false,series={},connection='',last='',nextPing=0,nextOpen=0;
+  const tickers=watchlist(slot);
+  let selected=tickers.includes(slot.marketSymbol)?slot.marketSymbol:tickers[0],feed,disposed=false,visible=true,running=false,series={},connection='',last='',nextPing=0,nextOpen=0;
   const viewer=crypto.randomUUID();box.classList.add('market-watch');
   const main=el('section','mw-main'),head=el('header'),name=el('strong'),ticker=el('span','mw-ticker');
   const hero=el('div','mw-hero'),price=el('strong','mw-price','—'),change=el('span','mw-change');
   const chart=el('canvas','mw-chart'),meta=el('footer'),time=el('span'),state=el('span');
   const rail=el('aside','mw-rail'),rows=el('div','mw-rows'),controls=el('div','mw-controls');
-  const picker=marketPicker(selected,s=>save(s));picker.setAttribute('aria-label','Featured symbol');
+  const choose=s=>save({marketSymbol:s,marketSymbols:tickers});
+  const picker=marketPicker(slot,choose);picker.setAttribute('aria-label','Featured symbol');
   const setup=button('Connect Alpaca',()=>{localStorage.setItem('edge.market.setup','1');invoke('open_settings').catch(e=>state.textContent=String(e))});
   setup.hidden=true;
-  head.append(ticker,name);hero.append(price,change);meta.append(el('b','','IEX'),time,state,setup);main.append(head,hero,chart,meta);
-  controls.append(el('h2','','Market Watch'),picker);rail.append(controls,rows);box.append(main,rail);
+  function badge(sym){
+    const mark=el('span','mw-badge',sym.slice(0,2));mark.style.setProperty('--hue',String([...sym].reduce((n,c)=>n*3+c.charCodeAt(0),0)%360));mark.setAttribute('aria-hidden','true');return mark;
+  }
+  function logo(mark,sym,item){
+    if(!feed||!item?.logo)return;
+    const src='/widget-view/'+encodeURIComponent(feed)+'/logos/'+encodeURIComponent(sym)+'.png';
+    if(mark.dataset.src===src)return;mark.dataset.src=src;
+    const img=el('img');img.alt='';img.onerror=()=>img.remove();img.src=src;mark.append(img);
+  }
+  const heroMark=badge(selected),session=el('span','mw-session');
+  head.append(heroMark,ticker,name);hero.append(price,change,session);meta.append(el('b','','IEX'),time,state,setup);main.append(head,hero,chart,meta);
+  controls.append(el('h2','','Market Watch'),button('Edit list',()=>editWatchlist(slot,save,true)),picker);rail.append(controls,rows);box.append(main,rail);
   const buttons=tickers.map(sym=>{
-    const b=button('',()=>save(sym)),spark=el('canvas'),quote=el('span');
-    b.setAttribute('aria-label','Show '+sym);b.append(el('b','',sym),spark,quote);rows.append(b);return {b,spark,quote,sym};
+    const b=button('',()=>choose(sym)),spark=el('canvas'),quote=el('span');
+    b.setAttribute('aria-label','Show '+sym);const mark=badge(sym);b.append(mark,el('b','',sym),spark,quote);rows.append(b);return {b,mark,spark,quote,sym};
   });
   const color=d=>d<0?'#ffa692':'#7ee8c2';
   function draw(){
@@ -74,13 +90,20 @@ export function mountMarkets(box,slot,save){
     ticker.textContent=selected;name.textContent=data.name||'';
     price.textContent=Number.isFinite(data.price)?'$'+money.format(data.price):'—';
     change.textContent=Number.isFinite(delta)&&data.close>0?(delta>=0?'+':'−')+money.format(Math.abs(delta))+'  ('+(delta>=0?'+':'−')+(Math.abs(delta)/data.close*100).toFixed(2)+'%)':'';
-    change.style.color=color(delta);plot(chart,data.points,color(delta),true);
+    logo(heroMark,selected,data);
+    const after=data.session==='After hours',pre=data.session==='Pre-market';
+    const baseline=after?data.regularClose:data.close;
+    const ext=data.price-baseline;
+    session.hidden=!(after||pre);
+    session.textContent=session.hidden?'':data.session+(Number.isFinite(ext)&&baseline>0?'  '+(ext>=0?'+':'−')+money.format(Math.abs(ext))+' ('+(ext>=0?'+':'−')+(Math.abs(ext)/baseline*100).toFixed(2)+'%)':'');
+    change.title='Change from previous session close';
+    change.style.color=color(delta);plot(chart,data.points,color(delta),true,data.extendedStart);
     chart.setAttribute('aria-label',selected+' intraday IEX price chart');
     time.textContent=data.time?'Last trade · '+stamp.format(data.time)+' ET':'Awaiting trade data';
     state.textContent=connection;
     chart.parentElement.dataset.direction=delta<0?'down':'up';
-    for(const {sym,b,spark,quote} of buttons){
-      const item=series[sym]||{};b.setAttribute('aria-pressed',String(sym===selected));
+    for(const {sym,b,mark,spark,quote} of buttons){
+      const item=series[sym]||{};logo(mark,sym,item);b.setAttribute('aria-pressed',String(sym===selected));
       quote.textContent=Number.isFinite(item.price)?money.format(item.price):'—';
       plot(spark,item.points,color(item.price-item.close),false);
     }
@@ -94,6 +117,8 @@ export function mountMarkets(box,slot,save){
         if(Date.now()<nextOpen)return;
         nextOpen=Date.now()+10000;
         const id=await invoke('widget_open',{kind:'markets',sources:[],viewer});
+        if(disposed){release(id);return}
+        try{await invoke('markets_watch',{id,viewer,symbols:tickers})}catch(e){release(id);throw e}
         if(disposed){release(id);return}
         feed=id;last='';setup.hidden=true;
       }
