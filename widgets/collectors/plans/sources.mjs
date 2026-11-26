@@ -1,7 +1,8 @@
 import {accessSync, constants, existsSync, readdirSync} from 'node:fs';
+import {open} from 'node:fs/promises';
 import {dirname, join, delimiter} from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
-import {homedir, tmpdir} from 'node:os';
+import {homedir, tmpdir, userInfo} from 'node:os';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 
@@ -62,7 +63,15 @@ export function claudeWindows(report) {
   const pairs = [['5-hour',rates.five_hour], ['Weekly',rates.seven_day],
     ['OAuth apps weekly',rates.seven_day_oauth_apps], ['Opus weekly',rates.seven_day_opus], ['Sonnet weekly',rates.seven_day_sonnet],
     ...(rates.model_scoped || []).map(w=>[w.display_name,w])];
-  return pairs.map(([name,w])=>limit(name,w?.utilization,w?.resets_at)).filter(Boolean);
+  const windows = pairs.map(([name,w])=>limit(name,w?.utilization,w?.resets_at)).filter(Boolean);
+  for (const band of Array.isArray(rates.limits) ? rates.limits : []) {
+    const label = ({session:'5-hour',weekly_all:'Weekly'})[band?.kind] ||
+      band?.scope?.model?.display_name || band?.scope?.surface?.display_name || band?.display_name;
+    if (!label || windows.some(w=>w.label===label)) continue;
+    const item = limit(label,band.percent,band.resets_at ?? band.reset_at);
+    if (item) windows.push(item);
+  }
+  return windows;
 }
 
 export async function readClaude(profile, query, binary) {
@@ -70,6 +79,8 @@ export async function readClaude(profile, query, binary) {
   for (const key of Object.keys(env)) {
     if (/^(ANTHROPIC_|CLAUDE_CODE_USE_)/.test(key)) delete env[key];
   }
+  env.USER ||= userInfo().username;
+  env.LOGNAME ||= env.USER;
   if (profile.directory) env.CLAUDE_CONFIG_DIR = profile.directory;
   const input = Promise.withResolvers();
   const prompt = {async *[Symbol.asyncIterator]() { await input.promise; }};
@@ -89,6 +100,31 @@ export async function readClaude(profile, query, binary) {
   }
 }
 
+// Claude Code can store a subscription sign-in in a private file when Keychain is unavailable.
+export async function filePlan(profile, createClient) {
+  const directory = profile.directory || join(home,'.claude');
+  let file;
+  let login;
+  try {
+    file = await open(join(directory,'.credentials.json'), constants.O_RDONLY | constants.O_NOFOLLOW);
+    const stat = await file.stat();
+    if (!stat.isFile() || stat.uid !== process.getuid() || (stat.mode & 0o077) || stat.size > 65536) return null;
+    login = JSON.parse(await file.readFile('utf8')).claudeAiOauth;
+  } catch { return null; }
+  finally { await file?.close(); }
+  if (!login?.accessToken || !Number.isFinite(login.expiresAt) || login.expiresAt <= Date.now()) return null;
+  const client = await createClient(login.accessToken);
+  const rates = await client.get('/api/oauth/usage', {headers:{'anthropic-beta':'oauth-2025-04-20'}});
+  return claudeWindows({rate_limits:rates});
+}
+
+async function subscriptionClient(authToken) {
+  const path = join(sdkRoot,'anthropic/node_modules/@anthropic-ai/sdk/index.mjs');
+  const {default:Anthropic} = await import(pathToFileURL(path).href);
+  return new Anthropic({authToken, apiKey:null, baseURL:'https://api.anthropic.com',
+    logLevel:'off', maxRetries:0, timeout:8000, fetchOptions:{redirect:'error'}});
+}
+
 export async function readProfile(profile) {
   const {id, provider, name} = profile;
   const source = provider==='Claude'?'Claude Agent SDK':'OpenAI Codex SDK';
@@ -98,7 +134,17 @@ export async function readProfile(profile) {
       const binary = executable('claude');
       if (!binary) return {...account,message:'Install Claude Code and sign in with your Claude subscription.'};
       const {query} = await import(pathToFileURL(join(sdkRoot,'claude/sdk.mjs')).href);
-      account.windows = await readClaude(profile,query,binary);
+      let sdkError;
+      try { account.windows = await readClaude(profile,query,binary); }
+      catch (error) { sdkError = error; }
+      if (!account.windows.length) {
+        const fallback = await filePlan(profile, subscriptionClient);
+        if (fallback?.length) {
+          account.windows = fallback;
+          account.source = 'Anthropic SDK';
+        } else if (sdkError) throw sdkError;
+        else return {...account,message:'Open Claude Code with this profile, run /login, then tap Refresh.'};
+      }
     } else {
       const binary = executable('codex',['/Applications/Codex.app/Contents/Resources/codex','/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex']);
       if (!binary) return {...account,message:'Install Codex and sign in with your ChatGPT account.'};
@@ -113,7 +159,11 @@ export async function readProfile(profile) {
     }
     if (account.windows.length) return {...account,at:Date.now()};
     return {...account,message:'No plan limits reported. Check your subscription sign-in and refresh.'};
-  } catch {
+  } catch (error) {
+    if (provider==='Claude' && [401,403].includes(error.status))
+      return {...account,message:'Claude needs a renewed subscription sign-in. Run /login in this profile, then refresh.'};
+    if (error.status===429)
+      return {...account,unavailable:true,message:'The provider is limiting usage checks. Try again shortly.'};
     return {...account,unavailable:true,message:'Could not refresh. Check your connection and update '+(provider==='Claude'?'Claude Code':'Codex')+', then retry.'};
   }
 }

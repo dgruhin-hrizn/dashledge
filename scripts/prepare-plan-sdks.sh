@@ -4,7 +4,7 @@ set -euo pipefail
 project="$(cd "$(dirname "$0")/.." && pwd)"
 runtime="$project/src-tauri/runtime"
 dest="$runtime/plan-sdks"
-version="claude-0.3.296_codex-0.172.0_py-3.14.9_$(uname -m)"
+version="anthropic-0.133.0_claude-0.3.296_codex-0.172.0_py-3.14.9_$(uname -m)"
 if [[ -f "$dest/version" && "$(cat "$dest/version")" == "$version" && -x "$dest/python/bin/python3" && -f "$dest/claude/sdk.mjs" ]]; then exit 0; fi
 stage="$(mktemp -d "$runtime/.plan-sdks.XXXXXXXX")"
 trap 'rm -rf "$stage"' EXIT
@@ -35,6 +35,11 @@ else
 fi
 "$stage/python/bin/python3" -I -B -c 'from openai_codex.client import CodexClient; from openai_codex.generated.v2_all import GetAccountRateLimitsResponse; import openai_codex; assert openai_codex.__version__=="0.172.0"'
 "$runtime/node" --input-type=module -e 'const sdk=await import(process.argv[1]); if(typeof sdk.query!=="function") process.exit(1)' "$stage/claude/sdk.mjs"
+"$stage/python/bin/python3" -I -B "$project/tests/codex-plan-windows.py"
+mkdir -p "$stage/anthropic"
+cp "$project"/scripts/plan-usage-sdk/package*.json "$stage/anthropic/"
+(cd "$stage/anthropic" && npm ci --omit=dev --legacy-peer-deps --ignore-scripts --no-audit --no-fund)
+"$runtime/node" --input-type=module -e 'const {default: SDK}=await import(process.argv[1]); if(typeof SDK.prototype.get!=="function") process.exit(1)' "$stage/anthropic/node_modules/@anthropic-ai/sdk/index.mjs"
 echo "$version" > "$stage/version"
 rm -rf "$dest"
 mv "$stage" "$dest"
