@@ -21,6 +21,7 @@ mod oauth_callback;
 mod slack;
 mod google_desk;
 mod mac_shortcuts;
+mod apple_news;
 mod photos;
 mod general;
 mod touch;
@@ -291,6 +292,8 @@ pub fn run() {
             google_desk::desk_mail,
             google_desk::desk_calendar,
             google_desk::desk_open,
+            apple_news::news_headlines,
+            apple_news::news_open,
             photos::photos_read,
             mac_shortcuts::mac_shortcuts_list,
             mac_shortcuts::mac_shortcut_run,

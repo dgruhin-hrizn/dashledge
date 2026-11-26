@@ -15,6 +15,7 @@ The menu-bar icon reopens Settings. You can also run the dashboard in a resizabl
 
 | Widget | What you can see or do |
 | --- | --- |
+| Apple News | Browse BBC News, BBC Technology, or The Guardian’s world headlines. Each placement can also display its own list of pinned Apple News story links. Publisher headlines open in the browser and pinned stories open in News. |
 | Apple Music | Browse playlists by cover, search your library, and see what follows the current song in album or playlist order. Choose AirPlay speakers, adjust EQ, rate a track, or read lyrics saved with it. |
 | Spotify | Browse playlists and recent plays, search for songs, add to the queue, switch playback devices, and watch a live audio spectrum. |
 | Slack Workspace | Read mentions, direct messages, favorite channels, and thread replies in one full-screen view. Ten individual Slack widgets are also available for split layouts. |

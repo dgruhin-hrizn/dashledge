@@ -12,7 +12,7 @@
     "withGlobalTauri": true,
     "windows": [],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://avatars.slack-edge.com https://*.mzstatic.com https://i.scdn.co https://image-cdn-ak.spotifycdn.com https://image-cdn-fa.spotifycdn.com https://*.scdn.co https://*.spotifycdn.com https://*.spotifycdn.net; connect-src 'self' ipc: http://ipc.localhost; frame-src 'self'; object-src 'none'; base-uri 'none'"
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https://ichef.bbci.co.uk https://i.guim.co.uk https://media.guim.co.uk data: blob: https://avatars.slack-edge.com https://*.mzstatic.com https://i.scdn.co https://image-cdn-ak.spotifycdn.com https://image-cdn-fa.spotifycdn.com https://*.scdn.co https://*.spotifycdn.com https://*.spotifycdn.net; connect-src 'self' ipc: http://ipc.localhost; frame-src 'self'; object-src 'none'; base-uri 'none'"
     }
   },
   "bundle": {
