@@ -2,26 +2,23 @@
 .dashboard .tile.pm-widget{
   container-type:size;display:flex;flex-direction:column;align-items:stretch;gap:clamp(6px,2cqh,16px);
   padding:clamp(8px,2.5cqh,22px) clamp(12px,2cqw,48px);overflow:hidden;
-  background:#0b1019;color:#f5f7fc;font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-variant-numeric:tabular-nums
+  border:0;border-radius:0;box-shadow:none;background:#0b1019;color:#f5f7fc;font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-variant-numeric:tabular-nums
 }
-.full-widget .tile.pm-widget{border:0;border-radius:0}
-.pm-head,.pm-dialog header,.pm-dialog footer,.pm-window-label,.pm-choice,.pm-choice label,.pm-card-foot{
+.pm-dialog header,.pm-dialog footer,.pm-window-label,.pm-choice,.pm-choice label{
   display:flex;align-items:center;justify-content:space-between;gap:12px
 }
-.pm-head h2{margin:0;font-size:clamp(18px,4.4cqh,34px);letter-spacing:-.035em;text-transform:none}
-.pm-head button,.pm-dialog button,.pm-empty+button{min-width:44px;min-height:44px;padding:5px 16px;color:#f2f6ff;background:#222c3a;border:1px solid #465365;border-radius:12px}
-.pm-cards{display:grid;flex:1;min-height:0;grid-auto-flow:column;grid-auto-columns:minmax(min(100%,clamp(255px,23cqw,550px)),1fr);gap:clamp(8px,1.2cqw,26px);overflow:auto;scroll-snap-type:x proximity}
-.pm-widget .pm-card{
-  --ink:#ffae86;--glow:#683626;--shade:#201d23;--line:#634a40;
+.pm-dialog button{min-width:44px;min-height:44px;padding:5px 16px;color:#f2f6ff;background:#222c3a;border:1px solid #465365;border-radius:12px}
+.pm-accounts{display:grid;flex:1;min-height:0;grid-auto-flow:column;grid-auto-columns:minmax(min(100%,clamp(255px,23cqw,550px)),1fr);gap:clamp(8px,1.2cqw,26px);overflow:auto;scroll-snap-type:x proximity}
+.pm-widget .pm-account{
+  --ink:#ffae86;
   display:flex;flex-direction:column;align-items:stretch;justify-content:space-between;gap:clamp(5px,1.5cqh,12px);
   min-width:0;min-height:0;padding:clamp(10px,3.3cqh,28px);overflow:hidden;
-  color:#fff7ee;text-align:left;scroll-snap-align:start;border:1px solid var(--line);border-radius:clamp(13px,3cqh,25px);
-  background:radial-gradient(ellipse at 85% -20%,var(--glow),transparent 65%),linear-gradient(154deg,var(--shade),#131923 85%);
-  box-shadow:inset 0 1px 0 #ffffff12;line-height:1.17
+  color:#fff7ee;text-align:left;scroll-snap-align:start;line-height:1.17
+
 }
-.pm-widget .pm-card[data-provider=Codex]{--ink:#8ecfff;--glow:#244c78;--shade:#18253a;--line:#395573}
-.pm-widget button:active,.pm-dialog button:active{filter:brightness(1.13)}
-.pm-widget :focus-visible,.pm-dialog :focus-visible{outline:3px solid #c6e7ff;outline-offset:-4px}
+.pm-widget .pm-account[data-provider=Codex]{--ink:#8ecfff}
+.pm-dialog button:active{filter:brightness(1.13)}
+.pm-dialog :focus-visible{outline:3px solid #c6e7ff;outline-offset:-4px}
 .pm-identity{display:flex;align-items:center;gap:clamp(10px,1cqw,20px);min-width:0}
 .pm-mark{flex:none;display:grid;place-items:center;width:clamp(36px,9cqh,68px);aspect-ratio:1;border-radius:26%;background:#fff7ee;box-shadow:0 2px 12px #0003}
 .pm-mark img{width:72%;height:72%}.pm-idtext{display:grid;gap:.12em;min-width:0}
@@ -44,11 +41,10 @@
 .pm-window-label{font-size:clamp(13px,2.8cqh,22px);color:#e3e7ef}.pm-window-label span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pm-window-label b{white-space:nowrap}
 .pm-track{margin-top:6px;height:clamp(4px,.9cqh,7px);border-radius:9px;background:#ffffff26;overflow:hidden}
 .pm-track i{display:block;height:100%;border-radius:inherit;background:var(--ink,#a9dbff)}
-.pm-card-foot{border-top:1px solid #ffffff20;padding-top:clamp(5px,1.5cqh,12px)}.pm-arrow{font-size:1.2em;color:var(--ink)}
 .pm-dialog .pm-mark{width:44px}
 .pm-dialog{box-sizing:border-box;width:min(590px,94vw);max-height:91vh;overflow:auto;padding:24px;background:#191e25;color:#f1f3ee;border:1px solid #50595f;border-radius:16px}
 .pm-dialog::backdrop{background:#080b10b8}.pm-dialog h2{margin:0 0 18px;font-size:22px}
-.pm-form,.pm-choices,.pm-detail-body{display:grid;gap:10px}.pm-detail-body{margin:18px 0}
+.pm-form,.pm-choices{display:grid;gap:10px}
 .pm-dialog .pm-mark,.pm-dialog .pm-idtext strong{font-size:18px}.pm-dialog .pm-idtext>span,.pm-dialog .pm-window-label{font-size:15px}
 .pm-dialog input,.pm-dialog select{min-height:44px}.pm-dialog [hidden]{display:none}
 .pm-choice{border-bottom:1px solid #384048;padding-block:6px}.pm-choice label{justify-content:flex-start;min-height:44px;min-width:0}
@@ -56,11 +52,11 @@
 .pm-dialog .pm-error:empty{display:none}.pm-rename{display:flex;gap:8px}.pm-dialog input[type=text]{min-width:0}
 
 @container(min-width:850px) and (min-height:300px){
-  .pm-widget[data-single=true] .pm-card{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-rows:auto 1fr auto;column-gap:5cqw}
+  .pm-widget[data-single=true] .pm-account{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-rows:auto 1fr auto;column-gap:5cqw}
   .pm-widget[data-single=true] .pm-instrument{grid-column:1;grid-row:1/4}.pm-widget[data-single=true] .pm-dial{height:53cqh}
-  .pm-widget[data-single=true] .pm-value{font-size:15cqh}.pm-widget[data-single=true] .pm-identity,.pm-widget[data-single=true] .pm-meters,.pm-widget[data-single=true] .pm-card-foot{grid-column:2}
-  .pm-widget[data-single=true] .pm-meters{align-content:center}.pm-widget[data-single=true] .pm-card-foot{grid-row:3}
+  .pm-widget[data-single=true] .pm-value{font-size:15cqh}.pm-widget[data-single=true] .pm-identity,.pm-widget[data-single=true] .pm-meters,.pm-widget[data-single=true] .pm-stamp{grid-column:2}
+  .pm-widget[data-single=true] .pm-meters{align-content:center}.pm-widget[data-single=true] .pm-stamp{grid-row:3}
 }
-@container(max-height:340px){.pm-instrument{flex-direction:row;gap:12px}.pm-summary{text-align:left}.pm-dial{height:26cqh;max-height:100%}.pm-meters .pm-window:nth-child(n+2){display:none}.pm-card-foot{padding-top:4px}}
-@container(max-height:245px){.pm-meters,.pm-card-foot{display:none}.pm-widget .pm-card{padding:8px 12px}.pm-mark{width:31px}.pm-reset{font-size:13px}}
-@container(max-width:620px){.pm-cards{grid-auto-columns:100%}}
+@container(max-height:340px){.pm-instrument{flex-direction:row;gap:12px}.pm-summary{text-align:left}.pm-dial{height:26cqh;max-height:100%}.pm-meters .pm-window:nth-child(n+2){display:none}.pm-stamp{padding-top:4px}}
+@container(max-height:245px){.pm-meters,.pm-stamp{display:none}.pm-widget .pm-account{padding:8px 12px}.pm-mark{width:31px}.pm-reset{font-size:13px}}
+@container(max-width:620px){.pm-accounts{grid-auto-columns:100%}}
