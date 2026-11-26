@@ -85,10 +85,16 @@ meter::-webkit-meter-optimum-value { background:#ad96ef }
 }
 .gpu-load b {font:650 .58em/1 -apple-system,BlinkMacSystemFont,sans-serif;font-variant-numeric:tabular-nums}
 .accelerator-head .gpu-load {margin-left:auto}
-.cuda-badge + .gpu-load {margin-left:0}
+:is(.cuda-badge,.backend-badge) + .gpu-load {margin-left:0}
 .hw-meter > :first-child {white-space:nowrap}
 .track.indeterminate i {width:34%!important;transform:translateX(95%);transition:none}
 @media(prefers-reduced-motion:no-preference) {
   .track.indeterminate i {animation:gpu-sweep 1.8s ease-in-out infinite}
   @keyframes gpu-sweep {from {transform:translateX(-100%)} to {transform:translateX(300%)}}
 }
+
+.accelerator[data-vendor="AMD"] {--hardware:#ff9287;border-left-color:#eb594d;background:linear-gradient(115deg,#38282b,#202124 75%)}
+.accelerator[data-vendor="Intel"] {--hardware:#80d3ff;border-left-color:#35a8e8;background:linear-gradient(115deg,#203342,#202124 75%)}
+.accelerator[data-vendor=""] {--hardware:#c0b8d6;border-left-color:#837a93;background:#26252b}
+.gpu-vendor {color:var(--hardware);font-weight:750}
+.backend-badge {margin-left:auto;padding:.2em .5em;border:1px solid currentColor;border-radius:.3em;color:var(--hardware);font:650 .7em ui-monospace,Menlo,monospace}
