@@ -78,9 +78,9 @@ export async function checkUpdate(manual=false){
   const check=async()=>{
     let prior;
     try{prior=JSON.parse(localStorage.getItem(key))}catch{}
-    if(!manual&&(!general().autoUpdates||Date.now()-(prior?.at||0)<86400000))return prior;
+    if(!manual&&(!general().autoUpdates||Date.now()-(prior?.at||0)<(prior?.failed?3600000:86400000)))return prior;
     let result;
-    try{result=await invoke('check_release')}catch(e){result={message:String(e)}}
+    try{result=await invoke('check_release')}catch(e){result={message:String(e),failed:true}}
     const saved={...result,at:Date.now()};localStorage.setItem(key,JSON.stringify(saved));return saved;
   };
   return navigator.locks?navigator.locks.request(key,check):check();

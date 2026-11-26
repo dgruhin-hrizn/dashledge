@@ -191,11 +191,11 @@ pub async fn check_release() -> Result<Value, String> {
     let tag = release["tag_name"]
         .as_str()
         .ok_or("Missing release version.")?;
-    let latest = semver::Version::parse(tag.trim_start_matches('v'))
+    let latest = semver::Version::parse(tag.strip_prefix('v').unwrap_or(tag))
         .map_err(|_| "Unrecognized release version.")?;
     let current = semver::Version::parse(env!("CARGO_PKG_VERSION")).unwrap();
     Ok(if latest > current {
-        serde_json::json!({"message":format!("Version {latest} is available."),"available":true})
+        serde_json::json!({"message":format!("Version {latest} is available."),"available":true,"tag":tag})
     } else {
         serde_json::json!({"message":format!("Version {current} is up to date.")})
     })

@@ -196,8 +196,15 @@ fn open_project_link(url: String) -> Result<(), String> {
     }
 }
 #[tauri::command]
-fn release_page()->Result<(),String>{
-    std::process::Command::new("/usr/bin/open").arg("https://github.com/dgruhin-hrizn/dashledge/releases")
+fn release_page(tag: Option<String>)->Result<(),String>{
+    let url = match tag {
+        Some(tag) => {
+            semver::Version::parse(tag.strip_prefix('v').unwrap_or(&tag)).map_err(|_| "Invalid release tag")?;
+            format!("https://github.com/dgruhin-hrizn/dashledge/releases/tag/{tag}")
+        }
+        None => "https://github.com/dgruhin-hrizn/dashledge/releases/latest".to_owned(),
+    };
+    std::process::Command::new("/usr/bin/open").arg(url)
         .spawn().map(|_|()).map_err(|e|e.to_string())
 }
 fn ensure_main(app:&tauri::AppHandle)->Result<(),String>{
@@ -237,19 +244,21 @@ fn touch_status() -> touch::TouchStatus {
 
 #[tauri::command]
 fn open_settings(app: tauri::AppHandle) -> Result<(), String> {
-    if let Some(win) = app.get_webview_window("settings") {
-        win.show().map_err(|e| e.to_string())?;
-        return win.set_focus().map_err(|e| e.to_string());
+    let win = match app.get_webview_window("settings") {
+        Some(win) => win,
+        None => WebviewWindowBuilder::new(&app, "settings", WebviewUrl::App("settings.html".into()))
+            .on_web_resource_request(widget_host::serve)
+            .title("Dashledge Settings")
+            .inner_size(1377., 837.)
+            .prevent_overflow()
+            .build()
+            .map_err(|e| e.to_string())?,
+    };
+    if win.is_minimized().map_err(|e| e.to_string())? {
+        win.unminimize().map_err(|e| e.to_string())?;
     }
-    WebviewWindowBuilder::new(&app, "settings", WebviewUrl::App("settings.html".into()))
-        .on_web_resource_request(widget_host::serve)
-        .title("Dashledge Settings")
-        // The preferred 1377 × 820 pt frame has a 33 pt Settings title bar.
-        .inner_size(1377., 787.)
-        .prevent_overflow()
-        .build()
-        .map(|_| ())
-        .map_err(|e| e.to_string())
+    win.show().map_err(|e| e.to_string())?;
+    win.set_focus().map_err(|e| e.to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

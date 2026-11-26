@@ -418,7 +418,7 @@ function preference(key,type){
 }
 function generalTab(){
   main.append(heading('General',previewButton()));
-  main.append(panel('Appearance',settingRow('Primary · text',preference('primary','color')),settingRow('Secondary · highlights',preference('accent','color')),settingRow('Show seconds on the clock',preference('showSeconds','checkbox'))));
+  const appearance=panel('Appearance',settingRow('Text color',preference('primary','color')),settingRow('Highlight color',preference('accent','color')),settingRow('Show seconds on the clock',preference('showSeconds','checkbox')));
   const p=general(),orient=el('div','segments');
   for(const [name,v] of [['Horizontal',false],['Vertical',true]]){
     const b=button(name,()=>{updateGeneral({vertical:v}).catch(e=>notice(String(e)));render()},p.vertical===v?'selected':'');
@@ -444,17 +444,22 @@ function generalTab(){
     const move=button('Move to display',async()=>{try{await invoke('move_to_display');refresh()}catch(e){notice(String(e))}});
     const mode=d.enabled?'Physical display enabled':'Preview mode';
     const actions=row(el('small','sub',mode),...(d.enabled?[button('Return to preview',async()=>{try{await invoke('set_edge_output',{enabled:false});refresh()}catch(e){notice(String(e))}})]:[]));
-    display.replaceChildren(el('h2','','Display'),settingRow('Display',target,move),settingRow('Layout',orient),el('small','sub','For a rotated display, also set its rotation in macOS Displays settings.'),actions);
+    const output=settingRow('Output screen',target);
+    output.classList.add('output-screen');
+    display.replaceChildren(el('h2','','Display'),output,row(move),settingRow('Orientation',orient),el('small','sub','For a rotated display, also set its rotation in macOS Displays settings.'),actions);
     document.querySelector('#device-status').textContent=d.enabled?(d.connected?'Display connected':'Awaiting display'):'Preview mode';
     document.querySelector('.hardware-status').classList.toggle('online',!!d.connected);
   };
   const refresh=()=>invoke('display_info').then(draw).catch(e=>{status.textContent=String(e)});
-  const updateText=el('small','sub'),release=button('View release',()=>invoke('release_page'));release.hidden=true;
-  function showUpdate(r){if(r){updateText.textContent=r.message;release.hidden=!r.available}}
+  const updateText=el('small','sub'),release=button('View release',()=>invoke('release_page',{tag:release.dataset.tag||null}).catch(e=>notice(String(e))));release.hidden=true;
+  function showUpdate(r){if(r){updateText.textContent=r.message;release.hidden=!r.available;release.dataset.tag=r.tag||''}}
   const check=button('Check for Updates…',async()=>{check.disabled=true;updateText.textContent='Checking…';try{showUpdate(await checkUpdate(true))}finally{check.disabled=false}});
   const updates=panel('Updates',settingRow('Automatically check for updates',preference('autoUpdates','checkbox')),row(check,release,updateText));
   updates.append(el('small','sub','Checks daily. You choose when to download an update.'));
-  main.append(touch,display,updates,panel('Focus',settingRow('Focus length (minutes)',preference('focusMinutes','number'))));
+  const grid=el('div','general-grid'),hardware=el('div','general-column'),preferences=el('div','general-column');
+  hardware.append(display,touch);
+  preferences.append(appearance,updates);
+  grid.append(hardware,preferences);main.append(grid);
   const restoreUpdate=()=>{try{showUpdate(JSON.parse(localStorage.getItem('edge.release.check')))}catch{}};
   restoreUpdate();refresh();
   const poll=setInterval(()=>{if(!display.isConnected){clearInterval(poll);return}refresh();restoreUpdate()},3000);

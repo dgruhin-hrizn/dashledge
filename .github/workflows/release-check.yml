@@ -1,0 +1,21 @@
+name: Release checks
+run-name: Release checks ${{ inputs.runner_label }}
+on:
+  workflow_dispatch:
+    inputs:
+      runner_label:
+        description: One-time local runner label
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  test:
+    if: github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, linux, arm64, "${{ inputs.runner_label }}"]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: node --test tests/*.test.mjs

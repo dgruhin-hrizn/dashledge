@@ -4,7 +4,7 @@
 
 ## Get started
 
-1. Open the [releases page](https://github.com/dgruhin-hrizn/dashledge/releases) for available builds. For a Dashledge ZIP, expand it and move **Dashledge.app** to **Applications**. Quit an existing copy of Dashledge or its predecessor, Edge Workbench, before launching the new version.
+1. Open the [releases page](https://github.com/dgruhin-hrizn/dashledge/releases/latest) for the latest build. For a Dashledge ZIP, expand it and move **Dashledge.app** to **Applications**. Quit an existing copy of Dashledge or its predecessor, Edge Workbench, before launching the new version.
 2. Open **Settings → Pages & layouts**, add a page, and choose **Add widget**. Give one widget the whole screen or split the page into sections. Try the layout in **Live preview**.
 3. In **General → Display**, select the EDGE and choose **Move to display**. Enable direct touch and grant Input Monitoring if macOS asks. Choose **Return to preview** to release the panel.
 4. Swipe left or right to change pages. Over a carousel, start at either bezel. Tap the middle of the left edge or press **Option-P** for the page picker.
@@ -88,6 +88,14 @@ npm test
 ```
 
 The signing script signs the app and its bundled runtime, verifies them, creates the release ZIP, and installs and opens the app. If you built in a custom output directory, pass the path to that directory’s app. For a personal build with a bundled Run-DMD card, set `RUNDMD_IMAGE` to your card image when preparing the bundle.
+
+### Publish a macOS release
+
+Run `node scripts/release-version.mjs 0.6.0` with the intended version, then merge the version changes and release content into main. From Mac Terminal run `./scripts/release-mac.sh`. The command checks out main, runs the JavaScript tests on a one-job local GitHub runner, runs the full suite on macOS, signs with the HORIZN INC Developer ID, and notarizes using the `ember-notary` Keychain profile. It publishes the Apple Silicon ZIP and SHA-256 checksum under the matching version tag and verifies GitHub marks it Latest.
+
+The runner uses Docker Desktop and Ember’s local `ember-runner-linux:arm64` image. If the image is missing, the script builds it from `$HOME/ember/ci/runners/linux` (override the checkout with `EMBER_REPO`). The authenticated GitHub CLI account needs permission to register a Dashledge runner, dispatch the workflow, and publish releases. Set `DASHLEDGE_NOTARY_PROFILE` to use a different notary profile. Public builds omit personal Run-DMD artwork.
+
+**General → Updates** checks the latest published GitHub release daily or on demand. **View release** opens the detected version for download.
 
 ## Upstream credit
 

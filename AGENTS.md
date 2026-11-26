@@ -2,7 +2,7 @@
 
 For each new widget or update to an existing widget, create a dedicated branch and Git worktree from the latest `origin/main`. Implement and test that widget in its worktree, then push the branch and open one pull request targeting `main`.
 
-Merge every widget PR intended for a release before signing. Sync a clean `main` checkout to the merged revision, run `npm test`, and prepare a fresh app from that checkout. Sign and release that build.
+Merge every widget PR intended for a release before signing. Sync a clean `main` checkout to the merged revision, run `npm test`, and prepare a fresh app from that checkout. For a public release, follow the release procedure below.
 
 ## Widget design principles
 
@@ -24,6 +24,12 @@ When reviewing a widget PR, exercise its main task in the full Edge viewport and
 - **Explain missing prerequisites at the control.** Identify the account, permission, or source needed and offer the relevant Connect, Allow, Test, or Retry action. Preserve the draft across recoverable failures. Keep credentials in the existing connection store and out of layout data and previews.
 
 For a settings change, configure two placements differently, edit one, cancel a second edit, then reopen the app. Verify both placements retained their intended values. Exercise each supported settings entry point and the disconnected or permission-denied state when applicable.
+
+# Cutting a public Dashledge release
+
+1. Choose the stable version and run `node scripts/release-version.mjs <version>` from the repository root to update the Node, Cargo, and Tauri manifests and lockfiles together. Merge the version bump and every change intended for the release into `main` and confirm they are on GitHub.
+2. Run `~/edge-workbench/scripts/release-mac.sh` from Mac Terminal for every public release. This is the reusable publishing command. It builds from a clean checkout of GitHub’s `main`, runs checks on a local GitHub runner and on macOS, signs with the HORIZN INC Developer ID, and notarizes the public app. Keep personal Run-DMD artwork out of the release archive.
+3. Report publication complete once GitHub’s `releases/latest` endpoint returns the matching `v<version>` tag and the release contains the Apple Silicon ZIP and its SHA-256 checksum. Include the published release URL. Dashledge uses this same endpoint for update checks.
 
 # Dashledge macOS builds
 

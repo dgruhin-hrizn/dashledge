@@ -25,7 +25,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     let show = MenuItem::with_id(app, "show", "Show on Edge", true, None::<&str>)?;
     let at_login = app.autolaunch().is_enabled().unwrap_or(false);
     let login =
-        CheckMenuItem::with_id(app, "login", "Open at login", true, at_login, None::<&str>)?;
+        CheckMenuItem::with_id(app, "login", "Open at Login", true, at_login, None::<&str>)?;
     let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
     let preview=MenuItem::with_id(app,"preview","Show Window Preview",true,None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Dashledge", true, None::<&str>)?;
@@ -35,8 +35,9 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
             &status,
             &PredefinedMenuItem::separator(app)?,
             &show,
-            &settings,
             &preview,
+            &PredefinedMenuItem::separator(app)?,
+            &settings,
             &login,
             &PredefinedMenuItem::separator(app)?,
             &quit,

@@ -36,6 +36,6 @@ ditto -c -k --sequesterRsrc --keepParent "$bundle" "$temp_dir/archive.zip"
 mv -f "$temp_dir/archive.zip" "$archive"
 /usr/bin/codesign --display --verbose=2 "$bundle" 2>&1 | awk '/^Authority=|^TeamIdentifier=/'
 echo "$archive"
-if [[ "$identity" != '-' ]]; then
+if [[ "$identity" != '-' && "${2:-}" != "--archive-only" ]]; then
   /usr/bin/swift "$project/scripts/install-mac.swift" "$bundle"
 fi
