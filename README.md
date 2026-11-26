@@ -15,7 +15,7 @@ The menu-bar icon reopens Settings. You can also run the dashboard in a resizabl
 
 | Widget | What you can see or do |
 | --- | --- |
-| Apple News | Browse BBC News, BBC Technology, or The Guardian’s world headlines. Each placement can also display its own list of pinned Apple News story links. Publisher headlines open in the browser and pinned stories open in News. |
+| Apple News | Browse BBC News, BBC Technology, or The Guardian’s world headlines. Each placement can also display its own list of pinned Apple News channels, topics, and stories. Publisher headlines open in the browser and pinned links open in News. |
 | Apple Music | Browse playlists by cover, search your library, and see what follows the current song in album or playlist order. Choose AirPlay speakers, adjust EQ, rate a track, or read lyrics saved with it. |
 | Spotify | Browse playlists and recent plays, search for songs, add to the queue, switch playback devices, and watch a live audio spectrum. |
 | Slack Workspace | Read mentions, direct messages, favorite channels, and thread replies in one full-screen view. Ten individual Slack widgets are also available for split layouts. |
@@ -37,6 +37,10 @@ The menu-bar icon reopens Settings. You can also run the dashboard in a resizabl
 In **Widget Studio**, open the widget’s settings, choose **Add connection**, enter the server details, and select **Test**. Pick that connection in the layout inspector. Saved credentials are protected by the macOS Keychain. Existing installations retain their layouts and the Keychain item named **Edge Workbench Connections**.
 
 For Spotify playlists, search, and queue access, register `http://127.0.0.1:4848/callback` in your Spotify developer app. Select **Playlists → Connect Spotify** and enter the app’s Client ID. Allow system audio recording if you enable the spectrum analyzer. The Apple Music widget uses the Music app on this Mac. Allow macOS Automation access when prompted.
+
+### Add an Apple News source
+
+In Apple News on Mac, search for the channel or topic, Control-click the result, and choose **Copy Link**. In the widget, select **Edit edition → My Apple News links**, enter a name, and choose **Paste link → Add link → Save edition**. Tap **Open in News** to read the source’s latest coverage in Apple News. The publisher editions display live RSS headlines directly on the dashboard.
 
 ### Choose your Slack view
 

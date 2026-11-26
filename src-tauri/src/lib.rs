@@ -294,6 +294,7 @@ pub fn run() {
             google_desk::desk_open,
             apple_news::news_headlines,
             apple_news::news_open,
+            apple_news::news_clipboard_link,
             photos::photos_read,
             mac_shortcuts::mac_shortcuts_list,
             mac_shortcuts::mac_shortcut_run,

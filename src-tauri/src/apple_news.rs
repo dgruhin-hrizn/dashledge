@@ -72,6 +72,19 @@ pub fn news_open(link: Option<String>) -> Result<(), String> {
     }
 }
 
+// Invoked only by the explicit Paste link button. Return only Apple News links.
+#[tauri::command]
+pub fn news_clipboard_link() -> Result<String, String> {
+    let output = Command::new("/usr/bin/pbpaste")
+        .output()
+        .map_err(|e| e.to_string())?;
+    let input = String::from_utf8_lossy(&output.stdout);
+    if let Ok((url, true)) = news_destination(input.trim()) {
+        return Ok(url.to_string());
+    }
+    Err("Copy an Apple News link first.".into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,7 +1,7 @@
 import {button, el, field, invoke, select} from './common.js';
 import {openTouchKeyboard} from './search-keyboard.js';
 
-const editions = {bbc:'BBC News', technology:'BBC Technology', guardian:'The Guardian · World', pinned:'Pinned Apple News'};
+const editions = {bbc:'BBC News', technology:'BBC Technology', guardian:'The Guardian · World', pinned:'My Apple News links'};
 const cache = new Map();
 const refreshMs = 10 * 60 * 1000;
 
@@ -9,7 +9,7 @@ export function storyLink(value, pinned = false) {
   try {
     const url = new URL(value);
     if (url.protocol !== 'https:' || url.port || url.username || url.password) return '';
-    if (url.hostname === 'apple.news' && /^\/A[\w-]+\/?$/.test(url.pathname)) return url.href;
+    if (url.hostname === 'apple.news' && /^\/[AT][\w-]+\/?$/.test(url.pathname)) return url.href;
     if (!pinned && /(^|\.)(bbc\.co\.uk|bbc\.com|theguardian\.com)$/.test(url.hostname)) return url.href;
   } catch {}
   return '';
@@ -51,7 +51,7 @@ export function editNews(settings,save,{title='Edit news edition',touch=false}={
   dlg.setAttribute('aria-label',title);
   error.setAttribute('role','alert');
   const titleInput = el('input'), urlInput = el('input');
-  for (const [input,label] of [[titleInput,'Headline'],[urlInput,'Apple News share link']]) {
+  for (const [input,label] of [[titleInput,'Story, channel, or topic name'],[urlInput,'Apple News share link']]) {
     input.placeholder=label;
     input.setAttribute('aria-label',label);
     if (touch) input.onclick=()=>{
@@ -69,17 +69,19 @@ export function editNews(settings,save,{title='Edit news edition',touch=false}={
       row.append(el('span','',pin.title),button('Remove',()=>{pins.splice(pins.indexOf(pin),1);paint()}));
       list.append(row);
     }
-    list.append(titleInput,urlInput,button('Add story',()=>{
+    list.append(el('p','','In Apple News, Control-click a channel, topic, or story in search results and choose Copy Link.'),titleInput,urlInput,button('Paste link',async()=>{
+      try{urlInput.value=await invoke('news_clipboard_link');error.textContent=''}catch(e){error.textContent=String(e)}
+    }),button('Add link',()=>{
       const url=storyLink(urlInput.value.trim(),true), name=titleInput.value.trim();
-      if (!url || !name) {error.textContent='Enter a headline and a shared https://apple.news/A… story link.';return}
-      if (pins.some(pin=>pin.url===url)) {error.textContent='This story is already pinned.';return}
+      if (!url || !name) {error.textContent='Enter a name and an Apple News story, channel, or topic link.';return}
+      if (pins.some(pin=>pin.url===url)) {error.textContent='This link is already pinned.';return}
       pins.push({title:name,url});titleInput.value=urlInput.value=error.textContent='';paint();
     }));
   }
   const picker=select(Object.entries(editions),source,value=>{source=value;error.textContent='';paint()});
   const footer=el('footer');
   footer.append(button('Cancel',()=>dlg.close()),button('Save edition',()=>{
-    if(source==='pinned' && (titleInput.value.trim() || urlInput.value.trim())) {error.textContent='Add the story before saving.';return}
+    if(source==='pinned' && (titleInput.value.trim() || urlInput.value.trim())) {error.textContent='Add the link before saving.';return}
     try {save({source,pins});dlg.close()} catch(e){error.textContent=String(e)}
   }));
   dlg.append(el('h2','',title),field('Edition for this placement',picker),list,error,footer);
@@ -110,12 +112,12 @@ export function mountNews(box,settings,save) {
       if(story.artwork){
         const img=el('img','news-cover');img.alt='';img.onerror=()=>img.remove();img.src=story.artwork;lead.append(img);
       }
-      lead.append(el('h2','',story.title),button(source==='pinned'?'Read in News ↗':'Read at publisher ↗',()=>open(story.url)));
+      lead.append(el('h2','',story.title),button(source==='pinned'?'Open in News ↗':'Read at publisher ↗',()=>open(story.url)));
       const start=Math.min(index,Math.max(rows.length-4,0));
       rows.slice(start,start+4).forEach((r,n)=>{
         const row=button(r.title,()=>choose(start+n));row.setAttribute('aria-pressed',String(start+n===index));rail.append(row);
       });
-    } else if(source==='pinned') lead.append(el('h2','','Your reading list'),button('Pin a story',edit));
+    } else if(source==='pinned') lead.append(el('h2','','Your Apple News links'),button('Add a News link',edit));
     prev.disabled=index===0;next.disabled=index+1>=rows.length;
     position.textContent=rows.length?(index+1)+' / '+rows.length:'';
   }
