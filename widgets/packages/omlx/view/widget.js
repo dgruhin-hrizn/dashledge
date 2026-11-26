@@ -373,25 +373,29 @@
   // ---- Overview --------------------------------------------------------------
   function workSummary(data, mode, server) {
     const chip = $("work-chip"), line = $("idle-line"), meta = $("idle-meta");
-    let chipText = null, chipType = null, idle = null;
+    // The chip's model name shortens first; its counts and times stay whole.
+    let chipText = null, chipDetail = "", chipType = null, idle = null;
+    const detail = (...parts) => parts.filter(Boolean).join(" · ");
     if (mode === "generating") {
       const rows = M.generations(data);
       const row = rows[0];
       chipType = row.type;
-      chipText = [row.name, row.tokens != null && whole.format(row.tokens) + " tokens",
-        row.elapsed != null && seconds.format(row.elapsed) + " s", rows.length > 1 && "+" + (rows.length - 1) + " more"]
-        .filter(Boolean).join(" · ");
+      chipText = row.name;
+      chipDetail = detail(row.tokens != null && whole.format(row.tokens) + " tokens",
+        row.elapsed != null && seconds.format(row.elapsed) + " s", rows.length > 1 && "+" + (rows.length - 1) + " more");
     } else if (mode === "prefill") {
       const rows = M.prefills(data);
       const row = rows[0];
       chipType = data.models.find((model) => model.id === row.model)?.type;
-      chipText = [row.name, "prefill " + (row.total ? format(row.done, whole) + " / " + format(row.total, whole) : ""),
-        row.rate > 0 && tps(row.rate), rows.length > 1 && "+" + (rows.length - 1) + " more"].filter(Boolean).join(" · ");
+      chipText = row.name;
+      chipDetail = detail("prefill " + (row.total ? format(row.done, whole) + " / " + format(row.total, whole) : ""),
+        row.rate > 0 && tps(row.rate), rows.length > 1 && "+" + (rows.length - 1) + " more");
     } else if (mode === "loading") {
       const model = data.models.find((candidate) => candidate.loading);
       chipType = model.type;
-      chipText = ["Loading " + model.name, model.loadingElapsed != null && M.duration(model.loadingElapsed),
-        model.loadingRemaining != null && "~" + M.duration(model.loadingRemaining) + " left"].filter(Boolean).join(" · ");
+      chipText = "Loading " + model.name;
+      chipDetail = detail(model.loadingElapsed != null && M.duration(model.loadingElapsed),
+        model.loadingRemaining != null && "~" + M.duration(model.loadingRemaining) + " left");
     } else if (mode === "queued") {
       chipText = format(data.queued) + " queued";
     } else if (mode === "idle") {
@@ -411,7 +415,8 @@
     chip.hidden = !chipText;
     if (chipText) {
       set("chip-text", chipText);
-      chip.title = chipText;
+      set("chip-detail", chipDetail && " · " + chipDetail);
+      chip.title = detail(chipText, chipDetail);
       const kind = M.glyphType(chipType);
       $("chip-use").setAttribute("href", "#g-" + kind);
       chip.dataset.glyph = kind;
