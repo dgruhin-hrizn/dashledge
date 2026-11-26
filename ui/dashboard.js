@@ -11,7 +11,7 @@ import {mountDmd} from './rundmd/player.js';
 import {appendPage,assignWidget,pickWidget} from './page-actions.js';
 import {general,loadGeneral,onGeneral} from './general.js';
 import {instrumentKinds,renderInstrument} from './instruments.js';
-import {mountOriginal,widgetSources} from './original-widgets.js';
+import {mountOriginal,mountPackage,widgetSources} from './original-widgets.js';
 import {titles,layout,readPath,originalKinds} from './model.js';
 import {addBundledDmdPage,ensure,state,current,activate,save,invoke,el,button,num} from './common.js';
 import {loadPackages,nativeViewport} from './packages.js';
@@ -91,13 +91,13 @@ function renderTile(t){
   if(kind==='spotify'){renderSpotify(box);return}
   if(kind==='rundmd'){t.dispose??=mountDmd(box);return}
   if(originalKinds.includes(kind)){t.dispose??=mountOriginal(box,s,config.sources);return}
+  if(custom?.apiVersion===2){t.dispose??=mountPackage(box,s,custom,config.sources);return}
   if(kind==='notes'&&box.querySelector('textarea'))return;
   let nodes=[];
   if(instrumentKinds.includes(kind)){box.classList.add('instrument');box.dataset.kind=kind;nodes=renderInstrument(kind,metrics,t)}
   else if(kind==='clock')nodes=[value(clockText()),sub(new Date().toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric'}))];
   else if(kind==='notes'){const a=el('textarea');a.value=localStorage.getItem('ew.notes')||'';a.placeholder='Write a note';a.oninput=()=>localStorage.setItem('ew.notes',a.value);nodes=[a]}
   else if(kind==='focus')nodes=focus(t);
-  else if(custom?.apiVersion===2)nodes=[sub('This package view isn’t available yet.')];
   else if(custom?.feed==='mac')nodes=customView(t,custom,metrics,'This Mac');
   else if(kind==='world')nodes=[list([['Local',undefined],['Los Angeles','America/Los_Angeles'],['New York','America/New_York'],['London','Europe/London'],['Tokyo','Asia/Tokyo']].map(([label,timeZone])=>[label,clockText(timeZone)]))];
   else if(kind==='empty'){
@@ -138,10 +138,10 @@ function mount(){
   config=state();page=current(config);
   $('#tiles').setAttribute('aria-label',page.name);
   const soloKind=page.slots.length===1?page.slots[0].kind:null;
-  document.body.classList.toggle('full-widget',['spotify','applemusic','googledesk','shortcuts','photos','markets','plans'].includes(soloKind)||!!slackWidgets[soloKind]||soloKind==='rundmd'||originalKinds.includes(soloKind));
+  document.body.classList.toggle('full-widget',['spotify','applemusic','googledesk','shortcuts','photos','markets','plans'].includes(soloKind)||!!slackWidgets[soloKind]||soloKind==='rundmd'||originalKinds.includes(soloKind)||config.plugins.some(p=>p.id===soloKind&&p.apiVersion===2));
   const frame=window.frameElement;
   if(frame){
-    const music=['spotify','applemusic'].includes(soloKind),native=['applemusic','googledesk','shortcuts','photos','markets','plans'].includes(soloKind)||!!slackWidgets[soloKind]||nativeViewport(soloKind);
+    const music=['spotify','applemusic'].includes(soloKind),native=['applemusic','googledesk','shortcuts','photos','markets','plans'].includes(soloKind)||!!slackWidgets[soloKind]||nativeViewport(soloKind)||config.plugins.some(p=>p.id===soloKind&&p.viewport==='native');
     if(frame.hasAttribute('data-full-spotify')!==music||frame.hasAttribute('data-native-viewport')!==native){
       frame.toggleAttribute('data-full-spotify',music);
       frame.toggleAttribute('data-native-viewport',native);

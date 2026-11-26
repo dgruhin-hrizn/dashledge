@@ -28,6 +28,14 @@ pub(crate) fn account_ids(kind: &str, base: &Url) -> Vec<String> {
     };
     vec![exact, format!("{kind}|{alternate}")]
 }
+/// A client for hosts other than a connection: system roots, no redirects.
+pub(crate) fn plain_client() -> Client {
+    http().clone()
+}
+/// The stored credential for a connection, or an empty string.
+pub(crate) fn credential(kind: &str, base: &Url) -> Result<String, String> {
+    String::from_utf8(secret_for(kind, base)?.unwrap_or_default()).map_err(|_| "Invalid credential".into())
+}
 fn secret_for(kind: &str, base: &Url) -> Result<Option<Vec<u8>>, String> {
     Ok(crate::vault::get(kind, base)?.key.map(String::into_bytes))
 }
@@ -73,7 +81,7 @@ pub(crate) fn validate_ca(bytes: &[u8]) -> Result<Vec<reqwest::Certificate>, Str
     Ok(certs)
 }
 /// A connection with a saved CA certificate trusts it; others use the system roots.
-fn service_client(kind: &str, base: &Url) -> Result<Client, String> {
+pub(crate) fn service_client(kind: &str, base: &Url) -> Result<Client, String> {
     match crate::vault::get(kind, base)?.ca {
         Some(pem) => {
             let mut builder = Client::builder()

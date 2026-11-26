@@ -12,7 +12,8 @@
   const send = message => host.postMessage({dashledge: 1, ...message}, '*');
   let state = {instanceID: '', touchMode: false, displayName: '',
     theme: {mode: 'dark', primary: '#edf0e6', accent: '#f88d4f'}};
-  const subscribers = new Set(), pending = new Map();
+  const subscribers = new Set(), pending = new Map(), dataListeners = new Set();
+  let latest = null;
   let nextId = 1;
 
   function applyTheme() {
@@ -42,6 +43,14 @@
       });
     },
   };
+  // Data from the package's declarative polls or connector: {rev, data, error}.
+  api.onData = callback => {
+    dataListeners.add(callback);
+    if (latest) callback(latest);
+    return () => dataListeners.delete(callback);
+  };
+  // Run an action the manifest declares, with values for its {placeholders}.
+  api.action = (id, args = {}) => api.command('action', {id, args});
   window.Dashledge = api;
   window.Zurface = api;
 
@@ -184,6 +193,9 @@
       for (const callback of subscribers) callback(state);
     } else if (message.type === 'touch') {
       touch(message.kind, message.x, message.y, message);
+    } else if (message.type === 'data') {
+      latest = {rev: message.rev, data: message.data, error: message.error ?? null};
+      for (const callback of dataListeners) callback(latest);
     } else if (message.type === 'blur') {
       window.dispatchEvent(new Event('blur'));
     } else if (message.type === 'reply') {

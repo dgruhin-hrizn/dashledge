@@ -88,3 +88,65 @@ export function mountOriginal(box, slot, connections) {
   }
   return () => { closed = true; clearTimeout(timer); unregister(); release(feed); };
 }
+
+// An installed API version 2 package: its view runs sandboxed, and the app
+// polls the package's declarative routes or connector and passes the data in.
+export function mountPackage(box, slot, entry, connections) {
+  const viewer = crypto.randomUUID();
+  let feed, timer, rev = 0, closed = false, unregister = () => {};
+  box.classList.add('original-widget');
+  const status = el('div', 'widget-status');
+  const message = el('p', '', 'Starting ' + entry.title + '…');
+  status.append(message);
+  box.replaceChildren(status);
+  const source = connections.find(s => s.kind === slot.kind && s.id === slot.source);
+  if (entry.sources?.min && !source) {
+    message.textContent = 'Choose a ' + entry.title + ' connection in Widget Studio.';
+    status.append(button('Settings', () => invoke('open_settings')));
+    return () => {};
+  }
+  async function connect() {
+    try {
+      const opened = await invoke('package_open', {kind: slot.kind, viewer,
+        connection: source ? {name: source.name, address: source.address} : null});
+      if (closed) { invoke('package_close', {id: opened.id, viewer}).catch(() => {}); return; }
+      feed = opened.id;
+      rev = 0;
+      const frame = el('iframe', 'original-frame');
+      frame.title = entry.title;
+      frame.setAttribute('sandbox', 'allow-scripts');
+      frame.dataset.packageFrame = slot.kind;
+      unregister();
+      unregister = registerFrame(frame, {viewer, feed, actions: entry.actions || [],
+        displayName: source?.name || entry.title});
+      frame.src = '/widget-view/' + encodeURIComponent(feed) + '/' + encodeURIComponent(opened.entry);
+      box.replaceChildren(frame);
+      pump();
+    } catch (error) {
+      if (closed) return;
+      message.textContent = entry.title + ' · ' + String(error);
+      box.replaceChildren(status);
+      timer = setTimeout(connect, 10000);
+    }
+  }
+  async function pump() {
+    try {
+      const next = await invoke('package_read', {id: feed, viewer, since: rev});
+      if (closed) return;
+      if (next) { rev = next.rev; unregister.deliver?.(next); }
+      timer = setTimeout(pump, 1000);
+    } catch {
+      if (closed) return;
+      message.textContent = 'Reconnecting to ' + entry.title + '…';
+      box.replaceChildren(status);
+      timer = setTimeout(connect, 1500);
+    }
+  }
+  connect();
+  return () => {
+    closed = true;
+    clearTimeout(timer);
+    unregister();
+    if (feed) invoke('package_close', {id: feed, viewer}).catch(() => {});
+  };
+}

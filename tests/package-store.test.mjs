@@ -8,8 +8,10 @@ const info = {apiVersion: 2, id: 'plugin.status', title: 'Status', tier: 'declar
   view: {entry: 'index.html'}, data: [{id: 's', path: 'x', every: 5}]};
 
 test('a v2 package records only catalog fields in the layout', () => {
-  assert.deepEqual(packageEntry(info), {apiVersion: 2, id: 'plugin.status', title: 'Status', tier: 'declarative',
-    description: 'Server status', version: '1.0.0', iconData: 'data:image/png;base64,iVBOR', feed: 'plugin.status'});
+  assert.deepEqual(packageEntry({...info, actions: [{id: 'toggle'}], view: {entry: 'index.html', viewport: 'native'},
+    sources: {min: 1, max: 1, auth: 'bearer', addressLabel: 'Hub URL', test: ['api/']}}), {apiVersion: 2, id: 'plugin.status',
+    title: 'Status', tier: 'declarative', description: 'Server status', version: '1.0.0', iconData: 'data:image/png;base64,iVBOR',
+    feed: 'plugin.status', sources: {min: 1, max: 1, addressLabel: 'Hub URL'}, viewport: 'native', actions: ['toggle']});
   const view = packageEntry({...info, sources: undefined});
   assert.equal(view.feed, undefined, 'a view-only package needs no connection');
 });

@@ -77,7 +77,13 @@ export function placements(config,kind){
 export function packageEntry(info){
   const entry={apiVersion:2,id:info.id,title:info.title,tier:info.tier};
   for(const key of ['description','version','category','iconData'])if(info[key])entry[key]=info[key];
-  if(info.sources?.max)entry.feed=info.id;
+  if(info.sources?.max){
+    entry.feed=info.id;
+    entry.sources={min:info.sources.min,max:info.sources.max};
+    for(const key of ['addressLabel','addressPlaceholder','credentialLabel'])if(info.sources[key])entry.sources[key]=info.sources[key];
+  }
+  if(info.view?.viewport==='native')entry.viewport='native';
+  if(info.actions?.length)entry.actions=info.actions.map(a=>a.id);
   return entry;
 }
 export function recordPackage(config,info){

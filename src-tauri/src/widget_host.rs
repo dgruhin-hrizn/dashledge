@@ -308,7 +308,12 @@ fn resource(id: &str, path: &str) -> Option<(Vec<u8>, &'static str)> {
         return None;
     }
     let feeds = FEEDS.lock().unwrap();
-    let feed = feeds.get(id)?;
+    let Some(feed) = feeds.get(id) else {
+        // An installed package's feed serves its view folder only.
+        drop(feeds);
+        let root = crate::package_connector::view_root(id)?;
+        return view_file(&root, path);
+    };
     // Declared collector outputs come from the feed's private directory; everything
     // else from the package's view folder. Collector code and other files are never served.
     let root = if crate::package_manifest::matches_output(&feed.outputs, path) {
@@ -318,15 +323,25 @@ fn resource(id: &str, path: &str) -> Option<(Vec<u8>, &'static str)> {
     } else {
         return None;
     };
+    let root = root.to_path_buf();
+    drop(feeds);
+    view_file(&root, path)
+}
+/// A file from a view folder or feed directory. HTML pages get the package SDK.
+fn view_file(root: &Path, path: &str) -> Option<(Vec<u8>, &'static str)> {
+    if path.split('/').any(|p| p.is_empty() || p.starts_with('.')) {
+        return None;
+    }
     let mime = match Path::new(path).extension()?.to_str()? {
         "json" => "application/json",
         "html" => "text/html; charset=utf-8",
         "css" => "text/css",
         "js" => "text/javascript",
         "png" => "image/png",
-        "jpg" => "image/jpeg",
+        "jpg" | "jpeg" => "image/jpeg",
         "svg" => "image/svg+xml",
         "ttf" => "font/ttf",
+        "otf" => "font/otf",
         "woff" => "font/woff",
         "woff2" => "font/woff2",
         "gif" => "image/gif",
@@ -334,8 +349,7 @@ fn resource(id: &str, path: &str) -> Option<(Vec<u8>, &'static str)> {
         _ => return None,
     };
     let file = root.join(path);
-    drop(feeds);
-    let data = if path == "index.html" {
+    let data = if path.ends_with(".html") {
         let html = fs::read_to_string(file).ok()?;
         html.replacen(
             "<head>",

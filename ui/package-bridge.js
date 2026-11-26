@@ -23,20 +23,30 @@ function post(entry, message) {
 }
 
 // Track a package frame. `commands` lists the commands its manifest declares.
-export function registerFrame(frame, {viewer, feed, commands = [], displayName = ''}) {
-  const entry = {frame, viewer, feed, commands, displayName, window: null};
+// Returns unregister(); `deliver(data)` sends a package feed's data, now or once ready.
+export function registerFrame(frame, {viewer, feed, commands = [], actions = [], displayName = ''}) {
+  const entry = {frame, viewer, feed, commands, actions, displayName, window: null, data: null, ready: false};
   frame.addEventListener('load', () => {
     for (const [win, other] of frames) if (other === entry) frames.delete(win);
     entry.window = frame.contentWindow;
+    entry.ready = false;
     if (entry.window) frames.set(entry.window, entry);
   });
-  return () => { if (entry.window) frames.delete(entry.window); };
+  const unregister = () => { if (entry.window) frames.delete(entry.window); };
+  unregister.deliver = data => {
+    entry.data = data;
+    if (entry.ready) post(entry, {type: 'data', ...data});
+  };
+  unregister.entry = entry;
+  return unregister;
 }
 
 export async function handleMessage(entry, message) {
   switch (message.type) {
     case 'ready':
+      entry.ready = true;
       post(entry, {type: 'state', state: packageState(entry)});
+      if (entry.data) post(entry, {type: 'data', ...entry.data});
       return;
     case 'gesture':
       entry.frame.__gestureVerdict = message.page === true;
@@ -53,10 +63,15 @@ export async function handleMessage(entry, message) {
       return;
     case 'command': {
       const reply = (value, error) => post(entry, {type: 'reply', id: message.id, value, error});
-      if (message.name !== 'model' || !entry.commands.includes('model'))
-        return reply(undefined, 'Unknown widget command');
       try {
-        reply(await invoke('widget_model_action', {id: entry.feed, viewer: entry.viewer, command: message.args}));
+        if (message.name === 'model' && entry.commands.includes('model'))
+          return reply(await invoke('widget_model_action', {id: entry.feed, viewer: entry.viewer, command: message.args}));
+        // A declarative action: the host checks it against the manifest again.
+        if (message.name === 'action' && entry.actions.includes(message.args?.id)) {
+          const args = message.args.args && typeof message.args.args === 'object' ? message.args.args : {};
+          return reply(await invoke('package_action', {id: entry.feed, viewer: entry.viewer, action: message.args.id, args}));
+        }
+        reply(undefined, 'Unknown widget command');
       } catch (error) {
         reply(undefined, String(error));
       }
