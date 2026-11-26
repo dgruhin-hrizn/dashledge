@@ -28,7 +28,7 @@ For a settings change, configure two placements differently, edit one, cancel a 
 # Cutting a public Dashledge release
 
 1. Choose the stable version and run `node scripts/release-version.mjs <version>` from the repository root to update the Node, Cargo, and Tauri manifests and lockfiles together. Merge the version bump and every change intended for the release into `main` and confirm they are on GitHub.
-2. Run `~/edge-workbench/scripts/release-mac.sh` from Mac Terminal for every public release. This is the reusable publishing command. It builds from a clean checkout of GitHub’s `main`, runs checks on a local GitHub runner and on macOS, signs with the HORIZN INC Developer ID, and notarizes the public app. Keep personal Run-DMD artwork out of the release archive.
+2. Run `~/edge-workbench/scripts/release-mac.sh` from Mac Terminal for every public release. This is the reusable publishing command. It builds from a clean checkout of GitHub’s `main`, runs the full test suite and builds the Apple Silicon app on macOS, signs with the HORIZN INC Developer ID, and notarizes the public app. Keep personal Run-DMD artwork out of the release archive.
 3. Report publication complete once GitHub’s `releases/latest` endpoint returns the matching `v<version>` tag and the release contains the Apple Silicon ZIP and its SHA-256 checksum. Include the published release URL. Dashledge uses this same endpoint for update checks.
 
 # Dashledge macOS builds

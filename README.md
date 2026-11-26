@@ -91,9 +91,9 @@ The signing script signs the app and its bundled runtime, verifies them, creates
 
 ### Publish a macOS release
 
-Run `node scripts/release-version.mjs 0.6.0` with the intended version, then merge the version changes and release content into main. From Mac Terminal run `./scripts/release-mac.sh`. The command checks out main, runs the JavaScript tests on a one-job local GitHub runner, runs the full suite on macOS, signs with the HORIZN INC Developer ID, and notarizes using the `ember-notary` Keychain profile. It publishes the Apple Silicon ZIP and SHA-256 checksum under the matching version tag and verifies GitHub marks it Latest.
+Run `node scripts/release-version.mjs 0.6.0` with the intended version, then merge the version changes and release content into main. From Mac Terminal run `./scripts/release-mac.sh`. The command checks out main, runs the JavaScript and Rust tests on the same Apple Silicon Mac that builds the app, signs with the HORIZN INC Developer ID, and notarizes using the `ember-notary` Keychain profile. It publishes the Apple Silicon ZIP and SHA-256 checksum under the matching version tag and verifies GitHub marks it Latest.
 
-The runner uses Docker Desktop and Ember’s local `ember-runner-linux:arm64` image. If the image is missing, the script builds it from `$HOME/ember/ci/runners/linux` (override the checkout with `EMBER_REPO`). The authenticated GitHub CLI account needs permission to register a Dashledge runner, dispatch the workflow, and publish releases. Set `DASHLEDGE_NOTARY_PROFILE` to use a different notary profile. Public builds omit personal Run-DMD artwork.
+The authenticated GitHub CLI account needs permission to publish releases. Set `DASHLEDGE_NOTARY_PROFILE` to use a different notary profile. Public builds omit personal Run-DMD artwork.
 
 **General → Updates** checks the latest published GitHub release daily or on demand. **View release** opens the detected version for download.
 

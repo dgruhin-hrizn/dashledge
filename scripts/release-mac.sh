@@ -27,7 +27,6 @@ fi
 security find-identity -v -p codesigning | grep -F 'Developer ID Application: HORIZN INC (K5K2SPTZVV)' >/dev/null || { echo 'Open a Mac Terminal with the HORIZN INC Developer ID available.' >&2; exit 1; }
 profile="${DASHLEDGE_NOTARY_PROFILE:-ember-notary}"
 xcrun notarytool history --keychain-profile "$profile" --output-format json >/dev/null
-scripts/release-runner.sh "$sha"
 unset RUNDMD_IMAGE SIGN_IDENTITY EMBER_SIGN_IDENTITY
 export OUTPUT_DIR="$work/public"
 scripts/prepare-widget-runtime.sh
