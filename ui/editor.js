@@ -10,6 +10,7 @@ import {editShortcuts,shortcutPins} from './mac-shortcuts.js';
 import {catalogGroups,widgetInfo,installed,connectionsFor,defaultSource,useDefault,placements,removeWidget,recordPackage} from './widget-catalog.js';
 import {permissionSummary} from './package-manifest.js';
 import {editPackageSettings,settingValues} from './package-settings.js';
+import {editPlacementColors,followsColors,placementColors} from './placement-colors.js';
 import {connectionLabel} from './display-name.js';
 import {guestRows,parseGuests} from './proxmox-guests.js';
 import {general,loadGeneral,updateGeneral,fitDashboard} from './general.js';
@@ -98,6 +99,21 @@ function configurePackage(p,i,pkg){
       change(()=>{target.slots[position]={...target.slots[position],packageSettings:values};chosen=p.id;index=position;activate(target)});
     }});
 }
+// This placement's own text and highlight colours, with the same stale-section guard.
+function configureColors(p,i){
+  const previous=p.slots[i],before=JSON.stringify(previous),kind=previous.kind;
+  const name=widgetInfo(config,kind)?.title||titles[kind]||'Widget';
+  editPlacementColors({title:name+' · '+p.name+' · Section '+(i+1),value:previous.colors,general:general(),save:colors=>{
+    config=state();
+    const target=config.pages.find(v=>v.id===p.id),position=target?.slots.findIndex(v=>v.id===previous.id)??-1;
+    if(position<0||JSON.stringify(target.slots[position])!==before)throw Error('This section changed. Close and select it again.');
+    change(()=>{
+      const next={...target.slots[position]};
+      if(colors)next.colors=colors;else delete next.colors;
+      target.slots[position]=next;chosen=p.id;index=position;activate(target);
+    });
+  }});
+}
 function layouts(){
   const p=page();index=Math.min(index,p.slots.length-1);
   const pages=el('div','page-tabs'),strip=el('div','page-strip');
@@ -164,6 +180,14 @@ function layouts(){
     }));
   }
   if(s.kind==='plans')inspector.append(button('Configure accounts',()=>configureSection(p,index,'plans')));
+  if(followsColors(s.kind,{slack:!!slackWidgets[s.kind],custom:config.plugins.find(v=>v.id===s.kind),bundled:packageInfo.get(s.kind)})){
+    const colors=placementColors(s,general()),swatches=el('span','inspector-colors');
+    for(const [key,label] of [['primary','Text'],['accent','Highlight']]){
+      const swatch=el('i','swatch');swatch.style.background=colors[key];swatch.title=label+' '+colors[key];swatches.append(swatch);
+    }
+    swatches.append(el('small','sub',s.colors?'This placement':'General colours'));
+    inspector.append(field('Colours',swatches),button('Colours · This placement',()=>configureColors(p,index)));
+  }
   const pkg=config.plugins.find(v=>v.id===s.kind&&v.apiVersion===2&&v.settings?.length);
   if(pkg)inspector.append(button('Widget settings · This placement',()=>configurePackage(p,index,pkg)));
   if(s.kind==='markets')inspector.append(field('Featured symbol',marketPicker(s,marketSymbol=>change(()=>s.marketSymbol=marketSymbol))),button('Edit watchlist',()=>editWatchlist(s,props=>change(()=>Object.assign(s,props)))));

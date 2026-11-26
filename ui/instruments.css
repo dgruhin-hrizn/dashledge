@@ -1,4 +1,6 @@
 .dashboard{--fg:var(--primary);--lime:var(--highlight);--sub:color-mix(in srgb,var(--primary) 62%,#343a38);color:var(--fg);background:#0c0e0e;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",sans-serif}
+/* A placement with its own colours (ui/placement-colors.js) re-derives them on its tile. */
+.dashboard .tile[data-colors]{--fg:var(--primary);--lime:var(--highlight);--sub:color-mix(in srgb,var(--primary) 62%,#343a38);color:var(--fg)}
 .dashboard .tile:not(.original-widget,.dmd-tile,.sp-tile,.gd-tile,.sw-tile,.slack-tile){border:1px solid #343936;border-radius:calc(15px*var(--px-scale,1));background:radial-gradient(ellipse at 100% 0,color-mix(in srgb,var(--accent) 6%,transparent),transparent 65%),#141817}
 .dashboard .instrument{container-type:size;gap:clamp(calc(8px*var(--px-scale,1)),2vh,calc(18px*var(--px-scale,1)));padding:clamp(calc(12px*var(--px-scale,1)),1vw,calc(28px*var(--px-scale,1)));font-variant-numeric:tabular-nums}
 .instrument-head{display:flex;align-items:center;gap:calc(9px*var(--px-scale,1));padding-bottom:clamp(calc(5px*var(--px-scale,1)),1.2cqh,calc(12px*var(--px-scale,1)));border-bottom:1px solid #ffffff20;flex:none}

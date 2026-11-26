@@ -125,6 +125,10 @@ pub struct View {
     pub entry: String,
     #[serde(default)]
     pub viewport: Viewport,
+    /// The view follows Dashledge's text and highlight colours (the SDK theme), so
+    /// each placement may override them.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub theme: bool,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -718,6 +722,17 @@ mod tests {
             raw[key] = value.clone();
         }
         raw
+    }
+
+    #[test]
+    fn a_view_may_follow_the_dashledge_theme() {
+        let themed = validate(&view_only(json!({"view": {"entry": "index.html", "theme": true}})), Origin::Installed).unwrap();
+        assert!(themed.view.theme);
+        assert_eq!(serde_json::to_value(&themed).unwrap()["view"]["theme"], json!(true));
+        let plain = validate(&view_only(json!({})), Origin::Installed).unwrap();
+        assert!(!plain.view.theme);
+        assert!(serde_json::to_value(&plain).unwrap()["view"].get("theme").is_none());
+        assert!(validate(&view_only(json!({"view": {"entry": "index.html", "theme": "yes"}})), Origin::Installed).is_err());
     }
 
     #[test]

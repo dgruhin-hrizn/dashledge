@@ -6,6 +6,7 @@ import {invoke} from './common.js';
 import {general, onGeneral} from './general.js';
 import {openTouchKeyboard} from './search-keyboard.js';
 import {settingValues} from './package-settings.js';
+import {placementColors} from './placement-colors.js';
 
 const frames = new Map(); // contentWindow → entry
 let latestMetrics = null;
@@ -26,7 +27,8 @@ export function packageState(entry) {
     // 'native' when the widget fills the display at its real size; 'reference' in a
     // split page's 1920 × 540 canvas.
     viewport: entry.native ? 'native' : 'reference',
-    theme: {mode: 'dark', primary: prefs.primary || '#edf0e6', accent: prefs.accent || '#f88d4f'},
+    // General colours, or this placement's own when it overrides them.
+    theme: {mode: 'dark', ...placementColors({colors: entry.colors}, prefs)},
     // The capabilities the manifest declares, and this placement's settings.
     permissions: [...(entry.permissions || [])],
     ...(granted(entry, 'settings') ? {settings: {...entry.settings}} : {}),
@@ -101,9 +103,9 @@ function post(entry, message) {
 // Returns unregister(); `deliver(data)` sends a package feed's data, now or once ready,
 // and `settings(saved)` sends the placement's changed settings to the live view.
 export function registerFrame(frame, {viewer, feed, kind = '', title = '', commands = [], actions = [], permissions = [],
-  schema = [], saved = {}, openSettings = null, displayName = '', host = '', serverField = '', native = false}) {
+  schema = [], saved = {}, openSettings = null, colors = null, displayName = '', host = '', serverField = '', native = false}) {
   const entry = {frame, viewer, feed, kind, title: clean(title, 64) || 'Widget', commands, actions, permissions, schema,
-    settings: settingValues(schema, saved), openSettings, displayName, host, serverField, native,
+    settings: settingValues(schema, saved), openSettings, colors, displayName, host, serverField, native,
     serverName: '', window: null, data: null, ready: false, metrics: false, keyboard: null};
   frame.addEventListener('load', () => {
     for (const [win, other] of frames) if (other === entry) frames.delete(win);
@@ -115,6 +117,10 @@ export function registerFrame(frame, {viewer, feed, kind = '', title = '', comma
   const unregister = () => {
     if (entry.window) frames.delete(entry.window);
     entry.keyboard?.dialog.close();
+  };
+  unregister.colors = next => {
+    entry.colors = next || null;
+    if (entry.ready) post(entry, {type: 'state', state: packageState(entry)});
   };
   unregister.settings = next => {
     entry.settings = settingValues(entry.schema, next);

@@ -3,12 +3,13 @@
   "id": "proxmox",
   "title": "Proxmox",
   "description": "Cluster health, virtual machines and GPU telemetry.",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "category": "Servers & storage",
   "icon": "view/icon.svg",
   "view": {
     "entry": "view/index.html",
-    "viewport": "native"
+    "viewport": "native",
+    "theme": true
   },
   "sources": {
     "min": 1,
