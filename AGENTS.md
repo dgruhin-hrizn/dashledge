@@ -27,11 +27,19 @@ For a settings change, configure two placements differently, edit one, cancel a 
 
 # Cutting a public Dashledge release
 
-1. Choose the stable version and run `node scripts/release-version.mjs <version>` from the repository root to update the Node, Cargo, and Tauri manifests and lockfiles together. Merge the version bump and every change intended for the release into `main` and confirm they are on GitHub.
-2. Run `~/edge-workbench/scripts/release-mac.sh` from Mac Terminal for every public release. This is the reusable publishing command. It builds from a clean checkout of GitHub’s `main`, runs the full test suite and builds the Apple Silicon app on macOS, signs with the HORIZN INC Developer ID, and notarizes the public app. Keep personal Run-DMD artwork out of the release archive.
-3. Report publication complete once GitHub’s `releases/latest` endpoint returns the matching `v<version>` tag and the release contains the Apple Silicon ZIP and its SHA-256 checksum. Include the published release URL. Dashledge uses this same endpoint for update checks.
+1. **Prepare and merge.** Choose the stable version and run `node scripts/release-version.mjs <version>` from the repository root to update the Node, Cargo, and Tauri manifests and lockfiles together. Use the normal Git and GitHub PR workflow to push and merge the version bump and every intended widget change. Confirm both the changes and the version on GitHub’s `main`, then fast-forward the clean local `main` checkout in `~/edge-workbench`.
+2. **Publish.** Run the existing command directly in Mac Terminal on Apple Silicon:
 
-# Dashledge macOS builds
+   ```sh
+   ~/edge-workbench/scripts/release-mac.sh
+   ```
+
+   Use this command for every public release. Never create a per-widget or per-version wrapper, including one that combines PR preparation with publishing. The script reads the version from the local checkout, clones GitHub’s `main`, runs the tests, builds the public app without personal Run-DMD artwork, signs with the HORIZN INC Developer ID, notarizes and staples the app, and uploads the ZIP and checksum.
+3. **Verify publication.** Confirm that GitHub’s `releases/latest` endpoint returns `v<version>` and lists both `Dashledge-v<version>-macOS-arm64.zip` and its `.sha256` file. Then report the published release URL. Dashledge checks this same endpoint for updates.
+
+If a push or merge is blocked, identify the pending branch or PR and the GitHub error so work can resume at that step. If the changes are merged and the current shell lacks signing or notarization access, give the user the exact Mac Terminal command above.
+
+# Personal Dashledge macOS builds
 
 Test the changes and prepare the integrated app with `scripts/package-mac.sh --prepare-only`. Use the build's actual output directory and preserve the user's bundled Run-DMD card when preparing their personal build.
 
