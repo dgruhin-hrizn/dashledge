@@ -85,6 +85,8 @@ export function packageEntry(info){
   if(info.view?.viewport==='native')entry.viewport='native';
   if(info.actions?.length)entry.actions=info.actions.map(a=>a.id);
   if(info.displayName?.serverField)entry.serverField=info.displayName.serverField;
+  if(info.permissions?.length)entry.permissions=[...info.permissions];
+  if(info.settings?.length)entry.settings=info.settings.map(setting=>({...setting}));
   return entry;
 }
 export function recordPackage(config,info){

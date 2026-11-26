@@ -43,6 +43,70 @@ pub struct Manifest {
     pub connector: Option<Connector>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub collector: Option<Collector>,
+    /// Dashledge capabilities the view may use, shown at install.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub permissions: Vec<Permission>,
+    /// Per-placement settings, edited in Pages & layouts or from the view's own gear.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub settings: Vec<Setting>,
+}
+
+/// A Dashledge capability a package view asks for. The dashboard's package bridge
+/// refuses every capability the manifest does not declare.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, Hash)]
+pub enum Permission {
+    /// Per-placement settings delivered in `Dashledge.subscribe` state.
+    #[serde(rename = "settings")]
+    Settings,
+    /// The shared touch keyboard, opened by `Dashledge.keyboard.open()`.
+    #[serde(rename = "keyboard")]
+    Keyboard,
+    /// Dashledge's tokens and reading, list and status styles (`/package-ui.css`).
+    #[serde(rename = "ui")]
+    Ui,
+    /// This Mac's CPU, GPU, memory and network readings.
+    #[serde(rename = "mac.metrics")]
+    MacMetrics,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum SettingKind {
+    Text,
+    Number,
+    Toggle,
+    Choice,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Setting {
+    pub id: String,
+    pub label: String,
+    #[serde(rename = "type")]
+    pub kind: SettingKind,
+    /// Filled in by the validator when the manifest leaves it out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub help: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub options: Vec<SettingOption>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_length: Option<u32>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SettingOption {
+    pub value: String,
+    pub label: String,
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -419,6 +483,22 @@ pub fn validate(raw: &Value, origin: Origin) -> Result<Manifest, String> {
             return fail("Connector storage is limited to 1 MiB.");
         }
     }
+    let mut granted = HashSet::new();
+    for permission in &manifest.permissions {
+        if !granted.insert(*permission) {
+            return fail("A permission is declared twice.");
+        }
+    }
+    if granted.contains(&Permission::Settings) != !manifest.settings.is_empty() {
+        return fail("Declare the settings permission together with at least one setting.");
+    }
+    if manifest.settings.len() > 16 {
+        return fail("Declare at most 16 settings.");
+    }
+    unique(manifest.settings.iter().map(|s| s.id.as_str()), "Setting ID")?;
+    for setting in &mut manifest.settings {
+        normalize_setting(setting)?;
+    }
     if let Some(collector) = &manifest.collector {
         file_with(&collector.entry, "Collector entry", &[".mjs", ".js"])?;
         if collector.outputs.is_empty() || collector.outputs.len() > 12 {
@@ -430,6 +510,76 @@ pub fn validate(raw: &Value, origin: Origin) -> Result<Manifest, String> {
         unique(collector.commands.iter().map(String::as_str), "Collector command")?;
     }
     Ok(manifest)
+}
+
+/// Check one setting against its type and fill in its default.
+fn normalize_setting(setting: &mut Setting) -> Result<(), String> {
+    let id = setting.id.clone();
+    text(&setting.label, &format!("Setting “{id}” label"), 48)?;
+    setting.label = setting.label.trim().to_string();
+    optional_text(&setting.help, &format!("Setting “{id}” help"), 160)?;
+    let numeric = setting.min.is_some() || setting.max.is_some() || setting.step.is_some();
+    if setting.kind != SettingKind::Number && numeric {
+        return fail(format!("Setting “{id}”: min, max and step apply to number settings."));
+    }
+    if setting.kind != SettingKind::Text && setting.max_length.is_some() {
+        return fail(format!("Setting “{id}”: maxLength applies to text settings."));
+    }
+    if setting.kind != SettingKind::Choice && !setting.options.is_empty() {
+        return fail(format!("Setting “{id}”: options apply to choice settings."));
+    }
+    let wrong = || fail(format!("Setting “{id}” has a default that doesn’t fit its type."));
+    match setting.kind {
+        SettingKind::Text => {
+            let limit = setting.max_length.unwrap_or(256);
+            if !(1..=1024).contains(&limit) {
+                return fail(format!("Setting “{id}”: maxLength must be 1–1024."));
+            }
+            setting.max_length = Some(limit);
+            match setting.default.get_or_insert(Value::String(String::new())) {
+                Value::String(v) if v.chars().count() <= limit as usize && !v.chars().any(char::is_control) => {}
+                _ => return wrong(),
+            }
+        }
+        SettingKind::Number => {
+            let finite = |v: Option<f64>| v.is_none_or(f64::is_finite);
+            if !finite(setting.min) || !finite(setting.max) || !finite(setting.step) {
+                return fail(format!("Setting “{id}”: min, max and step must be numbers."));
+            }
+            if setting.min.zip(setting.max).is_some_and(|(min, max)| min > max) || setting.step.is_some_and(|s| s <= 0.0) {
+                return fail(format!("Setting “{id}” needs min ≤ max and a positive step."));
+            }
+            let fallback = setting.min.unwrap_or(0.0).max(f64::MIN).min(setting.max.unwrap_or(f64::MAX));
+            let value = setting.default.get_or_insert(serde_json::json!(fallback)).as_f64();
+            if !value.is_some_and(|v| setting.min.is_none_or(|m| v >= m) && setting.max.is_none_or(|m| v <= m)) {
+                return wrong();
+            }
+        }
+        SettingKind::Toggle => {
+            if !setting.default.get_or_insert(Value::Bool(false)).is_boolean() {
+                return wrong();
+            }
+        }
+        SettingKind::Choice => {
+            if !(2..=24).contains(&setting.options.len()) {
+                return fail(format!("Setting “{id}” needs 2–24 options."));
+            }
+            let mut values = HashSet::new();
+            for option in &mut setting.options {
+                text(&option.value, &format!("Setting “{id}” option value"), 64)?;
+                text(&option.label, &format!("Setting “{id}” option label"), 48)?;
+                option.label = option.label.trim().to_string();
+                if !values.insert(option.value.clone()) {
+                    return fail(format!("Setting “{id}” lists an option twice."));
+                }
+            }
+            let first = Value::String(setting.options[0].value.clone());
+            if !setting.default.get_or_insert(first).as_str().is_some_and(|v| values.contains(v)) {
+                return wrong();
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Does `file`, requested by a view, match one of a collector's output patterns?
@@ -560,5 +710,57 @@ mod tests {
         for no in ["art/.jpg", "art/x.png", "previews/x.jpg", "art/sub/x.jpg", "model-actions.json", "art/../x.jpg"] {
             assert!(!matches_output(&outputs, no), "{no}");
         }
+    }
+
+    fn view_only(extra: Value) -> Value {
+        let mut raw = json!({"apiVersion": 2, "id": "plugin.caps", "title": "Caps", "icon": "icon.svg", "view": {"entry": "index.html"}});
+        for (key, value) in extra.as_object().unwrap() {
+            raw[key] = value.clone();
+        }
+        raw
+    }
+
+    #[test]
+    fn capability_fixture_validates_with_defaults_filled() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/fixtures/capabilities-package/widget.json");
+        let raw: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let manifest = validate(&raw, Origin::Installed).unwrap();
+        assert_eq!(manifest.permissions, [Permission::Settings, Permission::Keyboard, Permission::Ui, Permission::MacMetrics]);
+        let metric = manifest.settings.iter().find(|s| s.id == "metric").unwrap();
+        assert_eq!(metric.default, Some(json!("cpu")));
+        let label = manifest.settings.iter().find(|s| s.id == "label").unwrap();
+        assert_eq!(label.max_length, Some(40));
+        let json = serde_json::to_value(&manifest).unwrap();
+        assert_eq!(json["permissions"], json!(["settings", "keyboard", "ui", "mac.metrics"]));
+    }
+
+    #[test]
+    fn rejects_unknown_or_repeated_permissions() {
+        assert!(validate(&view_only(json!({"permissions": ["camera"]})), Origin::Installed).is_err());
+        assert!(validate(&view_only(json!({"permissions": ["keyboard", "keyboard"]})), Origin::Installed).is_err());
+        assert!(validate(&view_only(json!({"permissions": ["keyboard", "ui"]})), Origin::Installed).is_ok());
+    }
+
+    #[test]
+    fn settings_and_their_permission_come_together() {
+        let setting = json!([{"id": "unit", "label": "Unit", "type": "toggle"}]);
+        assert!(validate(&view_only(json!({"settings": setting})), Origin::Installed).is_err());
+        assert!(validate(&view_only(json!({"permissions": ["settings"]})), Origin::Installed).is_err());
+        let ok = validate(&view_only(json!({"permissions": ["settings"], "settings": setting})), Origin::Installed).unwrap();
+        assert_eq!(ok.settings[0].default, Some(json!(false)));
+    }
+
+    #[test]
+    fn setting_defaults_must_fit_their_type() {
+        let check = |setting: Value| validate(&view_only(json!({"permissions": ["settings"], "settings": [setting]})), Origin::Installed);
+        assert!(check(json!({"id": "n", "label": "N", "type": "number", "min": 1, "max": 5, "default": 9})).is_err());
+        assert!(check(json!({"id": "n", "label": "N", "type": "number", "min": 5, "max": 1})).is_err());
+        assert_eq!(check(json!({"id": "n", "label": "N", "type": "number", "min": 2})).unwrap().settings[0].default, Some(json!(2.0)));
+        assert!(check(json!({"id": "c", "label": "C", "type": "choice", "options": [{"value": "a", "label": "A"}, {"value": "b", "label": "B"}], "default": "z"})).is_err());
+        assert!(check(json!({"id": "c", "label": "C", "type": "choice", "options": [{"value": "a", "label": "A"}]})).is_err());
+        assert!(check(json!({"id": "t", "label": "T", "type": "text", "maxLength": 3, "default": "long"})).is_err());
+        assert!(check(json!({"id": "t", "label": "T", "type": "toggle", "options": [{"value": "a", "label": "A"}]})).is_err());
+        assert!(check(json!({"id": "t", "label": "Bad\u{0007}label", "type": "toggle"})).is_err());
+        assert!(check(json!({"id": "Bad", "label": "T", "type": "toggle"})).is_err());
     }
 }

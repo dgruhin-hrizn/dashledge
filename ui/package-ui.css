@@ -1,0 +1,41 @@
+/* Dashledge UI kit for package views that declare the `ui` permission. The widget
+   host links this file into the view before the package's own styles, so a package
+   overrides any of it. Sizes follow --px-scale, which the SDK sets to keep the
+   reference canvas's physical size when the view renders at the native viewport. */
+:root{
+  --dl-scale:var(--px-scale,1);
+  --dl-bg:#0c0e0e;
+  --dl-panel:#141817;
+  --dl-border:#343936;
+  --dl-text:var(--text,#edf0e6);
+  --dl-sub:color-mix(in srgb,var(--dl-text) 62%,#343a38);
+  --dl-accent:var(--accent,#f88d4f);
+  --dl-danger:#ff8f80;
+  --dl-font:-apple-system,BlinkMacSystemFont,"Helvetica Neue",sans-serif;
+  --dl-gap:calc(14px*var(--dl-scale));
+  --dl-radius:calc(12px*var(--dl-scale));
+  --dl-tap:calc(44px*var(--dl-scale));
+  --dl-body:calc(22px*var(--dl-scale));
+  --dl-small:calc(16px*var(--dl-scale));
+}
+.dl-surface{margin:0;min-height:100vh;color:var(--dl-text);background:var(--dl-bg);font:var(--dl-body)/1.3 var(--dl-font);-webkit-font-smoothing:antialiased}
+.dl-panel{background:var(--dl-panel);border:1px solid var(--dl-border);border-radius:var(--dl-radius);padding:var(--dl-gap)}
+.dl-caption{margin:0;color:var(--dl-sub);font-size:var(--dl-small);font-weight:520;letter-spacing:.075em;text-transform:uppercase}
+/* A live reading: tabular digits so a changing value can't move its neighbours. */
+.dl-reading{display:flex;align-items:baseline;gap:.15em;margin:0;font-size:clamp(calc(32px*var(--dl-scale)),min(16vw,22vh),calc(116px*var(--dl-scale)));line-height:1.04;white-space:nowrap;font-variant-numeric:tabular-nums}
+.dl-reading strong{font-weight:330;letter-spacing:-.055em}
+.dl-unit{font-size:.34em;color:var(--dl-sub);font-weight:450}
+.dl-list{display:grid;margin:0;padding:0;list-style:none;overflow:auto}
+.dl-row{display:flex;align-items:center;justify-content:space-between;gap:var(--dl-gap);min-height:var(--dl-tap);border-bottom:1px solid #ffffff14;font-variant-numeric:tabular-nums}
+.dl-row>:last-child{color:var(--dl-sub);text-align:right}
+.dl-button{min-width:var(--dl-tap);min-height:var(--dl-tap);display:inline-grid;place-items:center;padding:0 .8em;border:1px solid var(--dl-border);border-radius:calc(9px*var(--dl-scale));color:inherit;background:#242a2a;font:inherit;cursor:pointer}
+.dl-button:focus-visible{outline:2px solid var(--dl-accent);outline-offset:2px}
+.dl-button.edge-pressed,.dl-button:active{background:color-mix(in srgb,var(--dl-accent) 28%,#242a2a)}
+.dl-button[aria-pressed=true]{border-color:var(--dl-accent);color:var(--dl-accent)}
+.dl-icon-button{padding:0}
+/* Status: loading, empty and failed are distinct. */
+.dl-loading,.dl-empty,.dl-error{display:grid;place-items:center;gap:var(--dl-gap);margin:0;padding:var(--dl-gap);text-align:center;color:var(--dl-sub)}
+.dl-loading::before{content:"";width:calc(28px*var(--dl-scale));height:calc(28px*var(--dl-scale));border-radius:50%;border:3px solid #ffffff20;border-top-color:var(--dl-accent)}
+.dl-error{color:var(--dl-danger)}
+[hidden]{display:none!important}
+@media(prefers-reduced-motion:no-preference){.dl-loading::before{animation:dl-spin 1s linear infinite}@keyframes dl-spin{to{transform:rotate(1turn)}}}

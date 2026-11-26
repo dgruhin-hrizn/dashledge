@@ -11,8 +11,15 @@ export function packageTier(manifest) {
   return 'view';
 }
 
-// Plain-language permissions for the install sheet.
-export function permissionSummary(manifest) {
+const capabilityLines = {
+  settings: 'Has settings you choose for each placement.',
+  keyboard: 'Can open the on-screen keyboard to ask you for text.',
+  'mac.metrics': 'Reads this Mac’s CPU, GPU, memory and network activity.',
+};
+
+// Plain-language permissions for the install sheet. When `previous` is the installed
+// version, capabilities it didn't have are marked as new.
+export function permissionSummary(manifest, previous = null) {
   const lines = [];
   const sources = manifest.sources;
   if (sources?.max) lines.push(sources.max === 1 ? 'Uses one connection you choose.' : 'Uses up to ' + sources.max + ' connections you choose.');
@@ -23,6 +30,12 @@ export function permissionSummary(manifest) {
     if (manifest.connector.hosts?.length) lines.push('Can also connect to: ' + manifest.connector.hosts.join(', ') + '.');
   }
   if (manifest.collector) lines.push('Runs a collector with full access to this Mac. Bundled widgets only.');
+  for (const permission of manifest.permissions || []) {
+    const line = capabilityLines[permission];
+    if (!line) continue;
+    const added = previous && !(previous.permissions || []).includes(permission);
+    lines.push((added ? 'New: ' : '') + line);
+  }
   if (!lines.length) lines.push('Shows its own view only. It can’t reach the network.');
   return lines;
 }

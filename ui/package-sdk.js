@@ -5,6 +5,7 @@
 //   touch   touches from the Edge, replayed as pointer events, scrolls and taps
 //   blur    the page holding the view was hidden
 //   reply   the answer to window.Dashledge.command()
+//   metrics this Mac's readings, for views that declare mac.metrics
 // `window.Zurface` is the same object, for views written against that API.
 (() => {
   const host = window.parent;
@@ -12,8 +13,8 @@
   const send = message => host.postMessage({dashledge: 1, ...message}, '*');
   let state = {instanceID: '', touchMode: false, displayName: '',
     theme: {mode: 'dark', primary: '#edf0e6', accent: '#f88d4f'}};
-  const subscribers = new Set(), pending = new Map(), dataListeners = new Set();
-  let latest = null;
+  const subscribers = new Set(), pending = new Map(), dataListeners = new Set(), metricListeners = new Set();
+  let latest = null, metrics = null, metricsWanted = false;
   let nextId = 1;
 
   // --px-scale keeps px-authored sizes at their reference-canvas physical size
@@ -58,6 +59,34 @@
   api.displayName = serverName => state.displayName || String(serverName || state.serverName || '').trim() || state.host || '';
   // Run an action the manifest declares, with values for its {placeholders}.
   api.action = (id, args = {}) => api.command('action', {id, args});
+
+  // ---- Capabilities: each works only when the manifest's permissions declare it ----
+  // settings: this placement's values, also in subscribe() state; open() shows the
+  // same editor as Pages & layouts and resolves with the saved values or null.
+  api.settings = {
+    get values() { return {...(state.settings || {})}; },
+    open: () => api.command('settings.open'),
+  };
+  // keyboard: the shared touch keyboard. Resolves with the text, or null when closed.
+  api.keyboard = {open: (options = {}) => api.command('keyboard.open', options)};
+  // mac.metrics: this Mac's CPU, GPU, memory and network readings, about once a second.
+  function emitMetrics(next) {
+    metrics = next;
+    for (const callback of metricListeners) callback(next);
+  }
+  api.mac = {
+    metrics: () => api.command('mac.metrics'),
+    onMetrics(callback) {
+      metricListeners.add(callback);
+      if (metrics) callback(metrics);
+      if (!metricsWanted) {
+        metricsWanted = true;
+        api.command('mac.subscribe').then(first => { if (first && !metrics) emitMetrics(first); })
+          .catch(error => { metricsWanted = false; console.warn('Dashledge: mac.metrics', error.message); });
+      }
+      return () => metricListeners.delete(callback);
+    },
+  };
   window.Dashledge = api;
   window.Zurface = api;
 
@@ -203,6 +232,8 @@
     } else if (message.type === 'data') {
       latest = {rev: message.rev, data: message.data, error: message.error ?? null};
       for (const callback of dataListeners) callback(latest);
+    } else if (message.type === 'metrics') {
+      emitMetrics(message.metrics);
     } else if (message.type === 'blur') {
       window.dispatchEvent(new Event('blur'));
     } else if (message.type === 'reply') {

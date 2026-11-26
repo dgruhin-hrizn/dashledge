@@ -311,8 +311,8 @@ fn resource(id: &str, path: &str) -> Option<(Vec<u8>, &'static str)> {
     let Some(feed) = feeds.get(id) else {
         // An installed package's feed serves its view folder only.
         drop(feeds);
-        let root = crate::package_connector::view_root(id)?;
-        return view_file(&root, path);
+        let (root, ui) = crate::package_connector::view_root(id)?;
+        return view_file(&root, path, ui);
     };
     // Declared collector outputs come from the feed's private directory; everything
     // else from the package's view folder. Collector code and other files are never served.
@@ -324,11 +324,15 @@ fn resource(id: &str, path: &str) -> Option<(Vec<u8>, &'static str)> {
         return None;
     };
     let root = root.to_path_buf();
+    let kind = feed.kind.clone();
     drop(feeds);
-    view_file(&root, path)
+    let ui = crate::package_store::lookup(&kind)
+        .is_some_and(|(info, _)| info.manifest.permissions.contains(&crate::package_manifest::Permission::Ui));
+    view_file(&root, path, ui)
 }
-/// A file from a view folder or feed directory. HTML pages get the package SDK.
-fn view_file(root: &Path, path: &str) -> Option<(Vec<u8>, &'static str)> {
+/// A file from a view folder or feed directory. HTML pages get the package SDK, and
+/// Dashledge's UI kit when the manifest declares `ui`.
+fn view_file(root: &Path, path: &str, ui: bool) -> Option<(Vec<u8>, &'static str)> {
     if path.split('/').any(|p| p.is_empty() || p.starts_with('.')) {
         return None;
     }
@@ -351,9 +355,10 @@ fn view_file(root: &Path, path: &str) -> Option<(Vec<u8>, &'static str)> {
     let file = root.join(path);
     let data = if path.ends_with(".html") {
         let html = fs::read_to_string(file).ok()?;
+        let kit = if ui { "<link rel=\"stylesheet\" href=\"/package-ui.css\">" } else { "" };
         html.replacen(
             "<head>",
-            "<head><link rel=\"stylesheet\" href=\"/scrollbars.css\"><script src=\"/package-sdk.js\"></script>",
+            &format!("<head>{kit}<link rel=\"stylesheet\" href=\"/scrollbars.css\"><script src=\"/package-sdk.js\"></script>"),
             1,
         )
         .into_bytes()
