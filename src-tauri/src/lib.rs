@@ -305,7 +305,7 @@ pub fn run() {
             spotify_queue::spotify_connect,
             spotify_queue::spotify_queue,
             spotify_queue::spotify_playlists,
-            connections::set_secret,
+            connections::set_secret, connections::set_certificate, connections::certificate_info,
             connections::source_read,
             connections::widget_source_read,
             open_settings,
