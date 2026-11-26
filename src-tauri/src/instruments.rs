@@ -6,6 +6,7 @@ use std::{
 use sysinfo::{CpuExt, DiskExt, NetworkExt, System, SystemExt};
 extern "C" {
     fn ew_ember() -> *mut std::ffi::c_char;
+    fn ew_extra_metrics() -> *mut std::ffi::c_char;
     fn ew_gpu() -> f64;
     fn ew_spotify(action: i32) -> *mut std::ffi::c_char;
     fn free(ptr: *mut std::ffi::c_void);
@@ -43,15 +44,27 @@ pub fn read_metrics() -> Value {
     sys.refresh_networks();
     sys.refresh_disks();
     let (mut rx, mut tx) = (0u64, 0u64);
+    let mut interfaces = Vec::new();
     for (name, net) in sys.networks() {
         if name.starts_with("en") {
+            interfaces.push(json!({"name":name,"rx":net.received() as f64/elapsed,"tx":net.transmitted() as f64/elapsed}));
             rx += net.received();
             tx += net.transmitted();
         }
     }
     let disks:Vec<_>=sys.disks().iter().map(|d|json!({"name":d.name().to_string_lossy(),"mount":d.mount_point(),"free":d.available_space(),"total":d.total_space()})).collect();
     let load = unsafe { ew_gpu() };
-    state.value = json!({"gpu":if load>=0.{Some(load)}else{None},"cpu":sys.global_cpu_info().cpu_usage(),"cores":sys.cpus().len(),"freeGiB":((sys.available_memory() as f64/1073741824.)*10.).round()/10.,"memory":sys.used_memory(),"capacity":sys.total_memory(),"swap":sys.used_swap(),"rx":rx as f64/elapsed,"tx":tx as f64/elapsed,"disks":disks,"uptime":sys.uptime(),"model":sys.cpus().first().map(|c|c.brand()),"host":sys.host_name()});
+    let ptr = unsafe { ew_extra_metrics() };
+    let extra = if ptr.is_null() {
+        Value::Null
+    } else {
+        let v = unsafe {
+            serde_json::from_slice(std::ffi::CStr::from_ptr(ptr).to_bytes()).unwrap_or(Value::Null)
+        };
+        unsafe { free(ptr.cast()) };
+        v
+    };
+    state.value = json!({"extra":extra,"interfaces":interfaces,"gpu":if load>=0.{Some(load)}else{None},"cpu":sys.global_cpu_info().cpu_usage(),"cores":sys.cpus().len(),"freeGiB":((sys.available_memory() as f64/1073741824.)*10.).round()/10.,"memory":sys.used_memory(),"capacity":sys.total_memory(),"swap":sys.used_swap(),"rx":rx as f64/elapsed,"tx":tx as f64/elapsed,"disks":disks,"uptime":sys.uptime(),"model":sys.cpus().first().map(|c|c.brand()),"host":sys.host_name()});
     state.value.clone()
 }
 
@@ -78,4 +91,17 @@ pub fn ember_chats() -> Result<Value, String> {
     let value = unsafe { serde_json::from_slice(std::ffi::CStr::from_ptr(ptr).to_bytes()) };
     unsafe { free(ptr.cast()) };
     value.map_err(|_| "Invalid chat data".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn reads_a_live_mac_sample_without_a_display_or_touch_device() {
+        let sample=read_metrics();
+        assert!(sample["capacity"].as_u64().unwrap_or(0)>0);
+        assert!(sample["cores"].as_u64().unwrap_or(0)>0);
+        assert!(sample["disks"].is_array() && sample["interfaces"].is_array());
+        assert!(sample["cpu"].as_f64().is_some_and(|v|v.is_finite()));
+    }
 }

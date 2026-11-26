@@ -1,3 +1,4 @@
+import {emberTile} from './ember.js';
 import {mediaView,comfyView,storageView} from './services.js';
 import {titles,layout,readPath} from './model.js';
 import {ensure,state,current,activate,invoke,el,button,num,bytes} from './common.js';
@@ -8,10 +9,10 @@ function appendSeries(key,value){
   const a=history.get(key)||[];a.push(Number.isFinite(value)?value:null);
   if(a.length>90)a.shift();history.set(key,a);return a;
 }
-function chart(a,color){
+function chart(a,color,domain){
   const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
   svg.setAttribute('class','chart');svg.setAttribute('viewBox','0 0 240 70');svg.setAttribute('preserveAspectRatio','none');
-  const peak=Math.max(1,...a.filter(Number.isFinite)),path=document.createElementNS(svg.namespaceURI,'path');
+  const peak=domain||Math.max(1,...a.filter(Number.isFinite)),path=document.createElementNS(svg.namespaceURI,'path');
   let restart=true,d='';a.forEach((v,i)=>{if(v==null){restart=true;return}d+=(restart?'M':'L')+(240*i/Math.max(1,a.length-1)).toFixed(1)+' '+(67-v/peak*63).toFixed(1)+' ';restart=false});
   path.setAttribute('d',d);path.setAttribute('fill','none');path.setAttribute('stroke',color);path.setAttribute('vector-effect','non-scaling-stroke');path.setAttribute('stroke-width','2');svg.append(path);return svg;
 }
@@ -37,7 +38,14 @@ function system(tile,s){
   tile.lastSample=sample;
   const pct=s.kind==='memory'?100*n/m.capacity:n;
   const nodes=[value(t)];if(['gpu','cpu','disk','memory'].includes(s.kind))nodes.push(bar(pct));
-  nodes.push(chart(history.get(key)||[],accent[s.kind]),facts(...items));return nodes;
+  const domain=s.kind==='memory'?m.capacity:['cpu','gpu','disk'].includes(s.kind)?100:undefined;
+  nodes.push(chart(history.get(key)||[],accent[s.kind],domain));
+  if(s.kind==='network'){
+    if(!tile.seen.has('tx')){appendSeries('tx',m.tx);tile.seen.add('tx')}
+    nodes.push(chart(history.get('tx')||[],'#e9a27c'));
+  }
+  if(s.kind==='memory')items.push(fact('Wired',bytes(m.extra?.wired)),fact('Compressed',bytes(m.extra?.compressed)));
+  nodes.push(facts(...items));return nodes;
 }
 function clockText(){return new Date().toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'})}
 function focus(tile){
@@ -65,13 +73,26 @@ function remote(tile,src,plugin){
   const f=shared(key,()=>invoke('source_read',{kind,address:src.address}),kind==='comfy'?3:kind==='unraid'?15:6);
   if(!f.data)return [sub(f.error||'Connecting…')];
   const d=f.data;
-  if(plugin)return [value(String(readPath(d,plugin.field)??'—')+' '+plugin.unit),sub(src.name)];
+  if(plugin)return customView(tile,plugin,d,src.name);
   if(kind==='emby')return mediaView(tile,d,src,poster,()=>renderTile(tile));
   if(kind==='comfy')return comfyView(tile,d,src);
   if(kind==='omlx')return [value(num(d.avg_generation_tps)+' tok/s'),sub('Average generation'),facts(fact('Active',d.active_requests??'—'),fact('Loaded models',d.models_loaded??'—'))];
   if(kind==='unraid')return storageView(d,{value,sub,bar,facts,fact,list});
   if(kind==='proxmox')return [value((d.data||[]).filter(r=>r.type==='node').length+' nodes'),list((d.data||[]).slice(0,40).map(r=>[r.name||r.id,r.status||r.type]))];
   return [sub('Choose a widget field in Studio')];
+}
+function customView(t,custom,data,label){
+  const v=readPath(data,custom.field);
+  if(custom.view==='list'){
+    const rows=Array.isArray(v)?v.slice(0,24).map((item,i)=>[item?.name||item?.title||String(i+1),String(item?.value??item?.status??(typeof item==='object'?'':item))]):Object.entries(v&&typeof v==='object'?v:{}).slice(0,24).map(([k,x])=>[k,String(x)]);
+    return [list(rows),sub(label)];
+  }
+  const out=[value((Number.isFinite(v)?num(v):String(v??'—'))+' '+custom.unit)];
+  if(custom.view==='trend'){
+    const key='custom:'+t.slot.id;if(t.customSample!==sample){appendSeries(key,v);t.customSample=sample}
+    out.push(chart(history.get(key)||[],custom.accent));
+  }
+  return [...out,sub(label)];
 }
 function renderTile(t){
   const {slot:s,box}=t,kind=s.kind,custom=config.plugins.find(p=>p.id===kind);
@@ -85,8 +106,16 @@ function renderTile(t){
   else if(kind==='spotify'){t.feed='spotify';const f=shared(t.feed,()=>invoke('spotify',{action:0}),4),d=f.data||{};const actions=el('div','controls');
     for(const [name,action] of [['Previous',3],[d.playing?'Pause':'Play',1],['Next',2]])actions.append(button(name,async()=>{try{f.data=await invoke('spotify',{action});renderTile(t)}catch(e){f.error=String(e);renderTile(t)}}));
     nodes=[value(d.title||'Spotify'),sub(f.error||d.artist||d.status||'Connecting…'),sub(d.album||''),actions]}
-  else if(kind==='ember'){t.feed='ember';const f=shared(t.feed,()=>invoke('ember_chats'),3);nodes=[list((f.data||[]).map(r=>[r.title||'Untitled chat',r.operation||r.model||''])),sub(f.error||((f.data||[]).length+' recent chats'))]}
-  else if(custom?.feed==='mac')nodes=[value(String(readPath(metrics,custom.field)??'—')+' '+custom.unit),sub('This Mac')];
+  else if(kind==='ember'){
+    const root=emberTile(t);
+    if(box.contains(root))return;
+    nodes=[root];
+  }
+  else if(custom?.feed==='mac')nodes=customView(t,custom,metrics,'This Mac');
+  else if(kind==='power'){const e=metrics.extra||{};nodes=[value(e.battery!=null?num(e.battery)+'%':e.thermal||'—'),sub(e.power||'Thermal state'),facts(fact('Thermal',e.thermal||'—'),fact('Power',e.charging?'Charging':e.power||'—'))]}
+  else if(kind==='interfaces')nodes=[list((metrics.interfaces||[]).map(i=>[i.name,'↓ '+bytes(i.rx)+'/s  ↑ '+bytes(i.tx)+'/s']))];
+  else if(kind==='volumes')nodes=[list((metrics.disks||[]).map(d=>[d.name,bytes(d.free)+' free']))];
+  else if(kind==='world')nodes=[list([['Local',undefined],['Los Angeles','America/Los_Angeles'],['New York','America/New_York'],['London','Europe/London'],['Tokyo','Asia/Tokyo']].map(([label,timeZone])=>[label,new Date().toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit',timeZone})]))];
   else if(kind==='empty')nodes=[button('Choose widget',()=>invoke('open_settings'))];
   else {const src=config.sources.find(x=>x.id===s.source);nodes=src?remote(t,src,custom):[sub('Choose a connection in Layouts'),button('Settings',()=>invoke('open_settings'))]}
   const offsets=[box,...box.querySelectorAll('.list,.poster-grid')].map(n=>n.scrollTop);
@@ -95,9 +124,9 @@ function renderTile(t){
 }
 function mount(){
   config=state();page=current(config);$('#page').textContent=page.name;
-  tiles=page.slots.map(slot=>({slot,box:el('article','tile'),seen:new Set()}));$('#tiles').replaceChildren(...tiles.map(t=>t.box));layout($('#tiles'),page.preset);tiles.forEach(renderTile);
+  tiles=page.slots.map(slot=>({slot,box:el('article','tile'),seen:new Set()}));$('#tiles').replaceChildren(...tiles.map(t=>t.box));layout($('#tiles'),page.preset,page.regions);tiles.forEach(renderTile);
 }
-function switchPage(next){activate(next);mount();$('#picker').close()}
+function switchPage(next){activate(next);mount();if($('#picker').open)$('#picker').close()}
 $('#pages').onclick=()=>{const l=$('#page-list');l.replaceChildren(...config.pages.map(p=>button(p.name,()=>switchPage(p),page.id===p.id?'selected':'')));$('#picker').showModal()};
 $('#dismiss').onclick=()=>$('#picker').close();$('#settings').onclick=()=>invoke('open_settings');
 let down;window.addEventListener('edgetouch',({detail:d})=>{if(d.kind==='down')down=d.x;if(d.kind==='up'&&down<=40&&d.x-down>70){switchPage(config.pages[(config.pages.findIndex(p=>p.id===page.id)+1)%config.pages.length])}});

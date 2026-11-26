@@ -16,6 +16,7 @@
 mod connections;
 mod instruments;
 mod touch;
+mod transcript;
 mod tray;
 
 use std::{path::PathBuf, sync::OnceLock, time::Duration};
@@ -116,7 +117,11 @@ fn pin_above_menu_bar(win: &WebviewWindow) {
 }
 
 fn output_file(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    Ok(app.path().app_data_dir().map_err(|e| e.to_string())?.join("edge-output.enabled"))
+    Ok(app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("edge-output.enabled"))
 }
 
 #[tauri::command]
@@ -131,20 +136,32 @@ fn display_info(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
-fn set_edge_output(window: WebviewWindow, app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
-    if window.label() != "settings" { return Err("Open Settings to change displays".into()); }
+fn set_edge_output(
+    window: WebviewWindow,
+    app: tauri::AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    if window.label() != "settings" {
+        return Err("Open Settings to change displays".into());
+    }
     let path = output_file(&app)?;
     if enabled {
-        std::fs::create_dir_all(path.parent().ok_or("Settings directory unavailable")?).map_err(|e|e.to_string())?;
+        std::fs::create_dir_all(path.parent().ok_or("Settings directory unavailable")?)
+            .map_err(|e| e.to_string())?;
         std::fs::write(path, b"enabled").map_err(|e| e.to_string())?;
-    } else if path.exists() { std::fs::remove_file(path).map_err(|e| e.to_string())?; }
+    } else if path.exists() {
+        std::fs::remove_file(path).map_err(|e| e.to_string())?;
+    }
     app.request_restart();
     Ok(())
 }
 
 /// "Show on Edge" in the menu bar: put the window back on the Edge.
 pub(crate) fn show_on_edge(app: &tauri::AppHandle) {
-    if !output_file(app).is_ok_and(|file| file.exists()) { let _ = open_settings(app.clone()); return; }
+    if !output_file(app).is_ok_and(|file| file.exists()) {
+        let _ = open_settings(app.clone());
+        return;
+    }
     if let Some(win) = app.get_webview_window("main") {
         place(&win, touch::edge_rect());
     }
@@ -190,6 +207,7 @@ pub fn run() {
             focus_window,
             touch_status,
             instruments::ember_chats,
+            transcript::ember_transcript,
             instruments::read_metrics,
             instruments::spotify,
             connections::set_secret,

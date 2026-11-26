@@ -8,7 +8,11 @@ export function save(s){localStorage.setItem(KEY,JSON.stringify(s))}
 export function current(s){return s.pages.find(p=>p.id===localStorage.getItem('edge.current'))||s.pages[0]}
 export function activate(page){localStorage.setItem('edge.current',page.id)}
 export function ensure(){if(!localStorage.getItem(KEY))save(initial());return state()}
-export const invoke=(method,args={})=>window.__TAURI__.core.invoke(method,args);
+export function invoke(method,args={}){
+  const bridge=window.__TAURI__||(window.parent!==window&&window.parent.__TAURI__);
+  if(!bridge?.core)return Promise.reject(new Error('Open the dashboard in Edge Workbench'));
+  return bridge.core.invoke(method,args);
+}
 export function el(tag,cls='',text=''){const e=document.createElement(tag);e.className=cls;e.textContent=text;return e}
 export function button(label,action,cls=''){const b=el('button',cls,label);b.type='button';b.onclick=action;return b}
 export function select(options,value,change){const s=el('select');for(const [v,t] of options)s.add(new Option(t,v));s.value=value;s.onchange=()=>change(s.value);return s}

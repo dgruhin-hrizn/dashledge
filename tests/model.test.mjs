@@ -27,3 +27,11 @@ test('widget packages validate their data feed and can read nested JSON arrays',
   for(const field of ['constructor.name','__proto__.x','a..b'])assert.throws(()=>plugin({...sample,field}));
   assert.throws(()=>plugin({...sample,feed:'shell'}));
 });
+test('splits preserve existing tile identity and divide exactly the selected region',async()=>{
+  const {split,regions}=await import('../ui/model.js');
+  const page=makePage('Studio','Featured',['cpu','gpu','memory']), original=page.slots[0].id;
+  split(page,0,'row');split(page,1,'column');
+  assert.equal(page.slots.length,5);assert.equal(page.slots[0].id,original);
+  assert.equal(regions(page).reduce((sum,r)=>sum+r.w*r.h,0).toFixed(4),'1.0000');
+  resize(page,'Five');assert.equal(page.regions,undefined);
+});

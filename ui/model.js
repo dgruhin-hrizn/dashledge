@@ -1,5 +1,5 @@
 export const presets={One:[1],Two:[1,1],Three:[1,1,1],Four:[1,1,1,1],Five:[1,1,1,1,1],Six:[2,2,2],Featured:[1,2]};
-export const titles={cpu:'CPU',gpu:'GPU',memory:'Memory',disk:'Disk space',network:'Network',machine:'This Mac',clock:'Local time',focus:'Focus timer',notes:'Scratchpad',spotify:'Spotify',emby:'Emby',comfy:'ComfyUI',proxmox:'Proxmox',omlx:'oMLX',unraid:'Unraid',ember:'Ember',empty:'Empty section'};
+export const titles={cpu:'CPU',gpu:'GPU',memory:'Memory',disk:'Disk space',network:'Network',machine:'This Mac',power:'Power & thermal',interfaces:'Network interfaces',volumes:'Storage volumes',world:'World clocks',clock:'Local time',focus:'Focus timer',notes:'Scratchpad',spotify:'Spotify',emby:'Emby',comfy:'ComfyUI',proxmox:'Proxmox',omlx:'oMLX',unraid:'Unraid',ember:'Ember',empty:'Empty section'};
 export const id=()=>crypto.randomUUID();
 export const slot=(kind='empty')=>({id:id(),kind,source:'',volume:''});
 export function makePage(name,preset,kinds=[]){return {id:id(),name,preset,slots:Array.from({length:count(preset)},(_,i)=>slot(kinds[i]))}}
@@ -10,16 +10,44 @@ export function resize(page,preset){
   const n=count(preset), occupied=page.slots.filter(s=>s.kind!=='empty');
   if(occupied.length>n)throw Error('Remove a widget before choosing fewer sections.');
   const kept=page.slots.length>n?occupied:page.slots;
-  page.slots=Array.from({length:n},(_,i)=>kept[i]??slot());page.preset=preset;
+  page.slots=Array.from({length:n},(_,i)=>kept[i]??slot());page.preset=preset;delete page.regions;
 }
 export function plugin(raw){
   if(!raw||raw.apiVersion!==1||!/^plugin\.[a-z0-9.-]{1,72}$/.test(raw.id)||typeof raw.title!=='string'||!raw.title.trim()||raw.title.length>64)throw Error('A widget needs an ID beginning with plugin., a title and API version 1.');
   if(!['mac','json'].includes(raw.feed)||typeof raw.field!=='string'||!raw.field.split('.').every(k=>/^[\w-]{1,64}$/.test(k)&&!['__proto__','constructor','prototype'].includes(k)))throw Error('Choose a data source and valid field path.');
-  return {apiVersion:1,id:raw.id,title:raw.title.trim(),feed:raw.feed,field:raw.field,unit:String(raw.unit||'').slice(0,16),accent:/^#[0-9a-f]{6}$/i.test(raw.accent)?raw.accent:'#b8e883'};
+  const view=raw.view||'number';
+  if(!['number','trend','list'].includes(view))throw Error('Choose a number, trend or list.');
+  return {view,apiVersion:1,id:raw.id,title:raw.title.trim(),feed:raw.feed,field:raw.field,unit:String(raw.unit||'').slice(0,16),accent:/^#[0-9a-f]{6}$/i.test(raw.accent)?raw.accent:'#b8e883'};
 }
 export function readPath(data,path){return path.split('.').reduce((v,k)=>v!=null&&Object.hasOwn(v,k)?v[k]:undefined,data)}
-export function layout(grid,preset){
-  const columns=presets[preset];grid.style.gridTemplateColumns=columns.map((_,i)=>preset==='Featured'&&i===0?'2fr':'1fr').join(' ');
-  grid.style.gridTemplateRows='repeat(2,minmax(0,1fr))';let at=0;
-  columns.forEach((rows,i)=>{for(let j=0;j<rows;j++){const cell=grid.children[at++];if(cell){cell.style.gridColumn=String(i+1);cell.style.gridRow=rows===1?'1 / span 2':String(j+1)}}});
+export function regions(page){
+  if(page.regions)return page.regions;
+  const columns=presets[page.preset],units=page.preset==='Featured'?3:columns.length;
+  let x=0;const boxes=[];
+  columns.forEach((rows,i)=>{
+    const width=(page.preset==='Featured'&&i===0?2:1)/units;
+    for(let j=0;j<rows;j++)boxes.push({x,y:j/rows,w:width,h:1/rows});
+    x+=width;
+  });
+  return boxes;
+}
+export function split(page,index,axis){
+  const boxes=regions(page).map(r=>({...r})),first=boxes[index];
+  const coordinate=axis==='column'?'x':'y',dimension=axis==='column'?'w':'h';
+  if(!first||!['row','column'].includes(axis))throw Error('Choose a section to split');
+  if(first[dimension]< (axis==='column'?.09:.22))throw Error('This section is too small for another touch target');
+  first[dimension]/=2;
+  boxes.splice(index+1,0,{...first,[coordinate]:first[coordinate]+first[dimension]});
+  page.slots.splice(index+1,0,slot());page.regions=boxes;
+}
+export function layout(grid,preset,custom){
+  const boxes=custom||regions({preset}),round=v=>Math.round(v*1000000)/1000000;
+  const bounds=(a,b)=>[...new Set(boxes.flatMap(r=>[round(r[a]),round(r[a]+r[b])]))].sort((a,b)=>a-b);
+  const x=bounds('x','w'),y=bounds('y','h');
+  const tracks=edges=>edges.slice(1).map((v,i)=>'minmax(0,'+round(v-edges[i])+'fr)').join(' ');
+  grid.style.gridTemplateColumns=tracks(x);grid.style.gridTemplateRows=tracks(y);
+  boxes.forEach((r,i)=>{const cell=grid.children[i];if(!cell)return;
+    cell.style.gridColumn=(1+x.indexOf(round(r.x)))+' / '+(1+x.indexOf(round(r.x+r.w)));
+    cell.style.gridRow=(1+y.indexOf(round(r.y)))+' / '+(1+y.indexOf(round(r.y+r.h)));
+  });
 }

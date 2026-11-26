@@ -1,4 +1,4 @@
-import {presets,titles,slot,id,makePage,resize,layout,plugin,readPath} from './model.js';
+import {presets,titles,slot,id,makePage,resize,split,layout,plugin,readPath} from './model.js';
 import {ensure,current,activate,save,invoke,el,button,field,select} from './common.js';
 let config=ensure(),tab='Layouts',chosen=current(config).id,index=0,undo=[],statusTimer;
 const main=document.querySelector('#editor');
@@ -25,8 +25,8 @@ function layouts(){
   const canvas=el('div','canvas');
   const assign=(i,kind)=>change(()=>{p.slots[i]=slot(kind);const feed=kind.startsWith('plugin.')?config.plugins.find(v=>v.id===kind)?.feed:kind;p.slots[i].source=config.sources.find(s=>s.kind===feed)?.id||'';index=i});
   p.slots.forEach((s,i)=>{const b=button(titles[s.kind]||config.plugins.find(x=>x.id===s.kind)?.title||'Missing plugin',()=>{index=i;render()},i===index?'selected':'');b.ondragover=e=>e.preventDefault();b.ondrop=e=>{e.preventDefault();const k=e.dataTransfer.getData('text/plain');if(Object.hasOwn(titles,k)||config.plugins.some(x=>x.id===k))assign(i,k)};canvas.append(b)});
-  layout(canvas,p.preset);const preset=row(...Object.keys(presets).map(key=>button(key,()=>change(()=>resize(p,key)),p.preset===key?'active':'')));
-  main.append(pages,pageControls(p),canvas,preset);
+  layout(canvas,p.preset,p.regions);const preset=row(...Object.keys(presets).map(key=>button(key,()=>change(()=>resize(p,key)),p.preset===key&&!p.regions?'active':'')));
+  main.append(pages,pageControls(p),canvas,preset,row(button('Split side by side',()=>change(()=>split(p,index,'column'))),button('Stack vertically',()=>change(()=>split(p,index,'row')))));
   const s=p.slots[index],feed=config.plugins.find(x=>x.id===s.kind)?.feed||s.kind;
   if(Object.hasOwn(sourceNames,feed)){
     const matching=config.sources.filter(x=>x.kind===feed);
@@ -65,13 +65,14 @@ function download(obj){
 function studio(original,remix=false){
   const n=input(original?.title||'Free memory'),identity=input(remix||!original?'plugin.'+id().slice(0,8):original.id);
   const feed=select([['mac','This Mac'],['json','JSON connection']],original?.feed||'mac',()=>{}),path=input(original?.field||'freeGiB'),unit=input(original?.unit||'GiB'),color=input(original?.accent||'#c4f38f','color');
+  const view=select([['number','Number'],['trend','Number with sparkline'],['list','List']],original?.view||'number',()=>{});
   const live=el('output','sub');const preview=button('Test field',async()=>{try{
     const src=config.sources.find(s=>s.kind==='json');if(feed.value==='json'&&!src)throw Error('Add a JSON connection first');
     const data=feed.value==='mac'?await invoke('read_metrics'):await invoke('source_read',{kind:'json',address:src.address});
     live.textContent=String(readPath(data,path.value)??'Field unavailable')+' '+unit.value
   }catch(e){live.textContent=String(e)}});
-  formDialog('Widget Studio',[field('Name',n),field('Package ID',identity),field('Source',feed),field('Value field (use dots for nested JSON)',path),field('Units',unit),field('Accent',color),row(preview,live)],()=>{
-    const v=plugin({apiVersion:1,id:identity.value,title:n.value,feed:feed.value,field:path.value.trim(),unit:unit.value,accent:color.value});
+  formDialog('Widget Studio',[field('Name',n),field('Package ID',identity),field('Source',feed),field('Presentation',view),field('Value field (use dots for nested JSON)',path),field('Units',unit),field('Accent',color),row(preview,live)],()=>{
+    const v=plugin({view:view.value,apiVersion:1,id:identity.value,title:n.value,feed:feed.value,field:path.value.trim(),unit:unit.value,accent:color.value});
     if(config.plugins.some(p=>p.id===v.id)&&(!original||remix||v.id!==original.id))throw Error('Package ID already in use');
     change(()=>{if(original&&!remix)config.plugins[config.plugins.indexOf(original)]=v;else config.plugins.push(v)})
   })

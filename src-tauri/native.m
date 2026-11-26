@@ -25,7 +25,7 @@ char *ew_spotify(int action) {
         if(![NSRunningApplication runningApplicationsWithBundleIdentifier:@"com.spotify.client"].count)return strdup("{\"playing\":false,\"status\":\"Open Spotify to connect\"}");
         NSArray *commands=@[@"",@"playpause",@"next track",@"previous track"];
         if(action<0||(NSUInteger)action>=commands.count)return NULL;
-        NSString *source=[NSString stringWithFormat:@"tell application id \"com.spotify.client\"\n%@\nreturn {name of current track, artist of current track, album of current track, player state as string, player position, duration of current track}\nend tell",commands[action]];
+        NSString *source=[NSString stringWithFormat:@"with timeout of 3 seconds\ntell application id \"com.spotify.client\"\n%@\nreturn {name of current track, artist of current track, album of current track, player state as string, player position, duration of current track}\nend tell\nend timeout",commands[action]];
         NSDictionary *error;
         NSAppleEventDescriptor *result=[[[NSAppleScript alloc]initWithSource:source]executeAndReturnError:&error];
         if(!result||result.numberOfItems<6)return strdup("{\"status\":\"Spotify unavailable. Check playback and Automation access.\"}");
@@ -42,20 +42,61 @@ char *ew_ember(void) {
         sqlite3 *db=NULL;
         if(sqlite3_open_v2(path.fileSystemRepresentation,&db,SQLITE_OPEN_READONLY,NULL)!=SQLITE_OK){if(db)sqlite3_close(db);return NULL;}
         sqlite3_busy_timeout(db,300);
-        const char *query="SELECT json_extract(json,'$.title'),json_extract(json,'$.model'),json_extract(json,'$.detail.tool'),json_extract(json,'$.detail.todosDone'),json_extract(json,'$.detail.todosTotal') FROM chats WHERE hidden=0 AND archived=0 ORDER BY last_activity DESC LIMIT 20";
+        const char *query="SELECT json_extract(json,'$.title'),json_extract(json,'$.model'),json_extract(json,'$.detail.tool'),json_extract(json,'$.detail.todosDone'),json_extract(json,'$.detail.todosTotal'),id,workspace,json_extract(json,'$.cwd'),json_extract(json,'$.worktree.path') FROM chats WHERE hidden=0 AND archived=0 ORDER BY last_activity DESC LIMIT 20";
         sqlite3_stmt *stmt=NULL;
         if(sqlite3_prepare_v2(db,query,-1,&stmt,NULL)!=SQLITE_OK){sqlite3_close(db);return NULL;}
         NSMutableArray *rows=[NSMutableArray new];
         int rc;
         while((rc=sqlite3_step(stmt))==SQLITE_ROW){
             NSMutableDictionary *row=[NSMutableDictionary new];
-            NSArray *keys=@[@"title",@"model",@"operation",@"done",@"total"];
-            for(int i=0;i<5;i++){const unsigned char *v=sqlite3_column_text(stmt,i);if(v)row[keys[i]]=[NSString stringWithUTF8String:(const char*)v]?:@"";}
+            NSArray *keys=@[@"title",@"model",@"operation",@"done",@"total",@"id",@"workspace",@"cwd",@"worktree"];
+            for(int i=0;i<9;i++){const unsigned char *v=sqlite3_column_text(stmt,i);if(v)row[keys[i]]=[NSString stringWithUTF8String:(const char*)v]?:@"";}
             [rows addObject:row];
         }
         sqlite3_finalize(stmt);sqlite3_close(db);
         if(rc!=SQLITE_DONE)return NULL;
         NSData *data=[NSJSONSerialization dataWithJSONObject:rows options:0 error:nil];
         return strdup([[NSString alloc]initWithData:data encoding:NSUTF8StringEncoding].UTF8String);
+    }
+}
+
+#import <IOKit/ps/IOPowerSources.h>
+#import <mach/mach.h>
+
+char *ew_extra_metrics(void) {
+    @autoreleasepool {
+        NSMutableDictionary *result=[NSMutableDictionary new];
+        NSProcessInfo *info=NSProcessInfo.processInfo;
+        NSArray *thermal=@[@"Nominal",@"Fair",@"Serious",@"Critical"];
+        NSInteger t=info.thermalState;
+        if(t>=0 && t<(NSInteger)thermal.count) result[@"thermal"]=thermal[t];
+        NSDictionary *stats=nil;
+        CFTypeRef snapshot=IOPSCopyPowerSourcesInfo();
+        if(snapshot){
+            CFArrayRef sources=IOPSCopyPowerSourcesList(snapshot);
+            if(sources){
+                for(id item in (__bridge NSArray *)sources){
+                    NSDictionary *ps=(__bridge NSDictionary *)IOPSGetPowerSourceDescription(snapshot,(__bridge CFTypeRef)item);
+                    if([ps[@"Type"] isEqual:@"InternalBattery"]){stats=[ps copy];break;}
+                }
+                CFRelease(sources);
+            }
+            CFRelease(snapshot);
+        }
+        if(stats){
+            double max=[stats[@"Max Capacity"] doubleValue];
+            if(max>0)result[@"battery"]=@(100*[stats[@"Current Capacity"] doubleValue]/max);
+            result[@"power"]=stats[@"Power Source State"]?:@"";
+            result[@"charging"]=stats[@"Is Charging"]?:@NO;
+        }
+        mach_port_t host=mach_host_self();vm_size_t pageSize=0;vm_statistics64_data_t vm={0};
+        mach_msg_type_number_t count=HOST_VM_INFO64_COUNT;
+        if(host_page_size(host,&pageSize)==KERN_SUCCESS&&host_statistics64(host,HOST_VM_INFO64,(host_info64_t)&vm,&count)==KERN_SUCCESS){
+            result[@"wired"]=@((uint64_t)vm.wire_count*pageSize);
+            result[@"compressed"]=@((uint64_t)vm.compressor_page_count*pageSize);
+        }
+        mach_port_deallocate(mach_task_self(),host);
+        NSData *payload=[NSJSONSerialization dataWithJSONObject:result options:0 error:nil];
+        return strdup([[NSString alloc]initWithData:payload encoding:NSUTF8StringEncoding].UTF8String);
     }
 }
