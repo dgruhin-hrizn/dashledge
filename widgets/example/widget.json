@@ -1,13 +1,15 @@
 {
-  "apiVersion": 1,
-  "id": "plugin.free-memory",
-  "title": "Free memory",
-  "description": "Available memory on this Mac over time.",
+  "apiVersion": 2,
+  "id": "plugin.weather-example",
+  "title": "Weather (example)",
+  "description": "Current conditions and today's temperatures from Open-Meteo. A sandboxed connector example.",
   "version": "1.0.0",
-  "feed": "mac",
-  "field": "freeGiB",
-  "view": "trend",
-  "unit": "GiB",
-  "accent": "#a8d7ba",
-  "icon": "icon.png"
+  "category": "Everyday",
+  "icon": "icon.svg",
+  "view": {"entry": "index.html", "viewport": "native"},
+  "connector": {
+    "entry": "connector.js",
+    "hosts": ["https://api.open-meteo.com"],
+    "storage": 16384
+  }
 }
