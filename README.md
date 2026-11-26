@@ -1,6 +1,4 @@
-# Dashledge
-
-<img src="docs/brand/dashledge-icon.svg" width="96" alt="Dashledge app icon">
+<h1><img src="docs/brand/dashledge-icon.svg" width="58" align="middle" alt=""> &nbsp;<img src="docs/brand/dashledge-wordmark.svg" width="260" align="middle" alt="Dashledge"></h1>
 
 **Put it on the ledge.** Dashledge turns the CORSAIR XENEON EDGE into a customizable touch dashboard for Mac. Keep your music controls, live system metrics, and server dashboards on the touchscreen while you work on your main display.
 
