@@ -33,8 +33,14 @@ export function marketLogo(symbol) {
 }
 
 export function showMarketLogo(badge, symbol, feed, available, cache) {
-  if (!feed || !available) return;
-  const src = '/widget-view/'+encodeURIComponent(feed)+'/logos/'+encodeURIComponent(symbol)+'.png';
+  let src;
+  if (symbol === 'ANT') {
+    // Anthropic's Nasdaq listing uses the company mark from Simple Icons.
+    src = 'widget-icons/anthropic.svg';
+  } else {
+    if (!feed || !available) return;
+    src = '/widget-view/'+encodeURIComponent(feed)+'/logos/'+encodeURIComponent(symbol)+'.png';
+  }
   if (badge.dataset.src === src) return;
   badge.dataset.src = src;
   const img = new Image();
