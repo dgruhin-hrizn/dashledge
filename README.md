@@ -27,8 +27,8 @@ The menu-bar icon reopens Settings. You can also run the dashboard in a resizabl
 | Emby | See active streams, artwork, and bitrates, and control playback. |
 | Unraid | Check array health, storage activity, and containers. |
 | Proxmox | Monitor cluster nodes, virtual machines, and guest GPU telemetry. |
-| ComfyUI | Follow render queues and worker activity, and preview generated images. |
-| oMLX | Watch live decode speed and inference history, and manage loaded models. |
+| ComfyUI | Follow render queues and worker activity, and preview generated images. GPU load comes from the Crystools node, this Mac, SSH to the ComfyUI host (NVIDIA, AMD, Intel, Apple or Windows counters), or a Proxmox guest, whichever answers first. |
+| oMLX | Watch live decode speed with request markers, memory split by loaded model, cache hits, and a week of usage. Load, unload and compare models by how they fit in memory. |
 | Ember Copper | View local workspaces, chats, plans, and usage. |
 | Run-DMD | Turn the screen into a pinball dot-matrix clock with selectable animation groups and clips. |
 | Everyday tools | Add local and world clocks, a focus timer, a scratchpad, or a widget backed by your own JSON endpoint. |
@@ -38,6 +38,8 @@ The menu-bar icon reopens Settings. You can also run the dashboard in a resizabl
 Widget Studio and the layout picker group widgets by purpose. Studio opens with the first available category expanded. Use **Jump to section** or select a category heading to switch sections.
 
 In **Widget Studio**, open the widget’s settings, choose **Add connection**, enter the server details, and select **Test**. Pick that connection in the layout inspector. Saved credentials are protected by the macOS Keychain. Existing installations retain their layouts and the Keychain item named **Edge Workbench Connections**.
+
+The connection name is optional. Left blank, widgets show the name the server reports, such as Emby’s server name, Unraid’s host name or the Proxmox cluster, and otherwise the address’s host. Type a name to rename it everywhere that connection appears.
 
 For Spotify playlists, search, and queue access, register `http://127.0.0.1:4848/callback` in your Spotify developer app. Select **Playlists → Connect Spotify** and enter the app’s Client ID. Allow system audio recording if you enable the spectrum analyzer. The Apple Music widget uses the Music app on this Mac. Allow macOS Automation access when prompted.
 
@@ -68,7 +70,16 @@ Add **Run-DMD** to a page and tap the dot matrix to open its menu. Under **Anima
 
 ### Add your own widget
 
-Open **Widget Studio → Download example** for a ZIP containing a manifest, icon, and editing guide. Edit the package and use **Install package** to load it. Keep its package ID to update an existing widget.
+Open **Widget Studio → Download example** for a working package and its guide, `README.md`, which is also in [`widgets/example/`](widgets/example/README.md). Edit the package and use **Install package** to add it. Keep its package ID to update an existing widget; its placements stay.
+
+Every widget view runs in a sandbox. It can’t reach the network, your files, your credentials or other widgets. A package gets its data in one of two ways, and the install sheet says which before you confirm:
+
+- **Declarative.** The manifest lists routes for Dashledge to poll on the connection you choose, and actions it may send when you tap. No package code runs outside the view.
+- **Connector.** Package JavaScript runs in its own sandboxed context. It can reach only the connection’s address and the hosts the manifest names. Dashledge adds the saved credential itself.
+
+Packages can also ask for Dashledge capabilities, listed at install: **settings** for each placement, edited in Pages & layouts or from the widget’s own gear; the shared on-screen **keyboard**; Dashledge’s **UI** styles; and this Mac’s CPU, GPU, memory and network readings (**mac.metrics**).
+
+For widget authors, **Load unpacked package** runs a package straight from its folder and reloads it when files change. A connector widget’s page in Widget Studio shows its recent console output. `dashledge.d.ts` in the example declares the view and connector APIs for TypeScript.
 
 ## Development
 

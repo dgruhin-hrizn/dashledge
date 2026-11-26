@@ -8,6 +8,16 @@ For each new widget or update to an existing widget, create a dedicated branch a
 
 Merge every widget PR intended for a release before signing. Sync a clean `main` checkout to the merged revision, run `npm test`, and prepare a fresh app from that checkout. For a public release, follow the release procedure below.
 
+## Widget packages
+
+Every widget with its own view is a package. The host reads all of its per-widget details from the package’s `widget.json`, which `src-tauri/src/package_manifest.rs` validates as the only validator.
+
+- Bundled widgets live in `widgets/packages/<kind>/` with `widget.json`, `view/`, and a Node `collector/`. Shared collector code lives in `widgets/packages/_shared/`. Installed packages are extracted to `<app_data>/packages/<id>/` and may not declare a collector.
+- To add or change a bundled widget, edit its package. Its title, category, icon, connection count, auth header, address label, Test routes, collector outputs and commands, display-name field, and native viewport come from the manifest. Don’t add per-kind cases to `widget_host.rs`, `connections.rs`, `model.js`, `widget-catalog.js`, `dashboard.js` or `editor.js`.
+- Package views run in `sandbox="allow-scripts"` frames with an opaque origin. Never give a view same-origin access or reach into its document from the dashboard. Everything a view needs passes through the message bridge: `ui/package-bridge.js` on the host and `ui/package-sdk.js` in the frame. The bridge refuses commands and capabilities that the manifest doesn’t declare. Serve view files with the explicit `tauri://localhost` CSP from `widget_host.rs`; `'self'` blocks scripts in an opaque-origin frame.
+- Views name a server with `Dashledge.displayName()`: the connection name the user typed, else what the server reports at `displayName.serverField`, else the address’s host. Never hardcode a server or host name in a view or collector.
+- A new capability needs a `Permission` in the manifest, a line in the install sheet (`ui/package-manifest.js`), a gated command in the bridge, an SDK entry, and declarations in `widgets/example/dashledge.d.ts`. `tests/package-dev-tools.test.mjs` checks that the declarations match the SDK.
+
 ## Widget design principles
 
 - **Choose what gets noticed first.** On a music deck it is the current track and playback controls. On a CPU tile it is the reading and its unit. On a photo page it is the photographs. Give that content the strongest visual emphasis. Move settings, history, and occasional actions into a clearly reachable secondary view.
