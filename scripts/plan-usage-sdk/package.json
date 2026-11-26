@@ -1,0 +1,6 @@
+{
+  "name": "dashledge-claude-plan-reader",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": { "@anthropic-ai/sdk": "0.133.0" }
+}

@@ -54,12 +54,28 @@ function until(ts,now){
 }
 function identity(a,alias){
   const line=el('span','pm-identity'),mark=el('span','pm-mark');
-  if(a.provider==='Claude'){const img=el('img');img.src='widget-icons/anthropic.svg';img.alt='';mark.append(img);}
-  else mark.textContent='›_';
+  const img=el('img');img.src='widget-icons/lobe/'+(a.provider==='Claude'?'claude':'codex')+'-color.svg';img.alt='';
+  mark.append(img);
   mark.setAttribute('aria-hidden','true');
   const text=el('span','pm-idtext');
   text.append(el('strong','',a.provider),el('span','',alias||a.name));
   line.append(mark,text);return line;
+}
+function dial(window){
+  const face=el('div','pm-dial'),scale=el('i','pm-scale'),arc=el('i','pm-arc'),center=el('span','pm-dial-center');
+  const amount=window?remaining(window):null;
+  arc.style.setProperty('--sweep',((amount??0)*2.7)+'deg');
+  scale.setAttribute('aria-hidden','true');arc.setAttribute('aria-hidden','true');
+  if(window){
+    const value=el('span','pm-value');value.append(el('b','',String(amount)),el('small','','%'));
+    center.append(value,el('span','pm-dial-label',' left'));
+    face.setAttribute('aria-label',amount+'% left · '+windowLabel(window));
+  }else{
+    center.append(el('b','pm-no-reading','—'));
+    face.setAttribute('aria-hidden','true');
+  }
+  face.append(scale,arc,center);
+  return face;
 }
 function readingTime(a,now){
   if(!a.at)return 'No reading yet';
@@ -167,17 +183,27 @@ export function mountPlans(box,slot,save){
       const card=button('',()=>details(a,prefs.aliases?.[a.id],configure),'pm-card');card.dataset.account=a.id;card.dataset.provider=a.provider;
       card.append(identity(a,prefs.aliases?.[a.id]));
       const live=a.windows.filter(w=>valid(w,now)).sort((a,b)=>b.used-a.used),primary=live[0];
+      const main=el('div','pm-instrument');
+      main.append(dial(primary));
+      const caption=el('div','pm-summary');
       if(primary){
-        const hero=el('div','pm-hero');hero.append(el('strong','',String(remaining(primary))),el('span','','% left'));
-        const caption=windowLabel(primary)+(primary.reset?' · resets in '+until(primary.reset,now):'');
-        card.append(hero,el('span','pm-caption',caption));
-        const meters=el('div','pm-meters');for(const w of [primary,...a.windows.filter(w=>w!==primary)].slice(0,3))meters.append(metric(w,now));card.append(meters);
+        caption.append(el('strong','pm-caption',windowLabel(primary)+' allowance'));
+        if(primary.reset)caption.append(el('span','pm-reset','Resets in '+until(primary.reset,now)));
       }else{
         const pending=!snapshot&&!feedError;
-        card.append(el('strong','pm-unavailable',pending?'Checking…':a.windows.length?'Awaiting refresh':'Usage unavailable'),
-          el('span','pm-caption',pending?'Reading local accounts':feedError?'Open Dashledge and retry.':a.windows.length?'The last reported window has reset.':guidance(a)));
+        caption.append(el('strong','pm-caption',pending?'Checking…':a.windows.length?'Awaiting refresh':'Usage unavailable'),
+          el('span','pm-reset',pending?'Reading local accounts':feedError?'Open Dashledge and retry.':a.windows.length?'The last reported window has reset.':guidance(a)));
       }
-      card.append(el('span','pm-stamp',readingTime(a,now)));cards.append(card);
+      main.append(caption);
+      card.append(main);
+      const other=a.windows.filter(w=>w!==primary);
+      if(other.length && primary){
+        const meters=el('div','pm-meters');for(const w of other.slice(0,2))meters.append(metric(w,now));
+        card.append(meters);
+      }
+      const footer=el('span','pm-card-foot');
+      footer.append(el('span','pm-stamp',readingTime(a,now)),el('span','pm-arrow','↗'));
+      card.append(footer);cards.append(card);
       if(focused===a.id)card.focus({preventScroll:true});
     }
     cards.scrollLeft=scroll;cards.scrollTop=top;
