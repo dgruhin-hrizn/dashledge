@@ -11,6 +11,7 @@ extern "C" {
     fn ew_spotify(action: i32) -> *mut std::ffi::c_char;
     fn free(ptr: *mut std::ffi::c_void);
 }
+const SAMPLE_SECONDS: f64 = 2.75;
 struct Sampler {
     sys: System,
     last: Instant,
@@ -36,7 +37,7 @@ pub fn read_metrics() -> Value {
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     let elapsed = state.last.elapsed().as_secs_f64();
-    if elapsed < 0.85 && !state.value.is_null() {
+    if elapsed < SAMPLE_SECONDS && !state.value.is_null() {
         return state.value.clone();
     }
     // The first refresh establishes network counters. There is no elapsed sampling
@@ -94,7 +95,7 @@ pub fn read_metrics() -> Value {
 
 #[tauri::command]
 pub fn spotify(action: u8) -> Result<Value, String> {
-    if action > 3 {
+    if action > 5 {
         return Err("Unknown transport action".into());
     }
     let ptr = unsafe { ew_spotify(action.into()) };
@@ -128,7 +129,7 @@ mod tests {
         assert!(sample["disks"].is_array() && sample["interfaces"].is_array());
         assert!(sample["rx"].is_null() && sample["tx"].is_null(),"startup has no traffic interval");
         assert!(sample["history"][0]["tx"].is_null());
-        std::thread::sleep(std::time::Duration::from_millis(900));
+        std::thread::sleep(std::time::Duration::from_secs_f64(SAMPLE_SECONDS + 0.05));
         let next=read_metrics();
         assert!(next["rx"].as_f64().is_some_and(|v|v>=0.0));
         assert!(next["tx"].as_f64().is_some_and(|v|v>=0.0));

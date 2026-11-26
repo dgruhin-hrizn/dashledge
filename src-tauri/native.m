@@ -24,13 +24,13 @@ double ew_gpu(void) {
 char *ew_spotify(int action) {
     @autoreleasepool {
         if(![NSRunningApplication runningApplicationsWithBundleIdentifier:@"com.spotify.client"].count)return strdup("{\"playing\":false,\"status\":\"Open Spotify to connect\"}");
-        NSArray *commands=@[@"",@"playpause",@"next track",@"previous track"];
+        NSArray *commands=@[@"",@"playpause",@"next track",@"previous track",@"set shuffling to (not shuffling)",@"set repeating to (not repeating)"];
         if(action<0||(NSUInteger)action>=commands.count)return NULL;
-        NSString *source=[NSString stringWithFormat:@"with timeout of 3 seconds\ntell application id \"com.spotify.client\"\n%@\nreturn {name of current track, artist of current track, album of current track, player state as string, player position, duration of current track}\nend tell\nend timeout",commands[action]];
+        NSString *source=[NSString stringWithFormat:@"with timeout of 3 seconds\ntell application id \"com.spotify.client\"\n%@\nreturn {name of current track, artist of current track, album of current track, player state as string, player position, duration of current track, artwork url of current track, shuffling, repeating, id of current track}\nend tell\nend timeout",commands[action]];
         NSDictionary *error;
         NSAppleEventDescriptor *result=[[[NSAppleScript alloc]initWithSource:source]executeAndReturnError:&error];
         if(!result||result.numberOfItems<6)return strdup("{\"status\":\"Spotify unavailable. Check playback and Automation access.\"}");
-        NSDictionary *track=@{@"title":[result descriptorAtIndex:1].stringValue?:@"",@"artist":[result descriptorAtIndex:2].stringValue?:@"",@"album":[result descriptorAtIndex:3].stringValue?:@"",@"playing":@([[result descriptorAtIndex:4].stringValue isEqual:@"playing"]),@"position":@([result descriptorAtIndex:5].doubleValue),@"duration":@([result descriptorAtIndex:6].doubleValue/1000.)};
+        NSDictionary *track=@{@"title":[result descriptorAtIndex:1].stringValue?:@"",@"artist":[result descriptorAtIndex:2].stringValue?:@"",@"album":[result descriptorAtIndex:3].stringValue?:@"",@"playing":@([[result descriptorAtIndex:4].stringValue isEqual:@"playing"]),@"position":@([result descriptorAtIndex:5].doubleValue),@"duration":@([result descriptorAtIndex:6].doubleValue/1000.),@"artwork":[result descriptorAtIndex:7].stringValue?:@"",@"shuffle":@([result descriptorAtIndex:8].booleanValue),@"repeat":@([result descriptorAtIndex:9].booleanValue),@"uri":[result descriptorAtIndex:10].stringValue?:@""};
         NSData *data=[NSJSONSerialization dataWithJSONObject:track options:0 error:nil];
         return strdup([[NSString alloc]initWithData:data encoding:NSUTF8StringEncoding].UTF8String);
     }

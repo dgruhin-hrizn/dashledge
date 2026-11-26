@@ -1,5 +1,5 @@
 .dashboard{--fg:var(--primary);--lime:var(--highlight);--sub:color-mix(in srgb,var(--primary) 62%,#343a38);color:var(--fg);background:#0c0e0e;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",sans-serif}
-.dashboard .tile:not(.original-widget){border:1px solid #343936;border-radius:15px;background:radial-gradient(ellipse at 100% 0,color-mix(in srgb,var(--accent) 6%,transparent),transparent 65%),#141817}
+.dashboard .tile:not(.original-widget,.dmd-tile,.sp-tile){border:1px solid #343936;border-radius:15px;background:radial-gradient(ellipse at 100% 0,color-mix(in srgb,var(--accent) 6%,transparent),transparent 65%),#141817}
 .dashboard .instrument{container-type:size;gap:clamp(8px,2vh,18px);padding:clamp(12px,1vw,28px);font-variant-numeric:tabular-nums}
 .instrument-head{display:flex;align-items:center;gap:9px;padding-bottom:clamp(5px,1.2cqh,12px);border-bottom:1px solid #ffffff20;flex:none}
 .instrument-head .admin-icon{width:clamp(17px,4.8cqw,32px);height:auto;color:var(--accent)}
@@ -29,3 +29,7 @@
 .numeric-reading .fraction{font-size:.68em;line-height:1;color:color-mix(in srgb,var(--primary) 75%,var(--bg))}
 .numeric-reading .unit{font-size:.28em;letter-spacing:0}
 .dial .numeric-reading{font-size:clamp(22px,min(12cqw,10.5cqh),88px)}
+@media(prefers-reduced-motion:no-preference){
+  .core-bank b{transition:height 1s ease-in-out}
+  .dial-fill{transition:stroke-dasharray 1s ease-in-out}
+}

@@ -1,10 +1,11 @@
+import {renderSpotify} from './spotify.js';
+import {mountDmd} from './rundmd/player.js';
 import {appendPage,assignWidget,pickWidget} from './page-actions.js';
-import {importConnections} from './migration.js';
 import {general,loadGeneral,onGeneral,automaticUpdates} from './general.js';
 import {instrumentKinds,renderInstrument} from './instruments.js';
 import {mountOriginal,widgetSources} from './original-widgets.js';
 import {titles,layout,readPath,originalKinds} from './model.js';
-import {ensure,state,current,activate,save,invoke,el,button,num} from './common.js';
+import {addBundledDmdPage,ensure,state,current,activate,save,invoke,el,button,num} from './common.js';
 const $=s=>document.querySelector(s);
 let config=ensure(),page,tiles=[],timer,metrics={},sample=0;
 const history=new Map(),feeds=new Map();
@@ -44,7 +45,7 @@ function remote(tile,src,plugin){
   const key=JSON.stringify([src.id,src.kind,src.address]);tile.feed=key;
   const f=shared(key,()=>invoke('widget_source_read',{kind:src.kind,address:src.address}),6);
   if(f.data==null)return [sub(f.error||'Connecting…')];
-  return plugin?customView(tile,plugin,f.data,f.error?src.name+' · last reading · '+f.error:src.name):[sub('Choose a widget field in Studio')];
+  return plugin?customView(tile,plugin,f.data,f.error?src.name+' · last reading · '+f.error:src.name):[sub('No widget field configured')];
 }
 function customView(t,custom,data,label){
   const v=readPath(data,custom.field);
@@ -62,6 +63,8 @@ function customView(t,custom,data,label){
 function renderTile(t){
   const {slot:s,box}=t,kind=s.kind,custom=config.plugins.find(p=>p.id===kind);
   const title=titles[kind]||custom?.title||'Missing plugin';box.style.setProperty('--accent',custom?.accent||'var(--highlight)');
+  if(kind==='spotify'){renderSpotify(box);return}
+  if(kind==='rundmd'){t.dispose??=mountDmd(box);return}
   if(originalKinds.includes(kind)){t.dispose??=mountOriginal(box,s,config.sources);return}
   if(kind==='notes'&&box.querySelector('textarea'))return;
   let nodes=[];
@@ -69,9 +72,6 @@ function renderTile(t){
   else if(kind==='clock')nodes=[value(clockText()),sub(new Date().toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric'}))];
   else if(kind==='notes'){const a=el('textarea');a.value=localStorage.getItem('ew.notes')||'';a.placeholder='Write a note';a.oninput=()=>localStorage.setItem('ew.notes',a.value);nodes=[a]}
   else if(kind==='focus')nodes=focus(t);
-  else if(kind==='spotify'){t.feed='spotify';const f=shared(t.feed,()=>invoke('spotify',{action:0}),4),d=f.data||{};const actions=el('div','controls');
-    for(const [name,action] of [['Previous',3],[d.playing?'Pause':'Play',1],['Next',2]])actions.append(button(name,async()=>{try{f.data=await invoke('spotify',{action});renderTile(t)}catch(e){f.error=String(e);renderTile(t)}}));
-    nodes=[value(d.title||'Spotify'),sub(f.error||d.artist||d.status||'Connecting…'),sub(d.album||''),actions]}
   else if(custom?.feed==='mac')nodes=customView(t,custom,metrics,'This Mac');
   else if(kind==='world')nodes=[list([['Local',undefined],['Los Angeles','America/Los_Angeles'],['New York','America/New_York'],['London','Europe/London'],['Tokyo','Asia/Tokyo']].map(([label,timeZone])=>[label,clockText(timeZone)]))];
   else if(kind==='empty'){
@@ -80,11 +80,19 @@ function renderTile(t){
     nodes=[button('+ Add widget',()=>pickWidget(state(),kind=>{
       const latest=state(),target=latest.pages.find(p=>p.id===pageId);
       const i=target?.slots.findIndex(item=>item.id===s.id)??-1;
-      if(i>=0){target.slots[i]=assignWidget(latest,kind);save(latest)}
+      if(i>=0){target.slots[i]=assignWidget(latest,kind,target.slots[i]);save(latest)}
       mount();
     }),'add-widget')];
   }
-  else {const src=config.sources.find(x=>x.id===s.source);nodes=src?remote(t,src,custom):[sub('Choose a connection in Layouts'),button('Settings',()=>invoke('open_settings'))]}
+  else {const src=config.sources.find(x=>x.id===s.source);nodes=src?remote(t,src,custom):[sub('Add a connection in Widget Studio'),button('Settings',()=>invoke('open_settings'))]}
+  if(instrumentKinds.includes(kind)){
+    nodes.forEach((node,i)=>{
+      const current=box.children[i];
+      if(!current)box.append(node);else if(current!==node)current.replaceWith(node);
+    });
+    while(box.children.length>nodes.length)box.lastElementChild.remove();
+    return;
+  }
   const offsets=[box,...box.querySelectorAll('.list,.poster-grid')].map(n=>n.scrollTop);
   box.replaceChildren(...(instrumentKinds.includes(kind)?nodes:[el('h2','',title),...nodes]));
   [box,...box.querySelectorAll('.list,.poster-grid')].forEach((n,i)=>{if(offsets[i])n.scrollTop=offsets[i]});
@@ -106,7 +114,7 @@ function removePage(view){
 function mount(){
   config=state();page=current(config);
   $('#tiles').setAttribute('aria-label',page.name);
-  document.body.classList.toggle('full-widget',page.slots.length===1&&originalKinds.includes(page.slots[0].kind));
+  document.body.classList.toggle('full-widget',page.slots.length===1&&(page.slots[0].kind==='rundmd'||originalKinds.includes(page.slots[0].kind)));
   for(const [id,view] of mountedPages){
     if(!config.pages.some(p=>p.id===id)){removePage(view);mountedPages.delete(id)}
   }
@@ -153,22 +161,33 @@ function applyPreferences(settings){
 }
 onGeneral(applyPreferences);applyPreferences(prefs);
 loadGeneral().then(()=>{if(window.parent===window)automaticUpdates()}).catch(()=>{});
-importConnections().then(result=>{if(result)mount()}).catch(()=>{});
+let nextMetrics=0;
 async function tick(){
   if(!document.hidden){
-    try{metrics=await invoke('read_metrics')||metrics}catch{}
-    sample++;
+    let fresh=false;
+    if(Date.now()>=nextMetrics){
+      nextMetrics=Date.now()+3000;
+      try{
+        const next=await invoke('read_metrics');
+        if(next&&(!sample||next.history?.at(-1)?.at!==metrics.history?.at(-1)?.at)){
+          metrics=next;sample++;fresh=true;
+        }
+      }catch{}
+    }
     for(const t of tiles){
+      if(!fresh&&(instrumentKinds.includes(t.slot.kind)||config.plugins.some(p=>p.id===t.slot.kind&&p.feed==='mac')))continue;
       if(!t.box.querySelector('.edge-pressed')&&!t.box.matches(':active'))renderTile(t);
     }
     for(const view of mountedPages.values()){
       if(!view.grid.hidden)continue;
       for(const tile of view.tiles){
         const f=feeds.get(tile.feed);
-        if((f&&!f.loading&&Date.now()>=f.next)||config.plugins.some(v=>v.id===tile.slot.kind&&v.feed==='mac'&&v.view==='trend'))renderTile(tile);
+        if((f&&!f.loading&&Date.now()>=f.next)||fresh&&config.plugins.some(v=>v.id===tile.slot.kind&&v.feed==='mac'&&v.view==='trend'))renderTile(tile);
       }
     }
   }
   timer=setTimeout(tick,1000);
 }tick();window.addEventListener('blur',()=>conceal(mountedPages.get(page.id)?.grid));
 window.addEventListener('pagehide',()=>{clearTimeout(timer);for(const view of mountedPages.values())removePage(view);mountedPages.clear()});
+
+addBundledDmdPage().then(added=>{if(added)mount()});

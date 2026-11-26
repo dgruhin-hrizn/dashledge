@@ -22,21 +22,18 @@ export function animateReading(paint,clock){
   return {
     update(value,unitKind){
       const n=Number.isFinite(value)?value:null,now=clock.now();
-      const stale=now-lastUpdate>2000;lastUpdate=now;
+      const stale=now-lastUpdate>6500;lastUpdate=now;
       if(n===target&&shown!==null&&!stale&&!clock.immediate())return;
       stop();target=n;
       const before=measurement(shown,unitKind),after=measurement(n,unitKind);
       if(n==null||shown==null||clock.immediate()||stale||
-         (before.unit===after.unit&&Math.abs(after.scaled-before.scaled)<1)){show(n);return}
-      const from=shown,start=now,interval=n===0?80:125;
-      let lastPaint=start;
+         (before.unit===after.unit&&Math.abs(after.scaled-before.scaled)<0.1)){show(n);return}
+      const from=shown,start=now;
       function step(time){
-        const progress=Math.min(1,Math.max(0,(time-start)/800));
+        const progress=Math.min(1,Math.max(0,(time-start)/1000));
         if(progress===1||clock.immediate()){frame=null;show(n);return}
-        if(time-lastPaint>=interval){
-          const eased=progress*progress*(3-2*progress);
-          show(from+(n-from)*eased);lastPaint=time;
-        }
+        const eased=progress*progress*(3-2*progress);
+        show(from+(n-from)*eased);
         frame=clock.request(step);
       }
       frame=clock.request(step);
@@ -53,7 +50,9 @@ export function createReading(label,kind){
   const motion=window.matchMedia('(prefers-reduced-motion: reduce)');
   const runner=animateReading(n=>{
     const m=measurement(n,kind);
-    integer.textContent=m.integer;fraction.textContent=m.fraction;unit.textContent=m.unit;
+    if(integer.textContent!==m.integer)integer.textContent=m.integer;
+    if(fraction.textContent!==m.fraction)fraction.textContent=m.fraction;
+    if(unit.textContent!==m.unit)unit.textContent=m.unit;
   },{now:()=>performance.now(),request:cb=>requestAnimationFrame(cb),cancel:id=>cancelAnimationFrame(id),immediate:()=>motion.matches||document.hidden});
   return {root,stop:runner.stop,update(n){
     const m=measurement(n,kind);

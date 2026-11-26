@@ -44,13 +44,20 @@ func install(_ source: URL) throws {
         try run("/usr/bin/codesign", ["--verify", "--deep", "--strict", "-R", "=identifier \"\(id)\" and \(signer)", path])
     }
 
+    // Command-line AppKit can keep reporting a running app after its process exits.
+    func isRunning(_ app: NSRunningApplication) -> Bool {
+        let pid = app.processIdentifier
+        guard pid > 0, !app.isTerminated else { return false }
+        return kill(pid, 0) == 0 || errno != ESRCH
+    }
+
     // Quit every running copy, including the older one launched from dist.
     let running = NSRunningApplication.runningApplications(withBundleIdentifier: identifier)
-    for app in running where !app.isTerminated {
-        guard app.terminate() else { throw InstallError("Could not quit the running Edge Workbench.") }
+    for app in running where isRunning(app) {
+        guard app.terminate() || !isRunning(app) else { throw InstallError("Could not quit the running Edge Workbench.") }
     }
     let deadline = Date().addingTimeInterval(15)
-    while running.contains(where: { !$0.isTerminated }) {
+    while running.contains(where: isRunning) {
         guard Date() < deadline else { throw InstallError("Timed out waiting for Edge Workbench to quit.") }
         RunLoop.current.run(until: Date().addingTimeInterval(0.1))
     }

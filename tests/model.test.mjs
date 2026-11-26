@@ -36,19 +36,41 @@ test('splits preserve existing tile identity and divide exactly the selected reg
   resize(page,'Five');assert.equal(page.regions,undefined);
 });
 
-test('connection import keeps existing identities and binds separate worker slots',async()=>{
-  const {mergeSources}=await import('../ui/migration.js');
-  const cfg=initial(),p=makePage('Workers','Two',['comfy','comfy']);
-  cfg.pages=[p];
-  cfg.sources=[{id:'custom',name:'Saved name',kind:'comfy',address:'http://one.example/'}];
-  const rows=[{kind:'comfy',name:'Original name',address:'http://one.example'},{kind:'comfy',name:'Worker two',address:'http://two.example/'}];
-  assert.equal(mergeSources(cfg,rows),1);assert.equal(cfg.sources[0].name,'Saved name');
-  assert.deepEqual(p.slots.map(s=>s.source),cfg.sources.map(s=>s.id));
-  assert.equal(mergeSources(cfg,rows),0);
-});
 test('Add page activates a new numbered canvas without requiring a keyboard',async()=>{
   const {appendPage}=await import('../ui/page-actions.js');const cfg=initial();
   cfg.pages[0].name='Page 5';
   const added=appendPage(cfg);
   assert.equal(added.name,'Page 6');assert.equal(added.slots[0].kind,'empty');
+});
+
+test('clearing a widget then collapsing a nested split retains neighboring slots and restores the parent bounds',async()=>{
+  const {regions,split,removeSection}=await import('../ui/model.js');
+  const {assignWidget}=await import('../ui/page-actions.js');
+  const config=initial(),page=config.pages[0],original=regions(page);
+  split(page,1,'column');split(page,2,'row');
+  page.slots[2]=assignWidget(config,'memory',page.slots[2]);
+  assert.throws(()=>removeSection(page,2));
+  page.slots[2]=assignWidget(config,'empty',page.slots[2]);removeSection(page,2);
+  removeSection(page,2);
+  assert.deepEqual(page.slots.map(s=>s.kind),['cpu','gpu','memory','disk','network']);
+  assert.deepEqual(regions(page).map(r=>[r.x,r.y,r.w,r.h].map(v=>v.toFixed(6))),original.map(r=>[r.x,r.y,r.w,r.h].map(v=>v.toFixed(6))));
+  const legacy=makePage('Old','Featured',['cpu','empty','gpu']);legacy.regions=regions(legacy);
+  removeSection(legacy,1);
+  assert.equal(regions(legacy)[1].h,1);assert.equal(legacy.slots[1].kind,'gpu');
+  assert.throws(()=>removeSection(makePage('Last','One'),0));
+});
+
+test('removing an installed widget clears its placements, retains credentials and filters the available widgets',async()=>{
+  const {installed,placements,removeWidget,connectionsFor,useDefault,defaultSource}=await import('../ui/widget-catalog.js');
+  const config=initial(),page=config.pages[0];
+  config.sources=[{id:'one',kind:'omlx'},{id:'two',kind:'omlx'},{id:'endpoint',kind:'json',owner:'plugin.custom'}];
+  page.slots[0].kind=page.slots[1].kind='omlx';page.slots[1].source='two';
+  useDefault(config,'omlx','one');assert.equal(page.slots[0].source,'one');assert.equal(page.slots[1].source,'two');
+  assert.equal(defaultSource(config,'omlx'),'one');removeWidget(config,'omlx');
+  assert.equal(installed(config,'omlx'),false);assert.equal(placements(config,'omlx').length,0);
+  assert.equal(config.sources.length,3);
+  config.plugins=['plugin.custom','plugin.another'].map(id=>({id,feed:'json'}));
+  assert.equal(connectionsFor(config,'plugin.another').length,0);assert.equal(connectionsFor(config,'plugin.custom')[0].id,'endpoint');
+  const legacy={id:'legacy',kind:'json'};config.sources.push(legacy);page.slots[2]={...page.slots[2],kind:'plugin.custom',source:'legacy'};
+  assert.ok(connectionsFor(config,'plugin.custom').includes(legacy));assert.ok(!connectionsFor(config,'plugin.another').includes(legacy));
 });

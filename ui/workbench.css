@@ -17,7 +17,6 @@
 .widget-picker,#picker{width:min(720px,92vw);max-height:89vh;overflow:auto}
 .picker-head{display:flex;align-items:center;justify-content:space-between;gap:1em;margin-bottom:.7em}
 .widget-picker button,#picker button,.add-widget{min-height:44px}.add-widget{flex:1;align-self:stretch;border-style:dashed;color:var(--lime)}
-.import-issue{color:#efbc8c}
 
 .tile.original-widget {display:block;position:relative;padding:0;overflow:hidden;background:#101317;border:0}
 .original-frame {display:block;width:100%;height:100%;border:0}

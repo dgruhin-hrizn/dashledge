@@ -1,18 +1,23 @@
+import {mountDmd} from './rundmd/player.js';
+import {categories,widgetInfo,installed,connectionsFor,defaultSource,useDefault,placements,removeWidget} from './widget-catalog.js';
 import {general,loadGeneral,updateGeneral,fitDashboard,checkUpdate,automaticUpdates} from './general.js';
 import {icon} from './admin-icons.js';
 import {appendPage,assignWidget,pickWidget} from './page-actions.js';
-import {importConnections,lastImport} from './migration.js';
-import {presets,titles,id,resize,split,layout,plugin,readPath} from './model.js';
-import {ensure,state,current,activate,save,invoke,el,button,field,select} from './common.js';
+import {presets,titles,id,resize,split,removeSection,layout,plugin} from './model.js';
+import {addBundledDmdPage,ensure,state,current,activate,save,invoke,el,button,field,select} from './common.js';
 let config=ensure(),tab='General',chosen=current(config).id,index=0,undo=[],statusTimer;
 const main=document.querySelector('#editor');
-const links=[['General','General','general'],['Layouts','Pages & layouts','pages'],['Connections','Connections','connections'],['Widget Studio','Widget Studio','studio'],['Preview','Live preview','preview']];
+const links=[['General','General','general'],['Layouts','Pages & layouts','pages'],['Widget Studio','Widget Studio','studio'],['Preview','Live preview','preview']];
 const sourcesStatus=new Map();
 function decorated(label,action,symbol,cls=''){const b=button(label,action,cls);b.prepend(icon(symbol));return b}
 function heading(text,actions){const h=el('header','admin-heading');h.append(el('h1','',text));if(actions)h.append(actions);return h}
-function tag(kind){const t=el('span','kind-icon');t.dataset.kind=kind;t.append(icon(kind));return t}
+function tag(kind){const t=el('span','kind-icon');t.dataset.kind=kind;const info=widgetInfo(config,kind);
+  if(info?.icon){const image=el('img');image.src=info.icon;image.alt='';t.append(image)}else t.append(icon(kind));
+  return t}
 function panel(title,...children){const p=section(title,...children);p.classList.add('panel');return p}
-function go(next){tab=next;render()}
+let detail=null;
+function go(next){tab=next;detail=null;render()}
+function widgetSettings(kind){tab='Widget Studio';detail=kind;render()}
 document.querySelector('#brand-icon').append(icon('brand'));
 const sourceNames={comfy:'ComfyUI',emby:'Emby',proxmox:'Proxmox',omlx:'oMLX',unraid:'Unraid',json:'JSON endpoint'};
 function notice(text){const n=document.querySelector('#notice');n.textContent=text;clearTimeout(statusTimer);statusTimer=setTimeout(()=>n.textContent='',6000)}
@@ -20,7 +25,12 @@ function input(value='',type='text'){const n=el('input');n.type=type;n.value=val
 function section(title,...children){const s=el('section');s.append(el('h2','',title),...children);return s}
 function row(...children){const r=el('div','row');r.append(...children);return r}
 function page(){return config.pages.find(p=>p.id===chosen)||config.pages[0]}
-function change(fn){const before=JSON.stringify(config);try{fn();save(config);undo.push(before);if(undo.length>30)undo.shift();render()}catch(e){config=JSON.parse(before);notice(e.message||String(e))}}
+function change(fn,layoutEdit=true){
+  const before=JSON.stringify(config);
+  try{fn();save(config)}catch(e){config=JSON.parse(before);notice(e.message||String(e));return false}
+  if(layoutEdit){undo.push(before);if(undo.length>30)undo.shift()}else undo=[];
+  render();return true;
+}
 function formDialog(title,fields,apply,submitLabel='Save'){
   const d=el('dialog','admin-dialog'),f=el('form','fields'),error=el('p','form-error');
   d.setAttribute('aria-label',title);error.setAttribute('role','alert');
@@ -57,7 +67,7 @@ function layouts(){
   const add=button('+ Add page',()=>change(()=>{const next=appendPage(config);chosen=next.id;index=0;activate(next)}),'primary');
   strip.append(pages,add);
   const canvas=el('div','canvas');
-  const assign=(i,kind)=>change(()=>{p.slots[i]=assignWidget(config,kind);index=i});
+  const assign=(i,kind)=>change(()=>{p.slots[i]=assignWidget(config,kind,p.slots[i]);index=i});
   p.slots.forEach((s,i)=>{
     const empty=s.kind==='empty';
     const name=empty?'+ Add widget':titles[s.kind]||config.plugins.find(x=>x.id===s.kind)?.title||'Missing plugin';
@@ -65,11 +75,17 @@ function layouts(){
       index=i;render();
       if(empty)pickWidget(config,kind=>assign(i,kind));
     },[i===index?'selected':'',empty?'empty-slot':''].join(' '));
-    b.prepend(icon(empty?'plus':s.kind));
+    b.prepend(empty?icon('plus'):tag(s.kind));
     b.setAttribute('aria-pressed',String(i===index));
     b.ondragover=e=>e.preventDefault();
-    b.ondrop=e=>{e.preventDefault();const k=e.dataTransfer.getData('text/plain');if(Object.hasOwn(titles,k)||config.plugins.some(x=>x.id===k))assign(i,k)};
-    canvas.append(b);
+    b.ondrop=e=>{e.preventDefault();const k=e.dataTransfer.getData('text/plain');if(installed(config,k))assign(i,k)};
+    const cell=el('div','layout-cell');cell.append(b);
+    if(!empty||p.slots.length>1){
+      const label=empty?'Remove empty section '+(i+1):'Remove '+name+' from section '+(i+1);
+      const remove=button('−',()=>{if(empty)change(()=>{removeSection(p,i);index=Math.min(i,p.slots.length-1)});else assign(i,'empty')},'cell-remove');
+      remove.title=label;remove.setAttribute('aria-label',label);cell.append(remove);
+    }
+    canvas.append(cell);
   });
   const vertical=general().vertical;canvas.classList.toggle('portrait',vertical);
   layout(canvas,p.preset,p.regions,vertical);
@@ -90,23 +106,22 @@ function layouts(){
   const inspector=panel('Section '+(index+1)),inspectorTitle=row(tag(s.kind),el('strong','',titles[s.kind]||config.plugins.find(v=>v.id===s.kind)?.title||'Missing widget'));
   inspectorTitle.classList.add('inspector-title');inspector.append(inspectorTitle);
   if(Object.hasOwn(sourceNames,feed)){
-    const matching=config.sources.filter(x=>x.kind===feed);
-    inspector.append(field('Connection',select([['','Choose connection'],...matching.map(x=>[x.id,x.name])],s.source,x=>change(()=>s.source=x))),button('Manage connections',()=>go('Connections')));
+    const matching=connectionsFor(config,s.kind);
+    inspector.append(field('Connection',select([['','Choose connection'],...matching.map(x=>[x.id,x.name])],s.source,x=>change(()=>s.source=x))),button('Widget settings',()=>widgetSettings(s.kind)));
   }
   if(s.kind==='disk'){
     const choice=select([['','Startup volume']],s.volume,x=>change(()=>s.volume=x));inspector.append(field('Volume',choice));
     invoke('read_metrics').then(m=>{for(const d of m?.disks||[])choice.add(new Option(d.mount,d.mount));choice.value=s.volume}).catch(()=>{});
   }
   const edits=row(decorated('Split',()=>change(()=>split(p,index,vertical?'row':'column')),'split'),decorated('Stack',()=>change(()=>split(p,index,vertical?'column':'row')),'stack'));
-  if(s.kind!=='empty')edits.append(button('Clear section',()=>assign(index,'empty'),'quiet'));
   inspector.append(edits);
   left.append(screen,panel('Layout preset',presetGrid),inspector);
   const lib=el('div','library-list'),search=input();search.type='search';search.placeholder='Find a widget';search.setAttribute('aria-label','Find a widget');
   const searchBox=el('div','search-box');searchBox.append(icon('find'),search);
   const groups=[
-    ['Mac system',['cpu','gpu','memory','disk','network','power','interfaces','volumes','machine']],
-    ['Services',['ember','omlx','comfy','proxmox','unraid','emby','spotify']],
-    ['Everyday',['clock','world','focus','notes']],
+    ['Mac system',categories['Mac system']],
+    ['Services',[...categories['Service dashboards'],'spotify']],
+    ['Everyday',categories.Everyday.filter(kind=>kind!=='spotify')],
     ['My widgets',config.plugins.map(v=>v.id)]
   ];
   const fill=()=>{
@@ -115,7 +130,8 @@ function layouts(){
     for(const [group,kinds] of groups){
       const rows=[];
       for(const k of kinds){
-        const label=titles[k]||config.plugins.find(v=>v.id===k)?.title;if(!label?.toLowerCase().includes(query))continue;
+        const label=widgetInfo(config,k)?.title;
+        if(!installed(config,k)||!label||!(label.toLowerCase().includes(query)||k.toLowerCase().includes(query)))continue;
         const b=button('',()=>assign(index,k),s.kind===k?'selected':'');
         b.append(tag(k),el('span','',label),icon(s.kind===k?'check':'plus'));
         b.setAttribute('aria-label','Place '+label+' in section '+(index+1));b.draggable=true;b.ondragstart=e=>e.dataTransfer.setData('text/plain',k);rows.push(b);
@@ -137,38 +153,50 @@ const sourceHelp={
   unraid:['Monitoring API URL','http://tower.local:8043/api/v1/','Monitoring API token'],
   json:['JSON endpoint','https://service.example/status','Optional bearer token']
 };
-function sourceForm(existing){
-  const kind=select(Object.entries(sourceNames),existing?.kind||'comfy',()=>{}),name=input(existing?.name),address=input(existing?.address,'url'),secret=input('','password');
+function sourceForm(widget,existing){
+  const kind=widgetInfo(config,widget).feed,name=input(existing?.name),address=input(existing?.address,'url'),secret=input('','password');
   name.required=address.required=true;secret.autocomplete='new-password';secret.placeholder=existing?'Leave blank to keep saved credential':'Optional';
   const addressField=field('',address),secretField=field('',secret);
-  const describe=()=>{const [label,hint,credential]=sourceHelp[kind.value];addressField.firstChild.textContent=label;address.placeholder=hint;secretField.firstChild.textContent=credential};
-  kind.onchange=describe;describe();
-  formDialog(existing?'Edit connection':'Add connection',[field('Service',kind),field('Connection name',name),addressField,secretField],async()=>{
+  const describe=()=>{const [label,hint,credential]=sourceHelp[kind];addressField.firstChild.textContent=label;address.placeholder=hint;secretField.firstChild.textContent=credential};
+  describe();
+  formDialog(existing?'Edit connection':'Add connection',[field('Connection name',name),addressField,secretField],async()=>{
     const u=new URL(address.value);if(!['http:','https:'].includes(u.protocol)||u.username||u.password||u.search||u.hash)throw Error('Use an HTTP(S) URL without embedded credentials or query');
-    const obj={id:existing?.id||id(),name:name.value.trim(),kind:kind.value,address:u.href};
+    const obj={id:existing?.id||id(),name:name.value.trim(),kind,address:u.href};
+    if(existing?.widgets)obj.widgets=existing.widgets;
+    if(existing?.owner||(!existing&&kind==='json'))obj.owner=existing?.owner||widget;
     if(existing?.gpuGuests&&existing.kind===obj.kind&&existing.address===obj.address)obj.gpuGuests=existing.gpuGuests;
     if(!obj.name)throw Error('Enter a connection name');
     if(secret.value)await invoke('set_secret',{kind:obj.kind,address:obj.address,secret:secret.value});
-    change(()=>{if(existing)config.sources[config.sources.findIndex(item=>item.id===existing.id)]=obj;else config.sources.push(obj)});
+    change(()=>{if(existing)config.sources[config.sources.findIndex(item=>item.id===existing.id)]=obj;else config.sources.push(obj);
+      if(connectionsFor(config,widget).length===1)useDefault(config,widget,obj.id);
+    },false);
   })
 }
-function connections(){
-  const migrate=button('Import from Zurface',async()=>{
-    migrate.disabled=true;migrate.textContent='Importing…';
-    try{await importConnections(true);config=state();undo=[];render()}catch(e){notice(String(e))}finally{migrate.disabled=false}
-  });
-  main.append(heading('Connections',row(migrate,decorated('Add connection',()=>sourceForm(),'plus','primary'))));
+function connections(widget){
+  const matching=connectionsFor(config,widget);
   const sources=el('section','panel service-panel');
-  sources.append(row(el('h2','','Saved connections'),button('Unlock connections',async()=>{
+  sources.append(row(el('h2','','Connections'),decorated('Add connection',()=>sourceForm(widget),'plus','primary')));
+  const tools=el('div','connection-tools');
+  const actions=row(button('Unlock connections',async()=>{
     try{await invoke('unlock_connections');notice('Connections unlocked')}catch(e){notice(String(e))}
-  })));
-  const report=lastImport();
-  if(report){
-    sources.append(el('p','sub',report.found+' found in Zurface'+(report.ember?' · Ember uses its local database':'')));
-    for(const issue of report.issues)sources.append(el('p','import-issue',issue));
+  }));
+  actions.id='connection-tool-actions';actions.hidden=true;
+  const toggle=decorated('Connection tools',()=>{
+    actions.hidden=!actions.hidden;
+    toggle.setAttribute('aria-expanded',String(!actions.hidden));
+  },'connections','connection-tools-toggle');
+  toggle.setAttribute('aria-expanded','false');toggle.setAttribute('aria-controls',actions.id);
+  tools.append(toggle,actions);
+  if(widgetInfo(config,widget).feed==='json'){
+    const legacy=config.sources.filter(s=>s.kind==='json'&&!s.owner&&!matching.some(m=>m.id===s.id));
+    if(legacy.length)sources.append(field('Link a saved endpoint',select([['','Choose an endpoint'],...legacy.map(s=>[s.id,s.name])],'',id=>{
+      const source=legacy.find(s=>s.id===id);if(!source)return;
+      change(()=>{source.widgets=[...new Set([...(source.widgets||[]),widget])];if(!matching.length)useDefault(config,widget,id)},false);
+    })));
   }
-  if(!config.sources.length)sources.append(el('p','empty-info','Import your Zurface connections or add a server to get started.'));
-  for(const s of config.sources){
+  if(!matching.length)sources.append(el('p','empty-info','Add a server to connect this widget.'));
+  if(matching.length>1)sources.append(field('Default connection',select(matching.map(s=>[s.id,s.name]),defaultSource(config,widget),id=>change(()=>useDefault(config,widget,id),false))));
+  for(const s of matching){
     const line=el('div','service-row'),details=el('div','service-identity'),health=el('small','service-health'),actions=el('div','service-actions');
     const endpointKey=s.kind+'|'+s.address;health.textContent=sourcesStatus.get(endpointKey)||'';
     details.append(el('strong','',s.name),el('code','endpoint',s.address));
@@ -184,52 +212,95 @@ function connections(){
       try{await invoke('recover_credential',{kind:s.kind,address:s.address});notice('Previous credential recovered')}catch(e){notice(String(e))}
       menu.open=false;
     });
-    menu.append(summary,row(button('Edit',()=>sourceForm(s)),recover,button('Remove',()=>formDialog('Remove '+s.name+'?',[el('p','','Widgets using this connection can be reconnected in Pages & layouts.')],async()=>{
+    menu.append(summary,row(button('Edit',()=>sourceForm(widget,s)),recover,button('Remove',()=>formDialog('Remove '+s.name+'?',[el('p','','Widgets using this connection can be reconnected in Pages & layouts.')],async()=>{
       if(!config.sources.some(other=>other.id!==s.id&&other.kind===s.kind&&((other.kind==='json'?other.address:other.address.replace(/\/+$/,''))===(s.kind==='json'?s.address:s.address.replace(/\/+$/,'')))))await invoke('set_secret',{kind:s.kind,address:s.address,secret:''});
-      change(()=>{config.sources=config.sources.filter(x=>x.id!==s.id);for(const p of config.pages)for(const w of p.slots)if(w.source===s.id)w.source=''});
+      change(()=>{config.sources=config.sources.filter(x=>x.id!==s.id);
+        for(const [kind,id] of Object.entries(config.widgetDefaults||{}))if(id===s.id)delete config.widgetDefaults[kind];
+        for(const p of config.pages)for(const w of p.slots)if(w.source===s.id)w.source=defaultSource(config,w.kind);
+      },false);
     },'Remove'))));
     actions.append(test,menu);details.append(health);line.append(tag(s.kind),details,el('small','service-type',sourceNames[s.kind]),actions);sources.append(line);
   }
-  main.append(sources);
+  sources.append(tools);main.append(sources);
 }
-function download(obj){
-  const a=el('a'),url=URL.createObjectURL(new Blob([JSON.stringify(obj,null,2)],{type:'application/json'}));a.href=url;a.download=obj.id+'.edgewidget.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)
+function widgetDetail(kind){
+  const info=widgetInfo(config,kind),uses=placements(config,kind);
+  main.append(button('‹ Widget Studio',()=>go('Widget Studio'),'back-link'));
+  const title=heading(info.title);title.prepend(tag(kind));main.append(title);
+  if(info.description)main.append(el('p','detail-description',info.description));
+  if(Object.hasOwn(sourceNames,info.feed))connections(kind);
+  if(kind==='rundmd'){
+    const preview=el('div','dmd-studio-preview');
+    main.append(panel('Player',preview,button('Open Run-DMD menu',()=>preview.querySelector('button').click())));
+    cleanupTab=mountDmd(preview);
+  }
+  if(kind==='clock'||kind==='world')main.append(panel('Clock settings',settingRow('Show seconds',preference('showSeconds','checkbox'))));
+  if(kind==='focus')main.append(panel('Timer settings',settingRow('Focus length (minutes)',preference('focusMinutes','number'))));
+  const locations=panel('Used on pages');
+  for(const {page,index:i} of uses){
+    const link=button(page.name+' · Section '+(i+1)+'  ›',()=>{chosen=page.id;index=i;go('Layouts')},'placement-link');
+    locations.append(link);
+  }
+  if(!uses.length)locations.append(el('p','sub','This widget hasn’t been placed on a page.'),button('Open layouts',()=>go('Layouts')));
+  main.append(locations);
 }
-function studio(original,remix=false){
-  const n=input(original?.title||'Free memory'),identity=input(remix||!original?'plugin.'+id().slice(0,8):original.id);
-  const feed=select([['mac','This Mac'],['json','JSON connection']],original?.feed||'mac',()=>{}),path=input(original?.field||'freeGiB'),unit=input(original?.unit||'GiB'),color=input(original?.accent||'#c4f38f','color');
-  const view=select([['number','Number'],['trend','Number with sparkline'],['list','List']],original?.view||'number',()=>{});
-  const live=el('output','sub');const preview=button('Test field',async()=>{try{
-    const src=config.sources.find(s=>s.kind==='json');if(feed.value==='json'&&!src)throw Error('Add a JSON connection first');
-    const data=feed.value==='mac'?await invoke('read_metrics'):await invoke('source_read',{kind:'json',address:src.address});
-    live.textContent=String(readPath(data,path.value)??'Field unavailable')+' '+unit.value
-  }catch(e){live.textContent=String(e)}});
-  formDialog('Widget Studio',[field('Name',n),field('Package ID',identity),field('Source',feed),field('Presentation',view),field('Value field (use dots for nested JSON)',path),field('Units',unit),field('Accent',color),row(preview,live)],()=>{
-    const v=plugin({view:view.value,apiVersion:1,id:identity.value,title:n.value,feed:feed.value,field:path.value.trim(),unit:unit.value,accent:color.value});
-    if(config.plugins.some(p=>p.id===v.id)&&(!original||remix||v.id!==original.id))throw Error('Package ID already in use');
-    change(()=>{if(original&&!remix)config.plugins[config.plugins.indexOf(original)]=v;else config.plugins.push(v)})
-  })
+function removePackage(info){
+  const uses=placements(config,info.kind),count=uses.length;
+  const message=count?'Removing this widget will clear '+count+' '+(count===1?'section':'sections')+' across your pages.':'This widget isn’t used on any pages.';
+  formDialog('Remove '+info.title+'?',[el('p','',message+' Saved connections are kept.')],()=>change(()=>removeWidget(config,info.kind),false),'Remove widget');
 }
 function plugins(){
-  const upload=input('','file');upload.accept='.json';upload.hidden=true;
-  upload.onchange=async()=>{try{const f=upload.files[0];if(!f)return;if(f.size>65536)throw Error('Package exceeds 64 KiB');const v=plugin(JSON.parse(await f.text()));const old=config.plugins.find(x=>x.id===v.id);
-    formDialog((old?'Update ':'Install ')+v.title,[el('p','',v.feed==='mac'?'Reads a selected Mac metric.':'Reads a field from a JSON connection you select.')],()=>change(()=>{config.plugins=config.plugins.filter(x=>x.id!==v.id);config.plugins.push(v)}))
-  }catch(e){notice(e.message)}};
-  main.append(heading('Widget Studio',row(button('Install package',()=>upload.click()),decorated('Create widget',()=>studio(),'plus','primary'),upload)));
-  const grid=el('div','studio-grid');
-  for(const v of config.plugins){
-    const card=el('article','panel studio-card');
-    card.append(tag('studioFile'),el('h2','',v.title),el('code','',v.field),el('small','',v.feed==='mac'?'Mac system':'JSON connection'),
-      row(button('Edit',()=>studio(v)),button('Remix',()=>studio(v,true)),button('Export',()=>download(v)),button('Remove',()=>change(()=>config.plugins=config.plugins.filter(x=>x.id!==v.id)))));
-    grid.append(card);
+  const upload=input('','file');upload.accept='.zip,.json';upload.hidden=true;
+  upload.onchange=async()=>{
+    try{
+      const f=upload.files[0];if(!f)return;
+      const legacy=f.name.toLowerCase().endsWith('.json');
+      if(f.size>(legacy?65536:524288))throw Error('Package exceeds '+(legacy?'64':'512')+' KiB');
+      const manifest=legacy?JSON.parse(await f.text()):await invoke('read_widget_package',{bytes:Array.from(new Uint8Array(await f.arrayBuffer()))});
+      const pkg=plugin(manifest),old=config.plugins.find(p=>p.id===pkg.id);
+      if(pkg.iconData){const image=new Image();image.src=pkg.iconData;await image.decode()}
+      formDialog((old?'Update ':'Install ')+pkg.title,[el('p','',pkg.description||(pkg.feed==='mac'?'Reads local Mac metrics.':'Reads from a JSON endpoint.'))],()=>{
+        const saved=change(()=>{
+          if(old){
+            config.plugins[config.plugins.findIndex(p=>p.id===pkg.id)]=pkg;
+            if(old.feed!==pkg.feed)for(const {page,index} of placements(config,pkg.id))page.slots[index].source=defaultSource(config,pkg.id);
+          }else config.plugins.push(pkg);
+        },false);
+        if(!saved)throw Error('Could not save this package.');
+      },old?'Update widget':'Install widget');
+    }catch(e){notice(e.message||String(e))}finally{upload.value=''}
+  };
+  const sample=button('Download example',async()=>{
+    sample.disabled=true;
+    try{if(await invoke('save_widget_example'))notice('Example package saved.')}catch(e){notice(String(e))}finally{sample.disabled=false}
+  });
+  const actions=row(sample,decorated('Install package',()=>upload.click(),'plus','primary'),upload);
+  main.append(heading('Widget Studio',actions));
+  const removed=config.removedWidgets||[];
+  if(removed.length){
+    const restore=el('details','restore-widgets');restore.append(el('summary','','Restore bundled widgets'));
+    const choices=row();for(const k of removed)choices.append(button('Restore '+titles[k],()=>change(()=>{config.removedWidgets=config.removedWidgets.filter(v=>v!==k)},false)));
+    restore.append(choices);main.append(restore);
   }
-  if(!config.plugins.length){
-    const empty=el('div','panel studio-empty');
-    empty.append(tag('studio'),el('h2','','Create your first widget'),el('p','sub','Start with a Mac metric or a field from a JSON connection.'),button('Create widget',()=>studio(),'primary'));
-    grid.append(empty);
+  const groups={'Installed packages':config.plugins.map(p=>p.id),...categories};
+  for(const [name,kinds] of Object.entries(groups)){
+    const available=kinds.filter(k=>installed(config,k));if(!available.length)continue;
+    const section=el('section','studio-group');section.append(el('h2','studio-heading',name));
+    const grid=el('div','studio-grid');
+    for(const kind of available){
+      const info=widgetInfo(config,kind),card=el('article','panel studio-card');
+      const title=el('div','card-title');title.append(tag(kind),el('h3','',info.title));
+      const count=new Set(placements(config,kind).map(u=>u.page.id)).size;
+      const meta=[info.version?'v'+info.version:null,count?count+' '+(count===1?'page':'pages'):'Unplaced'].filter(Boolean).join(' · ');
+      card.append(title,el('p','card-description',info.description||(info.feed==='json'?'Reads '+info.field+' from a JSON connection.':'Reads '+info.field+' from this Mac.')),el('small','card-meta',meta));
+      const settings=button('Settings',()=>widgetSettings(kind)),remove=button('Remove',()=>removePackage(info),'quiet');
+      settings.setAttribute('aria-label',info.title+' settings');remove.setAttribute('aria-label','Remove '+info.title);
+      card.append(row(settings,remove));grid.append(card);
+    }
+    section.append(grid);main.append(section);
   }
-  main.append(grid);
 }
+
 function previewButton(){
   return decorated('Show Window Preview',()=>invoke('open_preview').catch(e=>notice(String(e))),'preview','primary');
 }
@@ -304,8 +375,7 @@ function render(){
   }
   main.replaceChildren();
   if(tab==='Layouts'){main.append(heading('Pages & layouts'));layouts()}
-  if(tab==='Connections')connections();
-  if(tab==='Widget Studio')plugins();
+  if(tab==='Widget Studio'){if(detail&&installed(config,detail))widgetDetail(detail);else plugins()}
   if(tab==='General')generalTab();
   if(tab==='Preview'){
     main.append(heading('Live preview',row(button('Edit layout',()=>go('Layouts')),previewButton())));
@@ -320,9 +390,11 @@ function syncEditor(){
 }
 window.addEventListener('storage',e=>{if(e.key==='edge-workbench.layout.v1')syncEditor()});
 render();
+invoke('plugin:app|version').then(version=>{document.querySelector('#app-version').textContent='Version '+version}).catch(()=>{});
 loadGeneral().then(()=>{if(tab==='General'||tab==='Layouts')render();automaticUpdates()}).catch(e=>notice(String(e)));
 invoke('display_info').then(d=>{
   document.querySelector('#device-status').textContent=d.enabled?(d.connected?'Display connected':'Awaiting display'):'Preview mode';
   document.querySelector('.hardware-status').classList.toggle('online',!!d.connected);
 }).catch(()=>document.querySelector('#device-status').textContent='Status unavailable');
-importConnections().then(result=>{if(result)syncEditor()}).catch(e=>notice('Connection import: '+String(e)));
+
+addBundledDmdPage().then(added=>{if(added)syncEditor()});

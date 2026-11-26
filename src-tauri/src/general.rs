@@ -1,4 +1,4 @@
-//! Shared display preferences. Import only the matching General fields from Zurface.
+//! Shared display preferences for the dashboard, Settings and previews.
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
@@ -50,25 +50,7 @@ impl General {
         }
         Ok(())
     }
-    fn imported(v: &Value) -> Self {
-        let mut p = Self::default();
-        for (key, target) in [
-            ("customPrimary", &mut p.primary),
-            ("customAccent", &mut p.accent),
-        ] {
-            if let Some(c) = v[key].as_str().filter(|c| color(c)) {
-                *target = c.into();
-            }
-        }
-        p.vertical = v["orientation"] == "vertical";
-        p.show_seconds = v["showSeconds"].as_bool().unwrap_or(p.show_seconds);
-        p.direct_touch = v["directTouch"].as_bool().unwrap_or(p.direct_touch);
-        p.focus_minutes = v["focusMinutes"]
-            .as_u64()
-            .filter(|n| (1..=240).contains(n))
-            .unwrap_or(25) as u16;
-        p
-    }
+
 }
 static PREFS: LazyLock<Mutex<General>> = LazyLock::new(Default::default);
 pub fn init(app: &tauri::AppHandle) -> Result<(), String> {
@@ -80,15 +62,9 @@ pub fn init(app: &tauri::AppHandle) -> Result<(), String> {
     let settings = match fs::read(&file) {
         Ok(data) => serde_json::from_slice::<General>(&data).map_err(|e| e.to_string())?,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            let imported = dirs::home_dir()
-                .and_then(|h| {
-                    fs::read(h.join("Library/Application Support/Zeon/preferences.json")).ok()
-                })
-                .and_then(|b| serde_json::from_slice(&b).ok())
-                .map(|v| General::imported(&v))
-                .unwrap_or_default();
-            persist(&file, &imported)?;
-            imported
+            let settings = General::default();
+            persist(&file, &settings)?;
+            settings
         }
         Err(e) => return Err(e.to_string()),
     };
@@ -228,12 +204,12 @@ pub async fn check_release() -> Result<Value, String> {
 mod tests {
     use super::*;
     #[test]
-    fn imports_supported_values_and_ignores_invalid_colors() {
-        let p = General::imported(
-            &serde_json::json!({"orientation":"vertical","customAccent":"bad","focusMinutes":40,"showSeconds":true}),
-        );
-        assert!(p.vertical && p.show_seconds);
-        assert_eq!(p.focus_minutes, 40);
-        assert_eq!(p.accent, General::default().accent);
+    fn saved_general_preferences_survive_upgrades() {
+        let saved = serde_json::json!({"vertical": true, "accent": "#123456", "focusMinutes": 40});
+        let settings: General = serde_json::from_value(saved).unwrap();
+        assert!(settings.validate().is_ok());
+        assert!(settings.vertical);
+        assert_eq!(settings.focus_minutes, 40);
+        assert_eq!(settings.accent, "#123456");
     }
 }

@@ -14,6 +14,12 @@ bundle="$output_dir/Edge Workbench.app"
 contents="$bundle/Contents"
 mkdir -p "$contents/MacOS" "$contents/Resources"
 cp "${CARGO_TARGET_DIR:-$project/src-tauri/target}/release/edge-starter" "$contents/MacOS/EdgeWorkbench"
+# Personal builds can carry a user-supplied default card. Regular releases have no card artwork.
+if [[ -n "${RUNDMD_IMAGE:-}" ]]; then
+  cp "$RUNDMD_IMAGE" "$contents/Resources/rundmd-default.imgc"
+elif [[ -f "$contents/Resources/rundmd-default.imgc" ]]; then
+  rm "$contents/Resources/rundmd-default.imgc"
+fi
 cp src-tauri/icons/icon.icns "$contents/Resources/Workbench.icns"
 ditto widgets "$contents/Resources/widgets"
 ditto src-tauri/runtime "$contents/Resources/runtime"
@@ -26,7 +32,7 @@ plist="$contents/Info.plist"
 /usr/libexec/PlistBuddy -c 'Add :CFBundleIdentifier string dev.edgeworkbench.desktop' "$plist"
 /usr/libexec/PlistBuddy -c 'Add :CFBundlePackageType string APPL' "$plist"
 /usr/libexec/PlistBuddy -c 'Add :CFBundleIconFile string Workbench' "$plist"
-/usr/libexec/PlistBuddy -c 'Add :CFBundleVersion string 7' "$plist"
+/usr/libexec/PlistBuddy -c 'Add :CFBundleVersion string 12' "$plist"
 /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string $version" "$plist"
 /usr/libexec/PlistBuddy -c 'Add :NSHighResolutionCapable bool true' "$plist"
 if [[ "${1:-}" == "--prepare-only" ]]; then

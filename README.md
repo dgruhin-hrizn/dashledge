@@ -8,17 +8,17 @@ Edge Workbench lives at `/Applications/Edge Workbench.app`. For a downloaded rel
 
 ## Use the display and preview
 
-Open **Edge Workbench.app**. The first launch opens Settings on your main display. Choose **Show Window Preview** in General for a floating, resizable Edge dashboard or **Live preview** to see it in Settings. General imports the existing Zurface appearance and layout orientation on first launch. Primary and secondary colors update compatible widgets in every view. Under **Pages & layouts**, choose **+ Add page**, then click **+ Add widget** in the empty section. You can also add a page from the page picker on the Edge. Choose a preset or drag a widget from the library to arrange the page. Split individual sections side by side or stack them vertically. The menu-bar icon reopens Settings.
+Open **Edge Workbench.app**. The first launch opens Settings on your main display. Choose **Show Window Preview** in General for a floating, resizable Edge dashboard or **Live preview** to see it in Settings. Primary and secondary colors update compatible widgets in every view. Under **Pages & layouts**, choose **+ Add page**, then click **+ Add widget** in the empty section. You can also add a page from the page picker on the Edge. Choose a preset or drag a widget from the library to arrange the page. Split individual sections side by side or stack them vertically. The minus on an occupied section clears its widget. The minus on an empty section collapses the split and expands the remaining sections. Undo restores either change. The menu-bar icon reopens Settings.
 
 To use the touchscreen, quit any other app controlling Edge touch. In **General → Display**, select the target and choose **Move to display**. For portrait, choose **Vertical** and set the matching rotation in macOS Displays. Direct touch can be enabled or released in General. Grant Input Monitoring if macOS requests it. Choose **Return to preview** to release the device. The physical dashboard can switch pages using its page picker. Open at Login is available in the menu bar.
 
 ## Widgets and connections
 
-The app imports connection settings from the installed Emby and Unraid collectors, Proxmox, ComfyUI workers and oMLX on first launch. The import reads the collectors’ saved settings locally and imports API credentials into the encrypted connection vault. The Proxmox certificate is scoped to its server. Guest SSH targets and identity file paths are retained as references. The Proxmox widget polls its configured running GPU guests over SSH. Ember reads its existing local database. **Connections → Import from Zurface** reruns discovery and fills missing entries. A connection's **Test** button checks its current reachability.
+Configure each service in its widget’s Settings. Saved connections, credentials, and Proxmox guest SSH mappings carry over on upgrade. The Proxmox certificate is scoped to its server. Ember reads its local database.
 
-CPU, GPU, memory, disk capacity, network throughput, network interfaces, power and thermal state, and Mac information read local system metrics. The GPU tile reports unavailable on hardware that does not expose the counter. Spotify connects to the running desktop player and may request Automation access. Local and world clocks, focus timer and scratchpad work locally.
+CPU, GPU, memory, disk capacity, network throughput, network interfaces, power and thermal state, and Mac information read local system metrics. The GPU tile reports unavailable on hardware that does not expose the counter. The Spotify jukebox reads artwork and playback from the Mac desktop player and may request Automation access. Tap the cover to open Spotify. For Up next, register `http://127.0.0.1:4848/callback` in your Spotify developer app, then choose **Up next → Connect Spotify** and enter its Client ID. Queue access uses browser sign-in and saves the refresh token in the Workbench connection vault. Local and world clocks, focus timer and scratchpad work locally.
 
-Use **Connections → Add connection → Test** for your own servers, then select the connection in the layout inspector. Add separate connections for multiple workers. One macOS Keychain item, **Edge Workbench Connections**, protects the vault. Workbench unlocks it once per running app and shares access across widgets and connection tests. A declined unlock pauses further prompts until you choose **Connections → Unlock connections**. Existing service credentials migrate from accessible entries or the matching installed collector. For a manually configured legacy token, **Connections → ••• → Recover previous credential** requests access to that item once. The layout and widget definitions live in local app storage.
+Use **Widget Studio → [widget] → Settings → Add connection**, then **Test** for your own servers, then select the connection in the layout inspector. Add separate connections for multiple workers. One macOS Keychain item, **Edge Workbench Connections**, protects the vault. Workbench unlocks it once per running app and shares access across widgets and connection tests. A declined unlock pauses further prompts until you choose **Connection tools → Unlock connections**. Existing service credentials migrate from accessible Workbench Keychain entries. For a manually configured legacy token, the connection’s **••• → Recover previous credential** requests access to that item once. The layout and widget definitions live in local app storage.
 
 Each original widget opens in its own full-width page. On upgrade, Workbench adds any missing full-width pages once. An existing single-widget page, such as **Media** for Emby, keeps its name. Pages fill the canvas. Swipe left for the next page or right for the previous one. Horizontal carousels keep their own scroll gestures. Start at either bezel to switch pages over a carousel. Tap the background at the middle of the left edge or press **Option-P** to open the page picker. The same widgets can occupy sections of a mixed layout. The Edge and both previews lay widgets out on Zurface’s 1920 × 540 reference canvas (540 × 1920 in portrait), then scale the entire page to fit the display. Opening a dashboard warms the configured collectors for every page. Page switches retain the widget views, and simultaneous previews and output share collectors and Mac telemetry history.
 
@@ -30,19 +30,27 @@ Each original widget opens in its own full-width page. On upgrade, Workbench add
 | Proxmox | Cluster summary, nodes, VM and LXC counts, GPU telemetry on configured running guests, load history and paging. |
 | oMLX | Live and historical metrics, animated decode rate, Mac specs, server picker, model inventory, load and unload controls, token usage and weekly graphs. |
 | Ember Copper | The original Copper artwork and typography, workspaces and chats, live transcripts, plans and usage reports from the local Ember profile. |
-| JSON | Choose a JSON endpoint and field in Widget Studio. |
+| JSON | Install a package that specifies the field, then choose its JSON endpoint in the widget’s Settings. |
 
 The views and their static assets live in `widgets/views`. Workbench sends connection settings and credentials directly to the corresponding bundled collector. Each collector publishes display data into a private temporary directory. Opening the same feed in Settings and on the display shares its collector. Visited pages retain their views and histories while the dashboard stays open. Leaving the page conceals ComfyUI output. Quitting the app stops its collectors.
 
-## Create a plugin
+## Run-DMD
 
-Open **Widget Studio → Create widget**, choose the Mac or JSON feed, and choose a field, label, unit, color and presentation (number, sparkline or list). Test the field, save the widget, then place it in Layouts. Export shares its package as a JSON file. Another user can install the package in Widget Studio and select their own connection. Updating an existing package ID preserves layout references.
+Add **Run-DMD** to a page, then tap the dots to open its menu. Under **Animations**, open a Run-DMD card image created by HDD Raw Copy Tool (`.imgc`) or an uncompressed image (`.img`). The importer reads the image signature, so renamed copies work. It validates the frame directory before replacing the active card. Group and clip selections are shared across the widget’s placements.
 
-A minimal package is:
+Choose a group to browse its clips. Use **Preview** to play one immediately. **Playback** controls the clock interval, overlay layer, clip names and speed. **Clock**, **Messages** and **Display** control clock faces, scrolling text, dot color, brightness and scheduled standby. **Four-button menu** provides the board’s Exit / Previous / Next / OK interaction. With the panel focused, C opens the menu, A and B toggle their key texts, and D controls standby. Tap a sleeping panel to wake it.
 
-```json
-{"apiVersion":1,"id":"plugin.free-memory","title":"Free memory","feed":"mac","field":"freeGiB","unit":"GiB","accent":"#c4f38f"}
-```
+The widget reads B134’s original artwork, frame indirection and transparency. Clock faces and panel effects are software recreations. Long frame delays use the empirical timing model from [RunDMD-Utils](https://github.com/Pwedge/RunDMD-Utils). The [firmware menu manual](https://swinks.com.au/manuals) describes the board’s original options. RF switching and external temperature probes require physical expansion hardware.
+
+For a personal macOS build, pass `RUNDMD_IMAGE` to the packaging script with the path to your card. That build embeds the supplied image and creates a Run-DMD page on first use. The standard build accepts images through the widget menu.
+
+## Manage widgets and build a package
+
+Widget Studio lists installed widgets with their artwork, description and page usage. Open **Settings** on a card to manage its connections and jump to its placements. **Remove** clears that widget from layouts and the library while preserving saved connections. Use **Restore bundled widgets** to bring a bundled widget back.
+
+Use **Download example** for a working ZIP containing `widget.json`, `icon.png` and an editing guide. Unzip it, edit the manifest and artwork in your own tools, and compress the files together. **Install package** accepts the ZIP or an existing declarative JSON package. Keeping the package ID updates the widget in place. PNG icons can be up to 512 × 512 pixels and 64 KiB. Configure credentials in the installed widget’s Settings.
+
+System instruments share a roughly three-second telemetry sample. Readouts ease to each measured value over one second. Clocks and focus timers retain a one-second tick.
 
 ## Development
 

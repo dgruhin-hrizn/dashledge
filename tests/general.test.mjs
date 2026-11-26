@@ -38,14 +38,14 @@ test('system readouts keep a fixed precision across digit and rate-unit boundari
     const m=measurement(n,'rate');assert.equal(m.integer,i);assert.equal(m.unit,unit);
   }
 });
-test('readouts settle in 800ms, retarget from the shown value, and resume at the latest sample',()=>{
+test('readouts settle in one second, retarget from the shown value, and resume at the latest sample',()=>{
   let time=0,next=null,shown,motion=false;
   const run=animateReading(n=>{shown=n},{now:()=>time,request:cb=>{next=cb;return 1},cancel:()=>{next=null},immediate:()=>motion});
   const tick=t=>{time=t;const cb=next;next=null;cb?.(time)};
   run.update(9,'percent');assert.equal(shown,9);
-  time=100;run.update(100,'percent');tick(500);assert.equal(shown,54.5);
-  run.update(0,'percent');tick(900);assert.equal(shown,27.25);tick(1300);assert.equal(shown,0);assert.equal(next,null);
-  time=4000;run.update(81,'percent');assert.equal(shown,81);motion=true;run.update(15,'percent');assert.equal(shown,15);
+  time=100;run.update(100,'percent');tick(600);assert.equal(shown,54.5);
+  run.update(0,'percent');tick(1100);assert.equal(shown,27.25);tick(1600);assert.equal(shown,0);assert.equal(next,null);
+  time=8000;run.update(81,'percent');assert.equal(shown,81);motion=true;run.update(15,'percent');assert.equal(shown,15);
   run.update(null,'percent');assert.equal(shown,null);
 });
 

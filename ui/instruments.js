@@ -30,9 +30,11 @@ function numeric(tile,label,n,kind){
   let reading=tile.readings.get(label);
   if(!reading){reading=createReading(label,kind);tile.readings.set(label,reading)}
   reading.update(n);
-  const wrap=el('div','instrument-hero');
-  wrap.append(el('small','caption',label),reading.root);
-  return wrap;
+  if(!reading.wrapper){
+    reading.wrapper=el('div','instrument-hero');
+    reading.wrapper.append(el('small','caption',label),reading.root);
+  }
+  return reading.wrapper;
 }
 function ram(n){
   if(!Number.isFinite(n))return '—';
@@ -57,11 +59,16 @@ function plot(history,key,max,label){
   }
   for(const sample of history){
     const n=sample[key];
-    if(n==null||sample.at-prior>3500)line();
+    if(n==null||sample.at-prior>6500)line();
     if(Number.isFinite(n))points.push([Math.max(0,360*(1-(end-sample.at)/90000)).toFixed(1),(97-94*cap(100*n/max)/100).toFixed(1)]);
     prior=sample.at;
   }
-  line();box.append(graph);return box;
+  line();box.append(graph);
+  const elapsed=end-(history.at(-2)?.at??end);
+  if(elapsed>0&&elapsed<6500&&!matchMedia('(prefers-reduced-motion: reduce)').matches){
+    graph.animate([{transform:'translateX('+100*elapsed/90000+'%)'},{transform:'translateX(0)'}],{duration:1000,easing:'ease-in-out'});
+  }
+  return box;
 }
 function graph(history,key,max,label){
   const section=el('figure','instrument-graph'),legend=el('figcaption');
@@ -72,22 +79,32 @@ function peak(history,key){
   const values=history.map(s=>s[key]).filter(Number.isFinite);
   return values.length?Math.max(...values):null;
 }
-function cores(values){
-  const group=el('div','core-detail');group.append(el('small','caption','Activity by core'));
-  const bars=el('div','core-bank');
-  values.forEach((v,i)=>{const bar=el('i'),fill=el('b');fill.style.height=cap(v)+'%';bar.title='Core '+(i+1)+' · '+pct(v);bar.append(fill);bars.append(bar)});
-  group.append(bars);return group;
+function cores(values,tile){
+  if(!tile.coreGroup||tile.coreBars.childElementCount!==values.length){
+    tile.coreGroup=el('div','core-detail');tile.coreBars=el('div','core-bank');
+    for(const _ of values){const bar=el('i');bar.append(el('b'));tile.coreBars.append(bar)}
+    tile.coreGroup.append(el('small','caption','Activity by core'),tile.coreBars);
+  }
+  values.forEach((value,i)=>{
+    const bar=tile.coreBars.children[i];bar.firstChild.style.height=cap(value)+'%';bar.title='Core '+(i+1)+' · '+pct(value);
+  });
+  return tile.coreGroup;
 }
 function dial(tile,n){
-  const wrap=el('div','dial');
-  const g=svg('svg',{viewBox:'0 0 220 133','aria-hidden':'true'});
-  const arc='M 18 108 A 92 92 0 0 1 202 108';
-  g.append(svg('path',{d:arc,class:'dial-track'}),svg('path',{d:arc,class:'dial-fill',pathLength:100,'stroke-dasharray':cap(n||0)+' 101'}));
-  for(let i=0;i<=30;i++){
-    const a=Math.PI*(1+i/30),r=i%5===0?79:83;
-    g.append(svg('line',{x1:110+Math.cos(a)*r,y1:108+Math.sin(a)*r,x2:110+Math.cos(a)*87,y2:108+Math.sin(a)*87,class:'dial-tick'}));
+  const reading=numeric(tile,'Utilization',n,'percent');
+  if(!tile.dial){
+    tile.dial=el('div','dial');
+    const g=svg('svg',{viewBox:'0 0 220 133','aria-hidden':'true'}),arc='M 18 108 A 92 92 0 0 1 202 108';
+    tile.arc=svg('path',{d:arc,class:'dial-fill',pathLength:100});
+    g.append(svg('path',{d:arc,class:'dial-track'}),tile.arc);
+    for(let i=0;i<=30;i++){
+      const a=Math.PI*(1+i/30),r=i%5===0?79:83;
+      g.append(svg('line',{x1:110+Math.cos(a)*r,y1:108+Math.sin(a)*r,x2:110+Math.cos(a)*87,y2:108+Math.sin(a)*87,class:'dial-tick'}));
+    }
+    tile.dial.append(g,reading);
   }
-  wrap.append(g,numeric(tile,'Utilization',n,'percent'));return wrap;
+  tile.arc.style.strokeDasharray=cap(n||0)+' 101';
+  return tile.dial;
 }
 function memoryBands(m){
   const wired=m.extra?.wired,compressed=m.extra?.compressed;
@@ -108,9 +125,9 @@ function capacityMap(percentage){
 function activity(n){return Number.isFinite(n)?bytes(n)+'/s':'—'}
 export function renderInstrument(kind,m,tile){
   const {slot}=tile;
-  const h=m.history||[],head=heading(kind),e=m.extra||{};
+  const h=m.history||[],head=tile.heading??=heading(kind),e=m.extra||{};
   switch(kind){
-    case 'cpu':return [head,numeric(tile,'Processor load',m.cpu,'percent'),graph(h,'cpu',100,'Total activity'),cores(m.perCore||[]),rows([['Logical cores',m.cores??'—'],['Recent peak',pct(peak(h,'cpu'))]])];
+    case 'cpu':return [head,numeric(tile,'Processor load',m.cpu,'percent'),graph(h,'cpu',100,'Total activity'),cores(m.perCore||[],tile),rows([['Logical cores',m.cores??'—'],['Recent peak',pct(peak(h,'cpu'))]])];
     case 'gpu':return [head,dial(tile,m.gpu),graph(h,'gpu',100,'Device activity'),rows([['Graphics device',e.gpuName||'—'],['Recent peak',pct(peak(h,'gpu'))]])];
     case 'memory':return [head,numeric(tile,'In use',m.memory,'memory'),memoryBands(m),rows([['Available',ram(m.capacity==null?null:m.capacity-m.memory)],['Installed',ram(m.capacity)]])];
     case 'disk':{

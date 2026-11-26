@@ -168,12 +168,10 @@ fn id(kind: &str, base: &reqwest::Url) -> String {
     };
     format!("{kind}|{address}")
 }
-// The old app stored each token and CA under its own ACL. Use accessible old
-// values first, then the matching installed collector. Never prompt in this path.
+// Older Workbench versions stored tokens and certificates separately in Keychain.
 fn legacy(
     kind: &str,
     base: &reqwest::Url,
-    fallback: Credential,
     interactive: bool,
 ) -> Result<Credential, String> {
     let _quiet = if interactive {
@@ -188,7 +186,7 @@ fn legacy(
         match get_generic_password(service,account){
             Ok(bytes)=>String::from_utf8(bytes).map(Some).map_err(|_|"Invalid saved credential".into()),
             Err(e) if e.code()==-25300=>Ok(None),
-            Err(_)=>Err("The previous credential needs approval. Choose Recover previous credential in Connections.".into()),
+            Err(_)=>Err("The previous credential needs approval. Choose Recover previous credential in widget settings.".into()),
         }
     };
     let mut key = None;
@@ -199,17 +197,11 @@ fn legacy(
                 break;
             }
             Ok(None) => {}
-            Err(_) if fallback.key.is_some() => break,
             Err(error) => return Err(error),
         }
     }
-    let key = key.or(fallback.key);
     let ca = if kind == "proxmox" {
-        match read(LEGACY_CA, base.as_str()) {
-            Ok(value) => value.or(fallback.ca),
-            Err(_) if fallback.ca.is_some() => fallback.ca,
-            Err(error) => return Err(error),
-        }
+        read(LEGACY_CA, base.as_str())?
     } else {
         None
     };
@@ -222,30 +214,9 @@ pub fn get(kind: &str, base: &reqwest::Url) -> Result<Credential, String> {
         if let Some(value) = entries.get(&account) {
             return Ok(value.clone());
         }
-        let fallback = crate::migration::installed_credential(kind, base).unwrap_or_default();
-        let credential = legacy(kind, base, fallback, false)?;
+        let credential = legacy(kind, base, false)?;
         entries.insert(account, credential.clone());
         Ok(credential)
-    })
-}
-pub fn import(kind: &str, base: &reqwest::Url, source: Credential) -> Result<(), String> {
-    transaction(|entries| {
-        let account = id(kind, base);
-        match entries.entry(account) {
-            std::collections::btree_map::Entry::Occupied(mut item) => {
-                let value = item.get_mut();
-                if value.key.is_none() {
-                    value.key = source.key
-                }
-                if value.ca.is_none() {
-                    value.ca = source.ca
-                }
-            }
-            std::collections::btree_map::Entry::Vacant(item) => {
-                item.insert(legacy(kind, base, source, false)?);
-            }
-        }
-        Ok(())
     })
 }
 pub fn set(kind: &str, base: &reqwest::Url, secret: String) -> Result<(), String> {
@@ -289,7 +260,7 @@ pub async fn recover_credential(
     tauri::async_runtime::spawn_blocking(move || {
         let base = crate::connections::endpoint(&address)?;
         transaction(|entries| {
-            let value = legacy(&kind, &base, Credential::default(), true)?;
+            let value = legacy(&kind, &base, true)?;
             if value == Credential::default() {
                 return Err("No previous credential found for this connection".into());
             }

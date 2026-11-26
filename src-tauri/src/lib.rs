@@ -14,13 +14,15 @@
 //! Your UI lives in `ui/`. Start there.
 
 mod connections;
+mod rundmd;
 mod instruments;
+mod spotify_queue;
 mod general;
-mod migration;
 mod touch;
 mod transcript;
 mod tray;
 mod widget_host;
+mod widget_package;
 mod vault;
 
 use std::{path::PathBuf, sync::OnceLock, time::Duration};
@@ -225,7 +227,9 @@ fn open_settings(app: tauri::AppHandle) -> Result<(), String> {
     WebviewWindowBuilder::new(&app, "settings", WebviewUrl::App("settings.html".into()))
         .on_web_resource_request(widget_host::serve)
         .title("Edge Workbench Settings")
-        .inner_size(1060., 680.)
+        // The preferred 1377 × 820 pt frame has a 33 pt Settings title bar.
+        .inner_size(1377., 787.)
+        .prevent_overflow()
         .build()
         .map(|_| ())
         .map_err(|e| e.to_string())
@@ -241,6 +245,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             general::preview_control, general::open_preview, general::general_settings, general::save_general, general::check_release,
             release_page, retry_touch, move_to_display,
+            rundmd::rundmd_catalog, rundmd::rundmd_import, rundmd::rundmd_clip, rundmd::rundmd_has_default,
+            widget_package::read_widget_package, widget_package::save_widget_example,
             vault::unlock_connections,
             vault::recover_credential,
             widget_host::widget_open,
@@ -253,7 +259,9 @@ pub fn run() {
             transcript::ember_transcript,
             instruments::read_metrics,
             instruments::spotify,
-            migration::import_zurface_connections,
+            spotify_queue::spotify_open,
+            spotify_queue::spotify_connect,
+            spotify_queue::spotify_queue,
             connections::set_secret,
             connections::source_read,
             connections::widget_source_read,
