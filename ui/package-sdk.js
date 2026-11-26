@@ -40,16 +40,10 @@
     },
     // Ask the host to run a command the package's manifest declares.
     command(name, args) {
-      let command = name, payload = args;
-      // The oMLX view predates this API and posts model actions as a storage write.
-      if (name === 'storage.set' && args?.key === 'omlx.modelAction') {
-        command = 'model';
-        payload = JSON.parse(args.value);
-      }
       return new Promise((resolve, reject) => {
         const id = nextId++;
         pending.set(id, {resolve, reject});
-        send({type: 'command', id, name: command, args: payload});
+        send({type: 'command', id, name, args});
       });
     },
   };
