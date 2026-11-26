@@ -29,6 +29,7 @@ mod touch;
 mod tray;
 mod widget_host;
 mod widget_package;
+mod package_manifest;
 mod vault;
 
 use std::{path::PathBuf, sync::OnceLock, time::Duration};
