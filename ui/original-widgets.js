@@ -2,6 +2,7 @@ import {button, el, invoke} from './common.js';
 import {titles} from './model.js';
 import {packageInfo,sourceLimit} from './packages.js';
 import {registerFrame} from './package-bridge.js';
+import {hostOf, connectionLabel} from './display-name.js';
 
 export function widgetSources(kind, selected, sources) {
   const limit = sourceLimit(kind);
@@ -21,7 +22,9 @@ export function widgetSources(kind, selected, sources) {
       return true;
     })
     .slice(0, limit)
-    .map(({name, address, gpuGuests}) => {
+    .map(source => {
+      // Collectors label workers and servers with this; a blank name means automatic.
+      const {address, gpuGuests} = source, name = connectionLabel(source);
       if (kind === 'comfy' && guestTargets.length) {
         const host = new URL(address).hostname.toLowerCase();
         const guest = guestTargets.find(mapping => {
@@ -58,7 +61,9 @@ export function mountOriginal(box, slot, connections) {
       frame.setAttribute('sandbox', 'allow-scripts');
       frame.dataset.packageFrame = slot.kind;
       unregister();
-      unregister = registerFrame(frame, {viewer, feed: id, commands: packageInfo.get(slot.kind)?.collector?.commands || []});
+      const chosen = connections.find(source => source.kind === slot.kind && source.id === slot.source);
+      unregister = registerFrame(frame, {viewer, feed: id, commands: packageInfo.get(slot.kind)?.collector?.commands || [],
+        displayName: chosen?.name?.trim() || '', host: hostOf(chosen?.address)});
       frame.src = '/widget-view/' + encodeURIComponent(id) + '/index.html';
       box.replaceChildren(frame);
       timer = setTimeout(check, 8000);
@@ -118,7 +123,7 @@ export function mountPackage(box, slot, entry, connections) {
       frame.dataset.packageFrame = slot.kind;
       unregister();
       unregister = registerFrame(frame, {viewer, feed, actions: entry.actions || [],
-        displayName: source?.name || entry.title});
+        displayName: source?.name?.trim() || '', host: hostOf(source?.address), serverField: entry.serverField});
       frame.src = '/widget-view/' + encodeURIComponent(feed) + '/' + encodeURIComponent(opened.entry);
       box.replaceChildren(frame);
       pump();

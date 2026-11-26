@@ -6,6 +6,7 @@ import {invoke} from './common.js';
 import {general, onGeneral} from './general.js';
 
 const frames = new Map(); // contentWindow → entry
+const readField = (data, path) => path.split('.').reduce((v, k) => v != null && Object.hasOwn(v, k) ? v[k] : undefined, data);
 
 export function packageState(entry) {
   const prefs = general();
@@ -13,7 +14,11 @@ export function packageState(entry) {
     // The oMLX view keys its model actions by this ID; the host formats the same one.
     instanceID: 'omlx-dashboard@' + entry.viewer,
     touchMode: false,
+    // The name the user gave the connection ('' means automatic), what the server
+    // reports about itself when the manifest says where, and the address's host.
     displayName: entry.displayName || '',
+    serverName: entry.serverName || '',
+    host: entry.host || '',
     theme: {mode: 'dark', primary: prefs.primary || '#edf0e6', accent: prefs.accent || '#f88d4f'},
   };
 }
@@ -24,8 +29,8 @@ function post(entry, message) {
 
 // Track a package frame. `commands` lists the commands its manifest declares.
 // Returns unregister(); `deliver(data)` sends a package feed's data, now or once ready.
-export function registerFrame(frame, {viewer, feed, commands = [], actions = [], displayName = ''}) {
-  const entry = {frame, viewer, feed, commands, actions, displayName, window: null, data: null, ready: false};
+export function registerFrame(frame, {viewer, feed, commands = [], actions = [], displayName = '', host = '', serverField = ''}) {
+  const entry = {frame, viewer, feed, commands, actions, displayName, host, serverField, serverName: '', window: null, data: null, ready: false};
   frame.addEventListener('load', () => {
     for (const [win, other] of frames) if (other === entry) frames.delete(win);
     entry.window = frame.contentWindow;
@@ -35,6 +40,11 @@ export function registerFrame(frame, {viewer, feed, commands = [], actions = [],
   const unregister = () => { if (entry.window) frames.delete(entry.window); };
   unregister.deliver = data => {
     entry.data = data;
+    const reported = entry.serverField ? readField(data.data, entry.serverField) : '';
+    if (typeof reported === 'string' && reported.trim() && reported.trim() !== entry.serverName) {
+      entry.serverName = reported.trim().slice(0, 80);
+      if (entry.ready) post(entry, {type: 'state', state: packageState(entry)});
+    }
     if (entry.ready) post(entry, {type: 'data', ...data});
   };
   unregister.entry = entry;

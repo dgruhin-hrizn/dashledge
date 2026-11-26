@@ -33,6 +33,11 @@ test('a package view receives live appearance changes and keeps its viewer ident
   assert.equal(props.get('--text'),'#001122','messages from anyone but the host are ignored');
   stop();deliver({theme:{mode:'dark',primary:'#000000',accent:'#000000'}});assert.equal(records.length,3);
   assert.equal(window.Dashledge,window.Zurface);
+  deliver({displayName:'',serverName:'',host:'tower.local'});
+  assert.equal(window.Dashledge.displayName('TOWER'),'TOWER');
+  assert.equal(window.Dashledge.displayName(''),'tower.local');
+  deliver({displayName:'Basement'});
+  assert.equal(window.Dashledge.displayName('TOWER'),'Basement');
 });
 
 import {measurement,animateReading} from '../ui/metric-reading.js';
