@@ -1,5 +1,5 @@
 .dashboard{--fg:var(--primary);--lime:var(--highlight);--sub:color-mix(in srgb,var(--primary) 62%,#343a38);color:var(--fg);background:#0c0e0e;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",sans-serif}
-.dashboard .tile:not(.original-widget){border:1px solid #343936;border-radius:15px;background:radial-gradient(ellipse at 100% 0,color-mix(in srgb,var(--accent) 6%,transparent),transparent 65%),#141817}
+.dashboard .tile:not(.original-widget,.dmd-tile,.sp-tile,.gd-tile,.sw-tile,.slack-tile){border:1px solid #343936;border-radius:15px;background:radial-gradient(ellipse at 100% 0,color-mix(in srgb,var(--accent) 6%,transparent),transparent 65%),#141817}
 .dashboard .instrument{container-type:size;gap:clamp(8px,2vh,18px);padding:clamp(12px,1vw,28px);font-variant-numeric:tabular-nums}
 .instrument-head{display:flex;align-items:center;gap:9px;padding-bottom:clamp(5px,1.2cqh,12px);border-bottom:1px solid #ffffff20;flex:none}
 .instrument-head .admin-icon{width:clamp(17px,4.8cqw,32px);height:auto;color:var(--accent)}
@@ -10,7 +10,7 @@
 .instrument-graph{display:flex;flex:1 1 65px;flex-direction:column;min-height:32px;max-height:44cqh;margin:0;gap:6px}
 .instrument figcaption{display:flex;justify-content:space-between;gap:8px}.instrument figcaption span:last-child{font-weight:400;letter-spacing:.015em;text-transform:none}
 .scope{color:var(--accent);flex:1;min-height:8px;position:relative;overflow:hidden;background:repeating-linear-gradient(to top,#ffffff14 0 1px,transparent 1px 25%),repeating-linear-gradient(to left,#ffffff09 0 1px,transparent 1px 16.6667%);border-bottom:1px solid #ffffff24}
-.scope svg{position:absolute;width:100%;height:100%}.scope-fill{fill:currentColor;opacity:.14}.scope-trace{fill:none;stroke:currentColor;stroke-width:2;stroke-linejoin:round}.scope.tx{color:var(--primary)}
+.scope svg{position:absolute;width:100%;height:100%}.scope g{transform-box:view-box}.scope-fill{fill:currentColor;opacity:.14}.scope-trace{fill:none;stroke:currentColor;stroke-width:2;stroke-linejoin:round}.scope.tx{color:var(--primary)}
 .instrument-facts{display:grid;gap:0;margin:0}.instrument>.instrument-facts:last-child{margin-top:auto}.instrument-facts>div{display:flex;justify-content:space-between;align-items:baseline;gap:12px;border-top:1px solid #ffffff14;padding:clamp(4px,1.15cqh,11px) 0;font-size:clamp(12px,3.65cqw,25px)}
 .instrument-facts dt{color:var(--sub)}.instrument-facts dd{margin:0;text-align:right;font-weight:520;overflow-wrap:anywhere;min-width:0}
 .core-detail{display:grid;gap:9px}.core-bank{display:flex;gap:clamp(2px,.65cqw,5px);height:clamp(16px,9cqh,70px)}
@@ -29,3 +29,8 @@
 .numeric-reading .fraction{font-size:.68em;line-height:1;color:color-mix(in srgb,var(--primary) 75%,var(--bg))}
 .numeric-reading .unit{font-size:.28em;letter-spacing:0}
 .dial .numeric-reading{font-size:clamp(22px,min(12cqw,10.5cqh),88px)}
+@media(prefers-reduced-motion:no-preference){
+  .memory-band i{transition:width 1s linear}
+  .core-bank b{transition:height 1s linear}
+  .dial-fill{transition:stroke-dasharray 1s linear}
+}

@@ -1,0 +1,50 @@
+.tile.gd-tile{container-type:size;padding:0;border:0;overflow:hidden;color:#f2f3ed;background:#151c23;display:block}
+.dashboard.full-widget .tile.gd-tile{border-radius:0}
+.gd-split{height:100%;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));font:500 clamp(16px,3.45cqmin,28px)/1.25 -apple-system,BlinkMacSystemFont,"Helvetica Neue",sans-serif}
+.gd-pane{--accent:#a6d6d2;--muted:#adbec7;min-height:0;min-width:0;display:flex;flex-direction:column;gap:clamp(9px,2.35cqmin,17px);padding:clamp(10px,3cqmin,24px) clamp(12px,4.4cqmin,36px);background:linear-gradient(145deg,#23303a,#172129 70%)}
+.gd-calendar{--accent:#f1c39e;--muted:#c4bdb5;background:radial-gradient(ellipse at 5% 0%,#423733 0%,transparent 74%),#242528}
+.gd-pane+.gd-pane{border-left:1px solid #89939b38}
+.gd-head,.gd-heading,.gd-tools,.gd-controls,.gd-sections{display:flex;align-items:center;gap:.48em}
+.gd-head{justify-content:space-between;flex-shrink:0}.gd-tile .gd-heading{margin:0;min-width:0;color:inherit;font-size:clamp(20px,5.6cqmin,42px);font-weight:640;letter-spacing:-.045em;text-transform:none}
+.gd-heading svg,.gd-swap svg{width:1.16em;height:1.16em;fill:none;stroke:var(--accent);stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.gd-pane button{font:inherit;font-size:clamp(14px,3.1cqmin,24px);color:inherit;background:#ffffff07;border:1px solid #ffffff25;border-radius:10px;padding:.4em .8em;min-height:42px;touch-action:manipulation}
+.gd-pane button:hover{background:#ffffff11}.gd-pane button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.gd-tools .gd-primary,.gd-controls .gd-primary{background:var(--accent);border-color:transparent;color:#202526;font-weight:650}
+.gd-swap{display:grid;place-items:center}.gd-tools{flex-wrap:wrap;justify-content:flex-end}
+.gd-content{flex:1;display:flex;flex-direction:column;min-height:0;gap:clamp(7px,1.6cqmin,13px);overflow:auto;scrollbar-width:thin}
+.gd-week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;flex:none}
+.gd-week button{position:relative;display:grid;place-items:center;gap:.1em;padding:.24em 0 .55em;border-color:transparent;background:#ffffff05;color:var(--muted)}
+.gd-week span{font-size:.84em}.gd-week b{font-size:1.22em;color:#f2ede7;font-variant-numeric:tabular-nums}
+.gd-week .gd-today,.gd-week [aria-pressed=true]{background:#f1c39e1d;border-color:#e2b18c53}
+.gd-has-events::after{content:"";position:absolute;bottom:4px;background:var(--accent);border-radius:50%;width:4px;height:4px}
+.gd-event,.gd-note{display:grid;align-content:start;justify-items:start;gap:.34em;flex:none}
+.gd-event{padding:.55em .8em;border-left:3px solid var(--accent);background:linear-gradient(90deg,#f2bc8f10,transparent)}
+.gd-eyebrow{font-weight:680;color:var(--accent);font-size:.8em;text-transform:uppercase;letter-spacing:.095em}
+.gd-title{font-size:clamp(22px,6.8cqmin,50px);font-weight:625;line-height:1.08;letter-spacing:-.04em;overflow-wrap:anywhere}
+.gd-muted,.gd-status,.gd-mail-detail{color:var(--muted);font-size:.9em}.gd-controls{flex-wrap:wrap}.gd-controls:empty,.gd-status:empty{display:none}
+.gd-list{min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin}.gd-agenda,.gd-inbox{flex:1}
+.gd-pane .gd-agenda-row,.gd-pane .gd-mail-row{width:100%;text-align:left;border:0;border-bottom:1px solid #ffffff16;border-radius:0;background:transparent;display:grid;align-items:center;gap:.6em;padding:.46em 0}
+.gd-pane .gd-agenda-row{grid-template-columns:5.1em minmax(0,1fr) auto;font-size:1em}.gd-agenda-row time{font-variant-numeric:tabular-nums;color:var(--accent);font-size:.88em}
+.gd-agenda-row strong,.gd-mail-copy>*{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.gd-agenda-row small,.gd-mail-side{color:var(--muted);font-size:.84em}
+.gd-count{font-size:.5em;font-weight:600;letter-spacing:0;padding:.25em .52em;background:#80c7bd1c;color:var(--accent);border-radius:1em;white-space:nowrap}
+.gd-sections{gap:1.15em;border-bottom:1px solid #ffffff1b;flex:none}.gd-sections button{border:0;background:transparent;border-radius:0;padding:.3em .08em;color:var(--muted);border-bottom:2px solid transparent}
+.gd-sections button[aria-pressed=true]{color:var(--accent);border-bottom-color:var(--accent)}
+.gd-pane .gd-mail-row{grid-template-columns:auto minmax(0,1fr) auto;font-size:1em;column-gap:.72em}
+.gd-mail-avatar{display:grid;place-items:center;width:2.2em;aspect-ratio:1;border-radius:.65em;background:#354e5a;color:#d0e7e8;font-size:.82em;font-weight:680}
+.gd-mail-row:nth-child(3n+2) .gd-mail-avatar{background:#414558;color:#e2dcf2}.gd-mail-row:nth-child(3n) .gd-mail-avatar{background:#364e47;color:#d2e8d7}
+.gd-mail-copy{min-width:0;display:grid;gap:.1em}.gd-mail-copy strong{font-weight:630}.gd-mail-copy>span{color:#c5d0d6;font-size:.95em}
+.gd-unread .gd-mail-copy strong:before{content:"";display:inline-block;width:.34em;height:.34em;margin-right:.36em;vertical-align:middle;border-radius:50%;background:var(--accent)}
+.gd-mail-detail{grid-column:2/-1;overflow-wrap:anywhere}.gd-mail-row[aria-expanded=true] .gd-mail-copy>*{white-space:normal}
+.gd-status{max-height:28%;overflow:auto}.gd-inbox>button:last-child:not(.gd-mail-row){margin-top:.5em}
+@container(max-width:750px){.gd-split{grid-template-columns:1fr;grid-template-rows:repeat(2,minmax(0,1fr))}.gd-pane+.gd-pane{border-left:0;border-top:1px solid #ffffff25}.gd-content{display:block}.gd-content>*+*{margin-top:7px}.gd-list{overflow:visible}.gd-pane{gap:5px}.gd-week button{min-height:38px}.gd-tools button,.gd-sections button{min-height:34px}.gd-heading svg{width:1em}.gd-tools{gap:4px}}
+@container(max-height:340px){.gd-pane{padding:6px 9px;gap:4px}.gd-content{display:block}.gd-list{overflow:visible}.gd-event{padding:.35em .55em}.gd-title{font-size:21px}.gd-week button{min-height:36px}.gd-week span{font-size:12px}.gd-week b{font-size:15px}}
+
+.gd-pane button.gd-primary:hover,.gd-pane button.gd-primary.edge-pressed{background:var(--accent);color:#202526;filter:brightness(.94)}
+
+.gd-calendar-picker{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain}
+.gd-calendar-group{padding:.2em 0 .7em}.gd-account-head,.gd-pane .gd-calendar-choice{display:flex;align-items:center;gap:.7em}
+.gd-account-head{justify-content:space-between;padding:.25em 0;border-bottom:1px solid #ffffff22}
+.gd-account-head strong{overflow-wrap:anywhere}.gd-pane .gd-calendar-choice{min-height:44px;text-align:left;width:100%;background:transparent;border:0;border-radius:0}
+.gd-check{flex:none;width:1.25em;height:1.25em;border:1px solid #ffffff65;border-radius:.26em;display:grid;place-items:center;line-height:1}
+.gd-calendar-choice[aria-pressed=true] .gd-check{background:var(--accent);color:#292321;border-color:transparent}
+.gd-tools .gd-filter-active{color:var(--accent);border-color:#e2b18c65}

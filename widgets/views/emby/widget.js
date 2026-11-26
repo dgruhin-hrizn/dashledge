@@ -102,18 +102,20 @@
   }
   let advanceTimer, detailTimer, touchingWall=false;
   const arrows=document.querySelector('#wall-controls');
-  function stepWall(direction,manual){
+  let targetLeft;
+  function stepWall(direction){
     const max=Math.max(0,wall.scrollWidth-wall.clientWidth);
-    const at=wall.scrollLeft;
+    const at=Math.min(max,targetLeft??wall.scrollLeft);
     const offsets=[...new Set([0,...[...wall.children].map(card=>Math.min(max,card.offsetLeft)),max])];
     const next=direction>0?offsets.find(x=>x>at+2):offsets.reverse().find(x=>x<at-2);
     const reduced=window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    wall.scrollTo({left:next??(direction>0?0:max),behavior:manual||reduced||next==null?'instant':'smooth'});
+    targetLeft=next??(direction>0?0:max);
+    wall.scrollTo({left:targetLeft,behavior:reduced?'instant':'smooth'});
   }
   for(const button of arrows.querySelectorAll('button')){
     button.onclick=()=>{
       clearTimeout(advanceTimer);advanceTimer=undefined;
-      stepWall(Number(button.dataset.step),true);syncAdvance();
+      stepWall(Number(button.dataset.step));syncAdvance();
     };
   }
   function syncAdvance(){
@@ -124,7 +126,7 @@
     if(advanceTimer!==undefined)return;
     advanceTimer=setTimeout(()=>{
       advanceTimer=undefined;
-      stepWall(1,false);
+      stepWall(1);
       syncAdvance();
     },5000);
   }
@@ -132,7 +134,9 @@
     clearTimeout(detailTimer);
     if(selected && !document.hidden && !dialog.open)detailTimer=setTimeout(close,15000);
   }
-  wall.addEventListener('pointerdown',()=>{touchingWall=true;syncAdvance();});
+  for(const event of ['wheel','keydown','touchstart'])wall.addEventListener(event,()=>{targetLeft=undefined;},{passive:true});
+  wall.addEventListener('scroll',()=>{if(Math.abs(wall.scrollLeft-targetLeft)<1)targetLeft=undefined;},{passive:true});
+  wall.addEventListener('pointerdown',()=>{targetLeft=undefined;touchingWall=true;syncAdvance();});
   function releaseWall(){if(touchingWall){touchingWall=false;syncAdvance();}}
   window.addEventListener('pointerup',releaseWall);
   window.addEventListener('pointercancel',releaseWall);
@@ -290,7 +294,10 @@
         let next=card;
         if(!card || card.sessionStamp!==stamp){
           next=posterCard(s);next.sessionStamp=stamp;
-          if(card)card.replaceWith(next);
+          if(card){
+            card.dataset.paused=next.dataset.paused;card.style.cssText=next.style.cssText;
+            card.replaceChildren(...Array.from(next.children));card.sessionStamp=stamp;next=card;
+          }
         }
         if(wall.children[index]!==next)wall.insertBefore(next,wall.children[index]||null);
         old.delete(id);

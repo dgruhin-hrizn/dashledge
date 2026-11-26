@@ -40,12 +40,25 @@ export function fitDashboard(screen,frame,fillWindow=false){
     const vertical=general().vertical,[w,h]=dimensions(vertical);
     screen.dataset.vertical=String(vertical);
     if(!fillWindow)screen.style.aspectRatio=w+'/'+h;
-    frame.style.width=w+'px';frame.style.height=h+'px';
+    // Lay native-viewport pages out at the destination size so text is rasterized there.
+    if(frame.hasAttribute('data-native-viewport')){
+      frame.style.width=screen.clientWidth+'px';
+      frame.style.height=screen.clientHeight+'px';
+      frame.style.left='0';frame.style.top='0';frame.style.transform='none';
+      return;
+    }
+    frame.style.left='';frame.style.top='';
     const scale=Math.min(screen.clientWidth/w,screen.clientHeight/h);
+    // A standalone Spotify deck can reflow into the space around the reference canvas.
+    const fill=scale>0&&(frame.hasAttribute('data-full-spotify')||frame.contentDocument?.querySelector('.sp-visualizer[open]'));
+    frame.style.width=(fill?screen.clientWidth/scale:w)+'px';
+    frame.style.height=(fill?screen.clientHeight/scale:h)+'px';
     frame.style.transform='translate(-50%,-50%) scale('+scale+')';
   }
   const resize=new ResizeObserver(fit);
-  resize.observe(screen);const off=onGeneral(fit);fit();return ()=>{resize.disconnect();off()};
+  frame.addEventListener('dashboardfit',fit);
+  resize.observe(screen);const off=onGeneral(fit);fit();
+  return ()=>{frame.removeEventListener('dashboardfit',fit);resize.disconnect();off()};
 }
 // The native HID coordinates are screen points; widgets receive logical canvas points.
 export function displayTouch(frame){

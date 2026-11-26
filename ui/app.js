@@ -31,7 +31,7 @@ const status = document.getElementById("touch-status");
 const MESSAGES = {
   on: "Touch is on.",
   starting: "Starting touch…",
-  needsPermission: "Touch is off: allow Edge Starter in System Settings > Privacy & Security > Input Monitoring.",
+  needsPermission: "Touch is off: allow Dashledge in System Settings > Privacy & Security > Input Monitoring.",
   unsupported: "Touch takeover only works on macOS.",
 };
 async function refreshStatus() {

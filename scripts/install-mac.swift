@@ -24,7 +24,7 @@ func install(_ source: URL) throws {
     let files = FileManager.default
     let identifier = "dev.edgeworkbench.desktop"
     let directory = URL(fileURLWithPath: "/Applications", isDirectory: true)
-    let target = directory.appendingPathComponent("Edge Workbench.app")
+    let target = directory.appendingPathComponent("Dashledge.app")
     let replacing = files.fileExists(atPath: target.path)
     if replacing {
         let isLink = try target.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink
@@ -44,14 +44,21 @@ func install(_ source: URL) throws {
         try run("/usr/bin/codesign", ["--verify", "--deep", "--strict", "-R", "=identifier \"\(id)\" and \(signer)", path])
     }
 
+    // Command-line AppKit can keep reporting a running app after its process exits.
+    func isRunning(_ app: NSRunningApplication) -> Bool {
+        let pid = app.processIdentifier
+        guard pid > 0, !app.isTerminated else { return false }
+        return kill(pid, 0) == 0 || errno != ESRCH
+    }
+
     // Quit every running copy, including the older one launched from dist.
     let running = NSRunningApplication.runningApplications(withBundleIdentifier: identifier)
-    for app in running where !app.isTerminated {
-        guard app.terminate() else { throw InstallError("Could not quit the running Edge Workbench.") }
+    for app in running where isRunning(app) {
+        guard app.terminate() || !isRunning(app) else { throw InstallError("Could not quit the running Dashledge.") }
     }
     let deadline = Date().addingTimeInterval(15)
-    while running.contains(where: { !$0.isTerminated }) {
-        guard Date() < deadline else { throw InstallError("Timed out waiting for Edge Workbench to quit.") }
+    while running.contains(where: isRunning) {
+        guard Date() < deadline else { throw InstallError("Timed out waiting for Dashledge to quit.") }
         RunLoop.current.run(until: Date().addingTimeInterval(0.1))
     }
 

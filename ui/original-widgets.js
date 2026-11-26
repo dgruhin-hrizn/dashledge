@@ -65,7 +65,7 @@ export function mountOriginal(box, slot, connections) {
   }
   if (slot.kind === 'ember' || sources.length) connect();
   else {
-    message.textContent = 'Choose a ' + titles[slot.kind] + ' connection in Pages & layouts.';
+    message.textContent = 'Choose a ' + titles[slot.kind] + ' connection in Widget Studio.';
     status.append(button('Settings', () => invoke('open_settings')));
   }
   return () => { closed = true; clearTimeout(timer); release(feed); };

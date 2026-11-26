@@ -1,61 +1,91 @@
-# Edge Workbench
+<h1><img src="docs/brand/dashledge-icon.svg" width="58" align="middle" alt=""> &nbsp;<img src="docs/brand/dashledge-wordmark.svg" width="260" align="middle" alt="Dashledge"></h1>
 
-Edge Workbench is a macOS menu-bar application for the Corsair XENEON Edge. The Rust/Tauri app runs the touch dashboard and layout editor in system WebKit. It includes the runtime for its six original widget collectors. No separate Node installation or per-widget LaunchAgents are required.
+**Put it on the ledge.** Dashledge turns the CORSAIR XENEON EDGE into a customizable touch dashboard for Mac. Give Apple Music the whole display, keep a Slack thread beside your calendar, or swipe to a page of live Mac and server metrics.
 
-## Install on macOS
+## Get started
 
-Edge Workbench lives at `/Applications/Edge Workbench.app`. For a downloaded release, unzip `Edge-Workbench-macOS-arm64.zip`, quit any running copy of Edge Workbench from its menu bar, and move the app into **Applications**. Choose **Replace** when updating. Launch Edge Workbench from Applications. Your pages, appearance settings and saved connections carry over.
+1. Open the [releases page](https://github.com/dgruhin-hrizn/dashledge/releases) for available builds. For a Dashledge ZIP, expand it and move **Dashledge.app** to **Applications**. Quit an existing copy of Dashledge or its predecessor, Edge Workbench, before launching the new version.
+2. Open **Settings → Pages & layouts**, add a page, and choose **Add widget**. Give one widget the whole screen or split the page into sections. Try the layout in **Live preview**.
+3. In **General → Display**, select the EDGE and choose **Move to display**. Enable direct touch and grant Input Monitoring if macOS asks. Choose **Return to preview** to release the panel.
+4. Swipe left or right to change pages. Over a carousel, start at either bezel. Tap the middle of the left edge or press **Option-P** for the page picker.
 
-## Use the display and preview
+The menu-bar icon reopens Settings. You can also run the dashboard in a resizable window using **Show Window Preview**.
 
-Open **Edge Workbench.app**. The first launch opens Settings on your main display. Choose **Show Window Preview** in General for a floating, resizable Edge dashboard or **Live preview** to see it in Settings. General imports the existing Zurface appearance and layout orientation on first launch. Primary and secondary colors update compatible widgets in every view. Under **Pages & layouts**, choose **+ Add page**, then click **+ Add widget** in the empty section. You can also add a page from the page picker on the Edge. Choose a preset or drag a widget from the library to arrange the page. Split individual sections side by side or stack them vertically. The menu-bar icon reopens Settings.
+## What goes on the ledge?
 
-To use the touchscreen, quit any other app controlling Edge touch. In **General → Display**, select the target and choose **Move to display**. For portrait, choose **Vertical** and set the matching rotation in macOS Displays. Direct touch can be enabled or released in General. Grant Input Monitoring if macOS requests it. Choose **Return to preview** to release the device. The physical dashboard can switch pages using its page picker. Open at Login is available in the menu bar.
-
-## Widgets and connections
-
-The app imports connection settings from the installed Emby and Unraid collectors, Proxmox, ComfyUI workers and oMLX on first launch. The import reads the collectors’ saved settings locally and imports API credentials into the encrypted connection vault. The Proxmox certificate is scoped to its server. Guest SSH targets and identity file paths are retained as references. The Proxmox widget polls its configured running GPU guests over SSH. Ember reads its existing local database. **Connections → Import from Zurface** reruns discovery and fills missing entries. A connection's **Test** button checks its current reachability.
-
-CPU, GPU, memory, disk capacity, network throughput, network interfaces, power and thermal state, and Mac information read local system metrics. The GPU tile reports unavailable on hardware that does not expose the counter. Spotify connects to the running desktop player and may request Automation access. Local and world clocks, focus timer and scratchpad work locally.
-
-Use **Connections → Add connection → Test** for your own servers, then select the connection in the layout inspector. Add separate connections for multiple workers. One macOS Keychain item, **Edge Workbench Connections**, protects the vault. Workbench unlocks it once per running app and shares access across widgets and connection tests. A declined unlock pauses further prompts until you choose **Connections → Unlock connections**. Existing service credentials migrate from accessible entries or the matching installed collector. For a manually configured legacy token, **Connections → ••• → Recover previous credential** requests access to that item once. The layout and widget definitions live in local app storage.
-
-Each original widget opens in its own full-width page. On upgrade, Workbench adds any missing full-width pages once. An existing single-widget page, such as **Media** for Emby, keeps its name. Pages fill the canvas. Swipe left for the next page or right for the previous one. Horizontal carousels keep their own scroll gestures. Start at either bezel to switch pages over a carousel. Tap the background at the middle of the left edge or press **Option-P** to open the page picker. The same widgets can occupy sections of a mixed layout. The Edge and both previews lay widgets out on Zurface’s 1920 × 540 reference canvas (540 × 1920 in portrait), then scale the entire page to fit the display. Opening a dashboard warms the configured collectors for every page. Page switches retain the widget views, and simultaneous previews and output share collectors and Mac telemetry history.
-
-| Widget | Original views and controls |
+| Widget | What you can see or do |
 | --- | --- |
-| Emby | Playback wall, session details, stream bitrate, server activity, artwork, weekly viewing and release notes. |
-| ComfyUI | Two-worker render wall, WebSocket step progress, queue and history, GPU and system memory, tap-to-reveal output with the original 15-second conceal timer. The selected worker appears first. |
-| Unraid | Array and pool devices, disk I/O, CPU, RAM, network history and running containers with icons and charts. |
-| Proxmox | Cluster summary, nodes, VM and LXC counts, GPU telemetry on configured running guests, load history and paging. |
-| oMLX | Live and historical metrics, animated decode rate, Mac specs, server picker, model inventory, load and unload controls, token usage and weekly graphs. |
-| Ember Copper | The original Copper artwork and typography, workspaces and chats, live transcripts, plans and usage reports from the local Ember profile. |
-| JSON | Choose a JSON endpoint and field in Widget Studio. |
+| Apple Music | Browse playlists by cover, search your library, and see what follows the current song in album or playlist order. Choose AirPlay speakers, adjust EQ, rate a track, or read lyrics saved with it. |
+| Spotify | Browse playlists and recent plays, search for songs, add to the queue, switch playback devices, and watch a live audio spectrum. |
+| Slack Workspace | Read mentions, direct messages, favorite channels, and thread replies in one full-screen view. Ten individual Slack widgets are also available for split layouts. |
+| Mail & Calendar | Read recent Apple Mail or Spark Desktop inbox headers alongside your upcoming Mac calendar events. Filter individual calendars, swap the panes, and tap a meeting link to join. |
+| Mac Shortcuts | Pin shortcuts from your Mac, choose each button’s color and icon, and arrange them in a different order on each page. Tap to run a shortcut and see when it finishes. |
+| Apple Photos | Show your library, selected albums, or your iCloud Shared Photo Library on supported Macs. Choose Editorial montage, Instant prints, Filmstrip, Panorama gallery, or Daydream, where several photos drift and zoom across the screen. Set the speed and direction or tap to pause. |
+| Mac instruments | Track CPU, GPU, memory, disk space, network throughput, power and thermals. Inspect individual network interfaces, mounted volumes, and Mac hardware details. Available counters depend on the Mac. |
+| Emby | See active streams, artwork, and bitrates, and control playback. |
+| Unraid | Check array health, storage activity, and containers. |
+| Proxmox | Monitor cluster nodes, virtual machines, and guest GPU telemetry. |
+| ComfyUI | Follow render queues and worker activity, and preview generated images. |
+| oMLX | Watch live decode speed and inference history, and manage loaded models. |
+| Ember Copper | View local workspaces, chats, plans, and usage. |
+| Run-DMD | Turn the screen into a pinball dot-matrix clock with selectable animation groups and clips. |
+| Everyday tools | Add local and world clocks, a focus timer, a scratchpad, or a widget backed by your own JSON endpoint. |
 
-The views and their static assets live in `widgets/views`. Workbench sends connection settings and credentials directly to the corresponding bundled collector. Each collector publishes display data into a private temporary directory. Opening the same feed in Settings and on the display shares its collector. Visited pages retain their views and histories while the dashboard stays open. Leaving the page conceals ComfyUI output. Quitting the app stops its collectors.
+### Connect a service
 
-## Create a plugin
+In **Widget Studio**, open the widget’s settings, choose **Add connection**, enter the server details, and select **Test**. Pick that connection in the layout inspector. Saved credentials are protected by the macOS Keychain. Existing installations retain their layouts and the Keychain item named **Edge Workbench Connections**.
 
-Open **Widget Studio → Create widget**, choose the Mac or JSON feed, and choose a field, label, unit, color and presentation (number, sparkline or list). Test the field, save the widget, then place it in Layouts. Export shares its package as a JSON file. Another user can install the package in Widget Studio and select their own connection. Updating an existing package ID preserves layout references.
+For Spotify playlists, search, and queue access, register `http://127.0.0.1:4848/callback` in your Spotify developer app. Select **Playlists → Connect Spotify** and enter the app’s Client ID. Allow system audio recording if you enable the spectrum analyzer. The Apple Music widget uses the Music app on this Mac. Allow macOS Automation access when prompted.
 
-A minimal package is:
+### Choose your Slack view
 
-```json
-{"apiVersion":1,"id":"plugin.free-memory","title":"Free memory","feed":"mac","field":"freeGiB","unit":"GiB","accent":"#c4f38f"}
-```
+Open a Slack widget’s settings in **Widget Studio** and choose **Create workspace app**. Install the preconfigured Slack app in your workspace, copy its **User OAuth Token** from **OAuth & Permissions**, and paste it into **Connect workspace**. All eleven Slack widgets share that connection.
+
+Use **Slack Workspace** for the full reader. For a split page, choose the widget that matches what you want to follow or control.
+
+| To… | Add |
+| --- | --- |
+| Catch up on conversations addressed to you | Mentions or Direct Messages |
+| Follow a channel, saved search, or single thread | Channel Watch, Keyword Watch, or Thread Monitor |
+| Open a channel’s pinned items or saved links | Channel Pins or Channel Bookmarks |
+| Find a coworker, set a timed status, or pause notifications | People Directory, My Status, or Quiet Hours |
+
+### Set up Mail & Calendar
+
+Add **Mail & Calendar** in Pages & layouts. Tap **Allow calendar access** on the widget. The agenda shows the next seven days from macOS EventKit. For calendars used in Spark, enable the same account under **System Settings → Internet Accounts → Calendars**. You can leave the Mail switch off.
+
+Use the swap button beside **Calendar** to choose which pane comes first. Each placement remembers its own order. On narrow tiles the panes stack. Tap **Calendars** to show or hide individual calendars grouped by account. Each widget placement remembers its selection. Tap a date to filter the agenda.
+
+In the **Inbox** pane, choose **Use Apple Mail** for the unified inbox, unread count, recent messages and compose. Approve the macOS Automation prompt to read inbox headers. Choose **Use Spark** to see the latest eight cached inbox messages and unread total across Spark accounts. Dashledge reads local message headers in read-only mode every 20 seconds while the mail view is visible. Tap a recent message to expand its header. Use pinned deep links to open specific conversations in Spark, or save recipients for one-tap compose. In Widget Studio you can switch clients or pin messages using Spark’s **Copy Deep Link** command.
+
+### Load a Run-DMD card
+
+Add **Run-DMD** to a page and tap the dot matrix to open its menu. Under **Animations**, load your own HDD Raw Copy Tool image (`.imgc`) or raw disk image (`.img`). Choose which groups can play, preview individual clips, or adjust the clock face, brightness, and playback interval. The original B134 animation artwork comes from the card you supply. The clock faces and panel effects are software recreations. Animation timing draws on [RunDMD-Utils](https://github.com/Pwedge/RunDMD-Utils).
+
+### Add your own widget
+
+Open **Widget Studio → Download example** for a ZIP containing a manifest, icon, and editing guide. Edit the package and use **Install package** to load it. Keep its package ID to update an existing widget.
 
 ## Development
 
-For frontend development with the Tauri CLI, run `npm ci` and `npm run dev`. Run `npm test` for the JavaScript and Rust tests.
+Dashledge uses Rust, Tauri, and system WebKit. The Mac app bundles Node for its collectors. For local development, install Rust, Xcode Command Line Tools, and an official standalone Node 24+ distribution, then run:
 
-### Build and install a release
+```sh
+npm ci
+npm run dev
+```
 
-On the signing Mac, with Rust, Xcode Command Line Tools and an official standalone Node 24+ distribution on PATH (or selected with `WIDGET_NODE`), run `./scripts/package-mac.sh`. It signs the app and its bundled Node runtime with the HORIZN INC Developer ID used by Ember, writes the ZIP under `dist/`, then replaces and opens `/Applications/Edge Workbench.app`. The installer verifies the staged copy before quitting a running dashboard and swapping the bundles.
+Run `npm test` for the JavaScript and Rust suites. To prepare a macOS bundle and sign it in a separate Terminal session:
 
-The signing script selects Hrizn’s public certificate name and team ID. The private key stays in the signing Mac’s Keychain. Local key exports and credential files are excluded from Git by default.
+```sh
+./scripts/package-mac.sh --prepare-only
+./scripts/sign-mac.sh "$PWD/dist/Dashledge.app"
+```
 
-To build and sign in separate sessions, run `./scripts/package-mac.sh --prepare-only`, then `./scripts/sign-mac.sh "dist/Edge Workbench.app"` in the signing session. To install an already signed bundle, run `swift scripts/install-mac.swift "dist/Edge Workbench.app"`. `SIGN_IDENTITY` selects a specific signing identity. `SIGN_IDENTITY=-` produces a local ad-hoc build in `dist/` and skips installation.
+The signing script signs the app and its bundled runtime, verifies them, creates the release ZIP, and installs and opens the app. If you built in a feature-specific output directory, pass the path to that directory’s app. For a personal build with a bundled Run-DMD card, set `RUNDMD_IMAGE` to your card image when preparing the bundle.
 
-This release is an early preview. The detailed [product plan](docs/PLAN.md) tracks the intended catalog, service parity and package runtime. The initial package format supports declarative widgets. The six service dashboards use their original presentation assets and the bundled collectors.
+## Upstream credit
 
-Based on [Edge Starter](https://github.com/joshsorenson/edge-starter), distributed under the MIT license.
+Dashledge began as a fork of **Josh Sorenson’s Edge Starter**. Its macOS HID touch handling and mapping of touch coordinates to the XENEON EDGE display form the basis of Dashledge’s touchscreen controls. The upstream MIT copyright and license are retained. You can also find the project links in **Settings → About**.
+
+[Dashledge on GitHub](https://github.com/dgruhin-hrizn/dashledge) · [Edge Starter on GitHub](https://github.com/joshsorenson/edge-starter) · [MIT license](LICENSE)

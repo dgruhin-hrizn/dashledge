@@ -2,8 +2,16 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Display photos from your chosen library or albums in Dashledge.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Show your upcoming meetings on the Dashledge display.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>Show your upcoming meetings on the Dashledge display.</string>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>Edge Workbench shows and controls what's playing in Spotify or Music.</string>
+	<string>Dashledge reads inbox headers when you enable Apple Mail and controls playback in Spotify or Music.</string>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>Dashledge measures Spotify or Music audio on this Mac to draw the live spectrum.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Connect to the dashboard servers you add in Settings.</string>
 	<key>LSUIElement</key>

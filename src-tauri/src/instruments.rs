@@ -5,12 +5,15 @@ use std::{
 };
 use sysinfo::{CpuExt, DiskExt, NetworkExt, System, SystemExt};
 extern "C" {
+    fn ew_apple_music(action: *const i8, value: *const i8, known: *const i8) -> *mut i8;
     fn ew_ember() -> *mut std::ffi::c_char;
     fn ew_extra_metrics() -> *mut std::ffi::c_char;
     fn ew_gpu() -> f64;
+    fn ew_music_spectrum(apple: bool, levels: *mut u8, wave: *mut u8) -> i32;
     fn ew_spotify(action: i32) -> *mut std::ffi::c_char;
     fn free(ptr: *mut std::ffi::c_void);
 }
+const SAMPLE_SECONDS: f64 = 0.85;
 struct Sampler {
     sys: System,
     last: Instant,
@@ -36,7 +39,7 @@ pub fn read_metrics() -> Value {
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     let elapsed = state.last.elapsed().as_secs_f64();
-    if elapsed < 0.85 && !state.value.is_null() {
+    if elapsed < SAMPLE_SECONDS && !state.value.is_null() {
         return state.value.clone();
     }
     // The first refresh establishes network counters. There is no elapsed sampling
@@ -83,8 +86,13 @@ pub fn read_metrics() -> Value {
         "rx":rx,"tx":tx,"disks":disks,"uptime":sys.uptime(),"os":sys.os_version(),
         "model":sys.cpus().first().map(|c|c.brand()),"host":sys.host_name()
     });
-    state.history.push_back(json!({"at":now,"cpu":cpu,"gpu":gpu,"rx":rx,"tx":tx}));
-    while state.history.front().is_some_and(|v|v["at"].as_i64().unwrap_or(0)<now-90_000) {
+    let memory=(sys.total_memory()>0).then(||100.0*sys.used_memory() as f64/sys.total_memory() as f64);
+    let volumes:serde_json::Map<String,Value>=sys.disks().iter().filter(|d|d.total_space()>0).map(|d|{
+        let used=d.total_space().saturating_sub(d.available_space());
+        (d.mount_point().to_string_lossy().into_owned(),json!(100.0*used as f64/d.total_space() as f64))
+    }).collect();
+    state.history.push_back(json!({"at":now,"memory":memory,"volumes":volumes,"cpu":cpu,"gpu":gpu,"rx":rx,"tx":tx}));
+    while state.history.front().is_some_and(|v|v["at"].as_i64().unwrap_or(0)<now-93_000) {
         state.history.pop_front();
     }
     snapshot["history"]=json!(state.history);
@@ -93,8 +101,42 @@ pub fn read_metrics() -> Value {
 }
 
 #[tauri::command]
+pub async fn spotify_spectrum(waveform: Option<bool>, apple: Option<bool>) -> Result<Vec<u8>, String> {
+    tauri::async_runtime::spawn_blocking(move ||{
+        let mut levels = vec![0; 32];
+        let mut samples = [128; 256];
+        let capture_wave = waveform.unwrap_or(false);
+        let wave = if capture_wave { samples.as_mut_ptr() } else { std::ptr::null_mut() };
+        match unsafe {ew_music_spectrum(apple.unwrap_or(false),levels.as_mut_ptr(),wave)} {
+            0=>{
+                if capture_wave { levels.extend_from_slice(&samples); }
+                Ok(levels)
+            },
+            1=>Err(format!("Play {} audio on this Mac.", if apple.unwrap_or(false) {"Apple Music"} else {"Spotify"})),
+            3=>Err("Spectrum requires macOS 14.2 or newer.".into()),
+            _=>Err("Check System Audio Recording access for Dashledge in Privacy & Security.".into()),
+        }
+    }).await.map_err(|_|"Spectrum interrupted.")?
+}
+
+#[tauri::command]
+pub async fn apple_music(action: String, value: Option<String>, known: Option<String>) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use std::ffi::{CString, CStr};
+        let arg = |s| CString::new(s).map_err(|_| "Invalid Music argument");
+        let ptr = unsafe { ew_apple_music(arg(action)?.as_ptr(), arg(value.unwrap_or_default())?.as_ptr(), arg(known.unwrap_or_default())?.as_ptr()) };
+        if ptr.is_null() { return Err("Music unavailable".into()); }
+        let result = unsafe { serde_json::from_slice::<Value>(CStr::from_ptr(ptr).to_bytes()) };
+        unsafe { free(ptr.cast()) };
+        let result = result.map_err(|_| "Invalid Music response")?;
+        if let Some(message) = result["error"].as_str() { return Err(message.to_owned()); }
+        Ok(result)
+    }).await.map_err(|_| "Music request interrupted")?
+}
+
+#[tauri::command]
 pub fn spotify(action: u8) -> Result<Value, String> {
-    if action > 3 {
+    if action > 5 {
         return Err("Unknown transport action".into());
     }
     let ptr = unsafe { ew_spotify(action.into()) };
@@ -128,7 +170,7 @@ mod tests {
         assert!(sample["disks"].is_array() && sample["interfaces"].is_array());
         assert!(sample["rx"].is_null() && sample["tx"].is_null(),"startup has no traffic interval");
         assert!(sample["history"][0]["tx"].is_null());
-        std::thread::sleep(std::time::Duration::from_millis(900));
+        std::thread::sleep(std::time::Duration::from_secs_f64(SAMPLE_SECONDS + 0.05));
         let next=read_metrics();
         assert!(next["rx"].as_f64().is_some_and(|v|v>=0.0));
         assert!(next["tx"].as_f64().is_some_and(|v|v>=0.0));

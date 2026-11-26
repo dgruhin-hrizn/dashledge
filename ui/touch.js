@@ -35,7 +35,8 @@
   }
   function track(g,x,y){
     const dx=x-g.x,dy=y-g.y;
-    if(!g.axis&&Math.hypot(dx,dy)>slop){
+    const tolerance=g.pressed?.matches?.('.sp-controls button') ? Math.min(24,g.pressed.clientWidth/3) : slop;
+    if(!g.axis&&Math.hypot(dx,dy)>tolerance){
       g.axis=Math.abs(dx)>Math.abs(dy)?'x':'y';
       g.pressed?.classList.remove('edge-pressed');
       const room=dx<0?g.left<g.max-1:g.left>1;
@@ -64,6 +65,19 @@
       clientX:point.x, clientY:point.y, buttons:type === 'pointerdown' ? 1 : 0,
     }));
   }
+  // Synthetic HID pointer events do not run the browser's native range drag.
+  function rangeTouch(range,x,commit){
+    const rect=range.getBoundingClientRect();
+    const [left]=rootPoint(range.ownerDocument,rect.left,rect.top);
+    const [right]=rootPoint(range.ownerDocument,rect.right,rect.top);
+    if(right<=left)return;
+    const fraction=Math.min(1,Math.max(0,(x-left)/(right-left)));
+    const min=Number(range.min),max=Number(range.max),step=Number(range.step)||1;
+    range.value=min+Math.round(fraction*(max-min)/step)*step;
+    const Event=range.ownerDocument.defaultView.Event;
+    range.dispatchEvent(new Event('input',{bubbles:true}));
+    if(commit)range.dispatchEvent(new Event('change',{bubbles:true}));
+  }
   window.__edgeTouch = (kind, x, y) => {
     const point = hit(x,y);
     window.dispatchEvent(new CustomEvent('edgetouch', {detail:{kind,x,y}}));
@@ -71,11 +85,19 @@
       const pressed = point.target?.closest("button,a,label,summary,[role=button],input,textarea");
       pressed?.classList.add('edge-pressed');
       gesture = begin(point,x,y);gesture.pressed=pressed;
+      if(pressed?.matches?.('input[type=range][data-edge-range]')&&!pressed.disabled){
+        gesture.range=pressed;rangeTouch(pressed,x,false);return;
+      }
       pointer('pointerdown',point);
       return;
     }
     const g = gesture;
     if (!g) return;
+    if(g.range){
+      if(g.range.isConnected&&!g.range.disabled)rangeTouch(g.range,x,kind==='up');
+      if(kind==='up'){g.range.classList.remove('edge-pressed');gesture=null}
+      return;
+    }
     track(g,x,y);
     if (kind === 'move') {
       if (g.axis === 'x'&&!g.page) g.scrollX?.scrollBy(g.lastX-x,0);

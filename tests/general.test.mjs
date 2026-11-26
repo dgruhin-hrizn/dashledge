@@ -38,14 +38,14 @@ test('system readouts keep a fixed precision across digit and rate-unit boundari
     const m=measurement(n,'rate');assert.equal(m.integer,i);assert.equal(m.unit,unit);
   }
 });
-test('readouts settle in 800ms, retarget from the shown value, and resume at the latest sample',()=>{
+test('readouts settle in one second, retarget from the shown value, and resume at the latest sample',()=>{
   let time=0,next=null,shown,motion=false;
   const run=animateReading(n=>{shown=n},{now:()=>time,request:cb=>{next=cb;return 1},cancel:()=>{next=null},immediate:()=>motion});
   const tick=t=>{time=t;const cb=next;next=null;cb?.(time)};
   run.update(9,'percent');assert.equal(shown,9);
-  time=100;run.update(100,'percent');tick(500);assert.equal(shown,54.5);
-  run.update(0,'percent');tick(900);assert.equal(shown,27.25);tick(1300);assert.equal(shown,0);assert.equal(next,null);
-  time=4000;run.update(81,'percent');assert.equal(shown,81);motion=true;run.update(15,'percent');assert.equal(shown,15);
+  time=100;run.update(100,'percent');tick(600);assert.equal(shown,54.5);
+  run.update(0,'percent');tick(1100);assert.equal(shown,27.25);tick(1600);assert.equal(shown,0);assert.equal(next,null);
+  time=8000;run.update(81,'percent');assert.equal(shown,81);motion=true;run.update(15,'percent');assert.equal(shown,15);
   run.update(null,'percent');assert.equal(shown,null);
 });
 
@@ -61,7 +61,7 @@ test('Edge and preview use the same Zurface scale and map HID taps back to the w
       vertical=portrait;
       const [cw,ch]=dimensions(vertical),events=[];
       const screen={style:{},dataset:{},clientWidth:w,clientHeight:h};
-      const frame={style:{},clientWidth:cw,clientHeight:ch,getBoundingClientRect:()=>({left:18,top:42,right:w+18,bottom:h+42,width:w,height:h}),contentWindow:{__edgeTouch:(...args)=>events.push(args)}};
+      const frame={style:{},hasAttribute:()=>false,addEventListener(){},removeEventListener(){},clientWidth:cw,clientHeight:ch,getBoundingClientRect:()=>({left:18,top:42,right:w+18,bottom:h+42,width:w,height:h}),contentWindow:{__edgeTouch:(...args)=>events.push(args)}};
       const dispose=fitDashboard(screen,frame,true),touch=displayTouch(frame);
       assert.equal(frame.style.width,cw+'px');assert.equal(frame.style.height,ch+'px');assert.equal(frame.style.transform,'translate(-50%,-50%) scale('+ratio+')');
       touch('down',18+w/4,42+h/2);touch('up',18+w/4,42+h/2);
@@ -70,5 +70,40 @@ test('Edge and preview use the same Zurface scale and map HID taps back to the w
       touch('down',18+w/4,42+h/2);touch('move',18+w/2,42+h/2);touch('up',w+20,42+h/2);
       assert.equal(events.at(-1)[0],'up');dispose();
     }
+  }finally{for(const [k,v] of Object.entries(before)){if(v===undefined)delete globalThis[k];else globalThis[k]=v}}
+});
+
+test('standalone Spotify fills a non-reference viewport and a split page restores the reference canvas',async()=>{
+  const {fitDashboard}=await import('../ui/general.js');
+  const before={localStorage:globalThis.localStorage,window:globalThis.window,ResizeObserver:globalThis.ResizeObserver};
+  globalThis.localStorage={getItem:()=>null};
+  globalThis.window=new EventTarget();
+  globalThis.ResizeObserver=class{observe(){}disconnect(){}};
+  try{
+    const screen={style:{},dataset:{},clientWidth:1440,clientHeight:540};
+    const frame=new EventTarget();
+    let solo=false;
+    frame.hasAttribute=name=>solo&&name==='data-full-spotify';
+    frame.style={};
+    const dispose=fitDashboard(screen,frame,true);
+    solo=true;frame.dispatchEvent(new Event('dashboardfit'));
+    assert.deepEqual([frame.style.width,frame.style.height],['1920px','720px']);
+    solo=false;frame.dispatchEvent(new Event('dashboardfit'));
+    assert.deepEqual([frame.style.width,frame.style.height],['1920px','540px']);
+    let visualizerOpen=true;
+    frame.contentDocument={querySelector:selector=>visualizerOpen&&selector==='.sp-visualizer[open]'};
+    frame.dispatchEvent(new Event('dashboardfit'));
+    assert.deepEqual([frame.style.width,frame.style.height],['1920px','720px']);
+    visualizerOpen=false;frame.dispatchEvent(new Event('dashboardfit'));
+    assert.deepEqual([frame.style.width,frame.style.height],['1920px','540px']);
+    frame.hasAttribute=name=>name==='data-native-viewport';
+    for(const [width,height] of [[2560,720],[2048,576],[720,2560],[731,309]]){
+      screen.clientWidth=width;screen.clientHeight=height;frame.dispatchEvent(new Event('dashboardfit'));
+      assert.deepEqual([frame.style.width,frame.style.height,frame.style.left,frame.style.top,frame.style.transform],
+        [width+'px',height+'px','0','0','none']);
+    }
+    frame.hasAttribute=()=>false;frame.dispatchEvent(new Event('dashboardfit'));
+    assert.deepEqual([frame.style.left,frame.style.top,frame.style.width,frame.style.height],['','','1920px','540px']);
+    dispose();
   }finally{for(const [k,v] of Object.entries(before)){if(v===undefined)delete globalThis[k];else globalThis[k]=v}}
 });

@@ -1,4 +1,5 @@
 import {makePage, slot, titles} from './model.js';
+import {defaultSource,installed} from './widget-catalog.js';
 import {button, el} from './common.js';
 
 export function appendPage(config){
@@ -10,10 +11,10 @@ export function appendPage(config){
   return page;
 }
 
-export function assignWidget(config,kind){
+export function assignWidget(config,kind,previous){
   const instance=slot(kind);
-  const feed=config.plugins.find(plugin=>plugin.id===kind)?.feed||kind;
-  instance.source=config.sources.find(s=>s.kind===feed)?.id||'';
+  if(previous)instance.id=previous.id;
+  instance.source=defaultSource(config,kind);
   return instance;
 }
 
@@ -24,7 +25,7 @@ export function pickWidget(config, choose){
   head.append(el('h2','','Add widget'),button('Cancel',()=>dlg.close()));
   const options=el('div','catalog');
   for(const [kind,name] of [...Object.entries(titles),...config.plugins.map(p=>[p.id,p.title])]){
-    if(kind==='empty')continue;
+    if(!installed(config,kind))continue;
     options.append(button(name,()=>{choose(kind);dlg.close()}));
   }
   dlg.append(head,options);

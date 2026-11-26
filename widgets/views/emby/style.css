@@ -101,3 +101,5 @@ footer #viewers,footer #library{max-width:30%;flex:none}
 #wall.carousel .poster-hit{top:calc(.35rem + 46px);height:calc(100% - .35rem - 46px)}
 #wall-controls{inset-block-start:.35rem}
 .card:has(.poster-hit:focus-visible){outline:2px solid var(--green);outline-offset:-3px}
+
+#wall-controls button svg{display:block;width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}

@@ -17,7 +17,6 @@
 .widget-picker,#picker{width:min(720px,92vw);max-height:89vh;overflow:auto}
 .picker-head{display:flex;align-items:center;justify-content:space-between;gap:1em;margin-bottom:.7em}
 .widget-picker button,#picker button,.add-widget{min-height:44px}.add-widget{flex:1;align-self:stretch;border-style:dashed;color:var(--lime)}
-.import-issue{color:#efbc8c}
 
 .tile.original-widget {display:block;position:relative;padding:0;overflow:hidden;background:#101317;border:0}
 .original-frame {display:block;width:100%;height:100%;border:0}
@@ -32,3 +31,6 @@
 #tiles {display:grid;grid-template: minmax(0,1fr) / minmax(0,1fr)}
 .tile-grid {display:grid;grid-area:1/1;min-height:0;min-width:0;gap:.6em}
 .tile-grid[hidden] {display:none}
+
+/* The physical display supplies the frame on single-widget pages. */
+.dashboard .tile-grid > .tile:only-child{border:0;border-radius:0;box-shadow:none}

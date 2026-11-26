@@ -1,0 +1,113 @@
+#import <Photos/Photos.h>
+#import <AppKit/AppKit.h>
+#import <objc/message.h>
+
+// Shared Album assets and iCloud Shared Photo Library membership are distinct.
+// macOS exposes the latter through optional PhotoKit selectors. Always check
+// for them and keep a failed shared-only request scoped to that source.
+static BOOL sharedSupported(void) {
+    return [NSClassFromString(@"PHLibraryScope") respondsToSelector:NSSelectorFromString(@"fetchActiveLibraryScopeWithOptions:")] &&
+           [PHAsset respondsToSelector:NSSelectorFromString(@"fetchAssetsInLibraryScope:options:")];
+}
+static NSDictionary *failure(NSString *message){return @{@"error":message};}
+static NSString *accessState(void){
+    switch([PHPhotoLibrary authorizationStatusForAccessLevel:PHAccessLevelReadWrite]){
+        case PHAuthorizationStatusAuthorized: case PHAuthorizationStatusLimited:return @"allowed";
+        case PHAuthorizationStatusNotDetermined:return @"unknown";
+        default:return @"denied";
+    }
+}
+static NSDictionary *catalog(BOOL ask){
+    if(ask && [accessState() isEqual:@"unknown"]){
+        dispatch_semaphore_t done=dispatch_semaphore_create(0);
+        [PHPhotoLibrary requestAuthorizationForAccessLevel:PHAccessLevelReadWrite handler:^(PHAuthorizationStatus status){(void)status;dispatch_semaphore_signal(done);}];
+        dispatch_semaphore_wait(done,dispatch_time(DISPATCH_TIME_NOW,120*NSEC_PER_SEC));
+    }
+    NSString *access=accessState();
+    NSMutableArray *albums=[NSMutableArray array];
+    if([access isEqual:@"allowed"]){
+        for(PHAssetCollection *album in [PHAssetCollection fetchAssetCollectionsWithType:PHAssetCollectionTypeAlbum subtype:PHAssetCollectionSubtypeAny options:nil]){
+            [albums addObject:@{@"id":album.localIdentifier,@"name":album.localizedTitle?:@"Untitled album",@"shared":@(album.assetCollectionSubtype==PHAssetCollectionSubtypeAlbumCloudShared)}];
+        }
+    }
+    return @{@"access":access,@"albums":albums,@"sharedSupported":@(sharedSupported())};
+}
+static NSDictionary *selection(NSDictionary *args){
+    PHFetchOptions *opts=[PHFetchOptions new];
+    opts.predicate=[NSPredicate predicateWithFormat:@"mediaType == %d",PHAssetMediaTypeImage];
+    NSString *source=args[@"source"];
+    NSMutableArray *groups=[NSMutableArray array];
+    if([source isEqual:@"albums"]){
+        opts.includeAssetSourceTypes=PHAssetSourceTypeUserLibrary|PHAssetSourceTypeCloudShared|PHAssetSourceTypeiTunesSynced;
+        for(PHAssetCollection *album in [PHAssetCollection fetchAssetCollectionsWithLocalIdentifiers:args[@"albums"] options:nil]){
+            [groups addObject:[PHAsset fetchAssetsInAssetCollection:album options:opts]];
+        }
+    }else if([source isEqual:@"shared"]){
+        if(!sharedSupported())return failure(@"Shared Library selection is unavailable on this version of macOS.");
+        id scope=((id(*)(id,SEL,id))objc_msgSend)(NSClassFromString(@"PHLibraryScope"),NSSelectorFromString(@"fetchActiveLibraryScopeWithOptions:"),nil);
+        if([scope isKindOfClass:PHFetchResult.class])scope=[scope firstObject];
+        if(scope){
+            if(![scope isKindOfClass:NSClassFromString(@"PHLibraryScope")])return failure(@"Cannot identify the active Shared Library.");
+            id assets=((id(*)(id,SEL,id,id))objc_msgSend)(PHAsset.class,NSSelectorFromString(@"fetchAssetsInLibraryScope:options:"),scope,opts);
+            if(assets)[groups addObject:assets];
+        }
+    }else if([source isEqual:@"library"]){
+        [groups addObject:[PHAsset fetchAssetsWithOptions:opts]];
+    }else return failure(@"Unknown photo source.");
+    NSMutableArray *result=[NSMutableArray array];
+    NSMutableSet *seen=[NSMutableSet set];
+    NSMutableArray *samplers=[NSMutableArray array];
+    for(PHFetchResult *group in groups){
+        if(group.count)[samplers addObject:[@{@"group":group,@"left":@(group.count),@"indices":[NSMutableDictionary dictionary]} mutableCopy]];
+    }
+    // Randomly interleave albums, sampling each without replacement.
+    while(samplers.count && result.count<64){
+        NSUInteger g=arc4random_uniform((uint32_t)samplers.count);
+        NSMutableDictionary *sampler=samplers[g],*indices=sampler[@"indices"];
+        NSUInteger left=[sampler[@"left"] unsignedIntegerValue],pick=arc4random_uniform((uint32_t)left);
+        NSNumber *index=indices[@(pick)]?:@(pick);
+        indices[@(pick)]=indices[@(left-1)]?:@(left-1);
+        sampler[@"left"]=@(left-1);
+        PHAsset *asset=[sampler[@"group"] objectAtIndex:index.unsignedIntegerValue];
+        if(left==1)[samplers removeObjectAtIndex:g];
+        if(asset.hidden || asset.mediaType!=PHAssetMediaTypeImage || [seen containsObject:asset.localIdentifier])continue;
+        [seen addObject:asset.localIdentifier];
+        [result addObject:@{@"id":asset.localIdentifier,@"w":@(asset.pixelWidth),@"h":@(asset.pixelHeight),@"date":@(asset.creationDate.timeIntervalSince1970)}];
+    }
+    return @{@"assets":result};
+}
+static NSDictionary *thumbnail(NSString *identifier){
+    PHFetchOptions *fetch=[PHFetchOptions new];
+    fetch.includeAssetSourceTypes=PHAssetSourceTypeUserLibrary|PHAssetSourceTypeCloudShared|PHAssetSourceTypeiTunesSynced;
+    PHAsset *asset=[PHAsset fetchAssetsWithLocalIdentifiers:@[identifier] options:fetch].firstObject;
+    if(!asset||asset.hidden||asset.mediaType!=PHAssetMediaTypeImage)return failure(@"Photo unavailable.");
+    PHImageRequestOptions *opts=[PHImageRequestOptions new];
+    opts.networkAccessAllowed=YES;opts.deliveryMode=PHImageRequestOptionsDeliveryModeHighQualityFormat;
+    opts.resizeMode=PHImageRequestOptionsResizeModeFast;
+    dispatch_semaphore_t done=dispatch_semaphore_create(0);
+    __block NSImage *image=nil;
+    PHImageManager *manager=PHImageManager.defaultManager;
+    PHImageRequestID request=[manager requestImageForAsset:asset targetSize:CGSizeMake(1600,900) contentMode:PHImageContentModeAspectFit options:opts resultHandler:^(NSImage *value,NSDictionary *info){
+        if([info[PHImageResultIsDegradedKey] boolValue])return;
+        image=value;dispatch_semaphore_signal(done);
+    }];
+    if(dispatch_semaphore_wait(done,dispatch_time(DISPATCH_TIME_NOW,25*NSEC_PER_SEC))){[manager cancelImageRequest:request];return failure(@"iCloud photo download timed out.");}
+    if(!image)return failure(@"Photo could not be loaded.");
+    CGImageRef cg=[image CGImageForProposedRect:NULL context:nil hints:nil];
+    NSData *data=cg?[[[NSBitmapImageRep alloc] initWithCGImage:cg] representationUsingType:NSBitmapImageFileTypeJPEG properties:@{NSImageCompressionFactor:@0.85}]:nil;
+    return data?@{@"image":[@"data:image/jpeg;base64," stringByAppendingString:[data base64EncodedStringWithOptions:0]]}:failure(@"Photo could not be decoded.");
+}
+char *dash_photos(const char *json){
+    @autoreleasepool{
+        NSDictionary *response=nil;
+        @try{
+            NSDictionary *args=[NSJSONSerialization JSONObjectWithData:[[NSString stringWithUTF8String:json] dataUsingEncoding:NSUTF8StringEncoding] options:0 error:nil];
+            if([args[@"action"] isEqual:@"catalog"])response=catalog([args[@"ask"] boolValue]);
+            else if(![accessState() isEqual:@"allowed"])response=failure(@"Allow Photos access in System Settings → Privacy & Security → Photos.");
+            else if([args[@"action"] isEqual:@"select"])response=selection(args);
+            else response=thumbnail(args[@"id"]);
+        }@catch(NSException *exception){response=failure(@"Photos could not read this selection.");}
+        NSData *data=[NSJSONSerialization dataWithJSONObject:response options:0 error:nil];
+        return strdup([[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] UTF8String]?:"{}");
+    }
+}

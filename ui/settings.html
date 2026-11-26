@@ -3,18 +3,34 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Edge Workbench Settings</title>
+  <title>Dashledge Settings</title>
   <link rel="stylesheet" href="workbench.css">
   <link rel="stylesheet" href="settings.css">
   <link rel="stylesheet" href="preview.css">
-</head>
+<link rel="stylesheet" href="rundmd/widget.css"><link rel="stylesheet" href="photos.css"><link rel="stylesheet" href="mac-shortcuts.css"><link rel="stylesheet" href="scrollbars.css"></head>
 <body class="settings">
   <aside class="side">
-    <div class="wordmark"><span id="brand-icon"></span><strong>Edge Workbench</strong></div>
+    <div class="wordmark"><img class="brand-mark" src="dashledge-icon.png" width="30" height="30" alt=""><strong>Dashledge</strong></div>
     <nav id="nav" aria-label="Settings"></nav>
     <div class="hardware-status"><span class="lamp"></span><div><strong>XENEON EDGE</strong><small id="device-status">Detecting display…</small></div></div>
+    <small id="app-version"></small>
   </aside>
   <main id="editor"></main>
+  <template id="about-page">
+    <header class="admin-heading"><h1>About Dashledge</h1></header>
+    <section class="panel about-panel">
+      <img src="dashledge-icon.png" width="80" height="80" alt="">
+      <h2>Put it on the ledge.</h2>
+      <p>Dashledge turns your CORSAIR XENEON EDGE into a touch dashboard for Mac. Arrange music controls, system metrics, and connected services into pages you can swipe through.</p>
+      <a href="https://github.com/dgruhin-hrizn/dashledge">Dashledge on GitHub</a>
+    </section>
+    <section class="panel about-panel">
+      <h2>Upstream credit</h2>
+      <p>Dashledge began as a fork of Josh Sorenson’s Edge Starter. Its macOS HID touch handling and display coordinate mapping are the foundation of Dashledge’s touch controls.</p>
+      <a href="https://github.com/joshsorenson/edge-starter">Edge Starter on GitHub</a>
+      <p class="sub">MIT License · Copyright © 2026 Josh Sorenson</p>
+    </section>
+  </template>
   <div role="status" id="notice"></div>
   <script type="module" src="editor.js"></script>
 </body>

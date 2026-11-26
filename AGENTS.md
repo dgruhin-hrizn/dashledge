@@ -19,3 +19,9 @@ Render new full-screen widgets directly at the Edge or preview window’s actual
 - In `ui/dashboard.js`, route the standalone widget through `data-native-viewport`. The shared `fitDashboard` in `ui/general.js` sets the frame to the destination width and height, positions it at the origin, and clears the scaling transform. Embedded widget frames should fill that viewport. Let the browser handle display pixel density.
 - Full-screen pages are edge-to-edge, with zero outer border and corner radius. When switching to a split page, restore its existing reference-canvas layout.
 - When changing widget sizing, verify through both `edge.html` and `preview.html`. At 2560 × 720, check that the dashboard and any full-screen inner frame measure 2560 × 720 CSS pixels for a host of that size, have no scaling transform, and receive taps at the displayed control coordinates. Also check a resized preview and the transition back to a split page.
+
+## Touch keyboard
+
+Use Spotify’s full-screen search keyboard for text entry on the Dashledge touch display. Open it with `openTouchKeyboard` from `ui/search-keyboard.js`. Spotify, Apple Music, and Slack share this entry point and the keyboard sheet styles in `ui/spotify.css`.
+
+Keep the input and task content on the left and the four-row keyboard on the right on the Edge. Preserve Shift, symbols, Backspace, Space, caret and selection editing, physical keyboard input, and touch targets of at least 44 CSS pixels on the Edge. Give the primary key the action’s name, such as Search or Follow. When changing the keyboard, exercise a touch submission and a physical Enter submission through a consuming widget.

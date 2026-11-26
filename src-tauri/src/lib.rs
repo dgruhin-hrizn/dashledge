@@ -14,13 +14,20 @@
 //! Your UI lives in `ui/`. Start there.
 
 mod connections;
+mod rundmd;
 mod instruments;
+mod spotify_queue;
+mod oauth_callback;
+mod slack;
+mod google_desk;
+mod mac_shortcuts;
+mod photos;
 mod general;
-mod migration;
 mod touch;
 mod transcript;
 mod tray;
 mod widget_host;
+mod widget_package;
 mod vault;
 
 use std::{path::PathBuf, sync::OnceLock, time::Duration};
@@ -177,14 +184,25 @@ fn move_to_display(app:tauri::AppHandle,window:WebviewWindow)->Result<(),String>
     set_edge_output(window,app,true)
 }
 #[tauri::command]
+fn open_project_link(url: String) -> Result<(), String> {
+    match url.as_str() {
+        "https://github.com/dgruhin-hrizn/dashledge" |
+        "https://github.com/joshsorenson/edge-starter" => {
+            std::process::Command::new("/usr/bin/open").arg(url).spawn()
+                .map(|_| ()).map_err(|error| error.to_string())
+        }
+        _ => Err("Unknown project link".into()),
+    }
+}
+#[tauri::command]
 fn release_page()->Result<(),String>{
-    std::process::Command::new("/usr/bin/open").arg("https://github.com/dgruhin-hrizn/edge-workbench/releases")
+    std::process::Command::new("/usr/bin/open").arg("https://github.com/dgruhin-hrizn/dashledge/releases")
         .spawn().map(|_|()).map_err(|e|e.to_string())
 }
 fn ensure_main(app:&tauri::AppHandle)->Result<(),String>{
     if app.get_webview_window("main").is_none(){
         WebviewWindowBuilder::new(app,"main",WebviewUrl::App("edge.html".into()))
-            .on_web_resource_request(widget_host::serve).title("Edge Workbench").decorations(false)
+            .on_web_resource_request(widget_host::serve).title("Dashledge").decorations(false)
             .background_color(tauri::window::Color(0,0,0,255)).visible(false).build().map_err(|e|e.to_string())?;
     }
     Ok(())
@@ -224,8 +242,10 @@ fn open_settings(app: tauri::AppHandle) -> Result<(), String> {
     }
     WebviewWindowBuilder::new(&app, "settings", WebviewUrl::App("settings.html".into()))
         .on_web_resource_request(widget_host::serve)
-        .title("Edge Workbench Settings")
-        .inner_size(1060., 680.)
+        .title("Dashledge Settings")
+        // The preferred 1377 × 820 pt frame has a 33 pt Settings title bar.
+        .inner_size(1377., 787.)
+        .prevent_overflow()
         .build()
         .map(|_| ())
         .map_err(|e| e.to_string())
@@ -240,7 +260,9 @@ pub fn run() {
         ))
         .invoke_handler(tauri::generate_handler![
             general::preview_control, general::open_preview, general::general_settings, general::save_general, general::check_release,
-            release_page, retry_touch, move_to_display,
+            open_project_link, release_page, retry_touch, move_to_display,
+            rundmd::rundmd_catalog, rundmd::rundmd_import, rundmd::rundmd_clip, rundmd::rundmd_has_default,
+            widget_package::read_widget_package, widget_package::save_widget_example,
             vault::unlock_connections,
             vault::recover_credential,
             widget_host::widget_open,
@@ -253,7 +275,28 @@ pub fn run() {
             transcript::ember_transcript,
             instruments::read_metrics,
             instruments::spotify,
-            migration::import_zurface_connections,
+            instruments::spotify_spectrum,
+            instruments::apple_music,
+            spotify_queue::spotify_play_playlist,
+            spotify_queue::spotify_play_queue_track,
+            spotify_queue::spotify_player,
+            spotify_queue::spotify_panel,
+            spotify_queue::spotify_detail,
+            spotify_queue::spotify_catalog_link,
+            slack::slack_connect,
+            slack::slack_feed,
+            slack::slack_control,
+            slack::slack_open,
+            google_desk::desk_spark_inbox,
+            google_desk::desk_mail,
+            google_desk::desk_calendar,
+            google_desk::desk_open,
+            photos::photos_read,
+            mac_shortcuts::mac_shortcuts_list,
+            mac_shortcuts::mac_shortcut_run,
+            spotify_queue::spotify_connect,
+            spotify_queue::spotify_queue,
+            spotify_queue::spotify_playlists,
             connections::set_secret,
             connections::source_read,
             connections::widget_source_read,
@@ -338,7 +381,7 @@ pub fn run() {
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("error while building Edge Workbench")
+        .expect("error while building Dashledge")
         .run(|_, event| {
             if matches!(event, tauri::RunEvent::Exit) {
                 widget_host::shutdown();

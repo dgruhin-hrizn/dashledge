@@ -257,7 +257,7 @@ fn resource(id: &str, path: &str) -> Option<(Vec<u8>, &'static str)> {
         let html = fs::read_to_string(file).ok()?;
         html.replacen(
             "<head>",
-            "<head><script src=\"/widget-bridge.js\"></script>",
+            "<head><link rel=\"stylesheet\" href=\"/scrollbars.css\"><script src=\"/widget-bridge.js\"></script>",
             1,
         )
         .into_bytes()
@@ -267,6 +267,19 @@ fn resource(id: &str, path: &str) -> Option<(Vec<u8>, &'static str)> {
     Some((data, mime))
 }
 pub fn serve(req: Request<Vec<u8>>, res: &mut Response<Cow<'static, [u8]>>) {
+    if let Some(kind) = req.uri().path().strip_prefix("/widget-icon/") {
+        let (bytes, mime): (&[u8], _) = match kind {
+            "ember" => (include_bytes!("../../widgets/views/ember/ember-mark.png"), "image/png"),
+            "proxmox" => (include_bytes!("../../widgets/views/proxmox/icon.svg"), "image/svg+xml"),
+            "emby" => (include_bytes!("../../widgets/views/emby/icon.svg"), "image/svg+xml"),
+            "omlx" => (include_bytes!("../../widgets/views/omlx/omlx-icon.svg"), "image/svg+xml"),
+            "unraid" => (include_bytes!("../../widgets/views/unraid/unraid.svg"), "image/svg+xml"),
+            "comfy" => (include_bytes!("../../widgets/views/comfy/comfy-icon.svg"), "image/svg+xml"),
+            _ => return,
+        };
+        *res = Response::builder().header("Content-Type", mime).body(Cow::Borrowed(bytes)).unwrap();
+        return;
+    }
     let Some(route) = req.uri().path().strip_prefix("/widget-view/") else {
         return;
     };

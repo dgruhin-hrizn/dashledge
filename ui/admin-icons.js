@@ -1,5 +1,6 @@
 // Shared 20-point outline icons for Settings. All geometry is app-owned.
 const paths={
+ info:'M10 2a8 8 0 1 1 0 16a8 8 0 1 1 0-16 M10 9v5 M10 6v.5',
  general:'M2 5h9 M15 5h3 M12 3v4h3V3z M2 15h3 M9 15h9 M5 13v4h4v-4z',
  brand:'M2 6.5h16v9H2z M5 9h3v4H5z M11 9h4 M11 12h4',
  pages:'M2 4h16v12H2z M8 4v12 M8 10h10',

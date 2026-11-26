@@ -1,0 +1,17 @@
+// Only request the headers used by the desk display.
+const mail = Application('com.apple.mail');
+const inbox = mail.inbox;
+const count = Math.min(inbox.messages.length, 6);
+const items = [];
+for (let index = 0; index < count; index++) {
+    const message = inbox.messages[index];
+    const id = message.messageId();
+    items.push({
+        subject: message.subject() || '(No subject)',
+        sender: message.sender() || 'Unknown sender',
+        received: message.dateReceived().getTime(),
+        unread: !message.readStatus(),
+        link: id ? 'message://' + encodeURIComponent('<' + id.replace(/^<|>$/g, '') + '>') : 'apple-mail'
+    });
+}
+JSON.stringify({unread: inbox.unreadCount(), items});

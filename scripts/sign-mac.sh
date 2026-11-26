@@ -1,11 +1,11 @@
 #!/bin/bash
-# Sign a prepared Workbench bundle using the Hrizn identity also used by Ember.
+# Sign a prepared Dashledge bundle using the Hrizn identity also used by Ember.
 set -euo pipefail
-bundle="${1:?Pass the path to Edge Workbench.app}"
+bundle="${1:?Pass the path to Dashledge.app}"
 project="$(cd "$(dirname "$0")/.." && pwd)"
 contents="$bundle/Contents"
 plist="$contents/Info.plist"
-[[ "$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$plist")" == dev.edgeworkbench.desktop ]] || { echo 'Expected an Edge Workbench app bundle.' >&2; exit 1; }
+[[ "$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$plist")" == dev.edgeworkbench.desktop ]] || { echo 'Expected a Dashledge app bundle.' >&2; exit 1; }
 identity="${SIGN_IDENTITY:-${EMBER_SIGN_IDENTITY:-}}"
 if [[ -z "$identity" ]]; then
   identity="$(/usr/bin/security find-identity -v -p codesigning | awk '/"Developer ID Application: HORIZN INC \(K5K2SPTZVV\)"/ && !found {print $2; found=1}')"
@@ -19,8 +19,12 @@ if [[ "$identity" == '-' ]]; then timestamp=--timestamp=none; fi
 /usr/bin/codesign --force --options runtime "$timestamp" --entitlements "$project/src-tauri/WidgetRuntime.entitlements" --sign "$identity" "$contents/Resources/runtime/node"
 /usr/bin/codesign --force --options runtime "$timestamp" --entitlements "$project/src-tauri/Entitlements.plist" --sign "$identity" "$bundle"
 /usr/bin/codesign --verify --strict --deep "$bundle"
+# Check the embedded entitlement by its literal key (the dots are part of its name).
+/usr/bin/codesign --display --entitlements - --xml "$bundle" 2>/dev/null |
+  /usr/bin/xmllint --xpath 'boolean(/plist/dict/key[.="com.apple.security.personal-information.calendars"]/following-sibling::*[1][self::true])' - |
+  /usr/bin/grep -qx true || { echo 'Signed Dashledge is missing Calendar access.' >&2; exit 1; }
 output_dir="$(dirname "$bundle")"
-archive="$output_dir/Edge-Workbench-macOS-$(uname -m).zip"
+archive="$output_dir/Dashledge-macOS-$(uname -m).zip"
 temp_dir="$(mktemp -d "$output_dir/.archive.XXXXXXXX")"
 trap 'rm -rf "$temp_dir"' EXIT
 ditto -c -k --sequesterRsrc --keepParent "$bundle" "$temp_dir/archive.zip"

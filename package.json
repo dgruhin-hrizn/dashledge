@@ -1,6 +1,6 @@
 {
-  "name": "edge-workbench",
-  "version": "0.3.2",
+  "name": "dashledge",
+  "version": "0.5.3",
   "private": true,
   "scripts": {
     "dev": "tauri dev",

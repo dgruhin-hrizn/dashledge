@@ -21,7 +21,7 @@
 .settings nav button {display:flex;align-items:center;min-height:42px;gap:3px;padding:8px 10px;border:1px solid transparent;background:transparent;color:#b9c2be;text-align:left}
 .settings nav button.active {color:#d6f1bd;background:#263029;border-color:#35443a}
 .settings nav button:hover {background:#212725}
-.settings nav button:nth-child(4) {margin-top:17px}
+
 .hardware-status {display:flex;align-items:center;gap:9px;margin:auto 6px 0;padding-top:16px;border-top:1px solid #313736}
 .hardware-status strong,.stage-caption {font:600 10px/1.35 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.09em}
 .hardware-status small {display:block;margin-top:3px;font-size:11px}.lamp {width:7px;height:7px;flex:none;border-radius:50%;background:#75817a}.online .lamp {background:#add78d}
@@ -63,12 +63,12 @@
 .settings .panel>.field {margin-bottom:9px}
 .settings .panel>.field+button {margin-bottom:8px}
 .settings .quiet {border-color:transparent;background:transparent;color:var(--sub)}
-.settings .library {display:flex;flex-direction:column;position:sticky;top:0;max-height:calc(100vh - 46px);padding:14px 12px}
+.settings .library {display:flex;flex-direction:column;position:static;align-self:stretch;contain:size;min-height:0;overflow:hidden;padding:14px 12px}
 .library h2 {margin-left:2px!important}
 .search-box {display:flex;align-items:center;gap:7px;padding:0 9px;background:#161b1b;border:1px solid #353e3b;border-radius:7px;color:var(--sub)}
 .search-box:focus-within {border-color:#9fba8f}
 .settings .search-box input {border:0;outline:0;background:transparent;color:var(--fg);min-width:0;width:100%;line-height:33px;font-size:13px}
-.library-list {min-height:0;overflow:auto;scrollbar-width:thin;scrollbar-color:#47524b transparent}
+.library-list {flex:1;min-height:0;overflow:auto;scrollbar-width:thin;scrollbar-color:#47524b transparent}
 .group-title {margin:16px 4px 5px;font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:#a2ada6}
 .settings .library-list button {width:100%;min-height:36px;display:flex;align-items:center;gap:9px;background:transparent;border:1px solid transparent;padding:4px 6px;text-align:left;color:#dce3dd;font-size:13px}
 .settings .library-list button.selected,.settings .library-list button:hover {background:#2c352e;border-color:#39443b}
@@ -83,10 +83,35 @@
 .endpoint,.studio-card code {color:var(--sub);font:11.5px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere}
 .service-health {color:#c5d8b4}.service-health:empty {display:none}
 .service-actions {display:flex;align-items:center;gap:6px}
-.studio-grid {display:grid;grid-template-columns:repeat(auto-fit,minmax(225px,1fr));gap:12px}
-.settings .studio-card {display:grid;align-content:start;gap:8px}.settings .studio-card h2 {margin:1px 0 0}
-.settings .studio-empty {display:grid;justify-items:center;gap:12px;text-align:center;padding:40px 18px}.settings .studio-empty h2 {margin:0}
-.studio-empty .kind-icon {width:42px;height:42px}
+#app-version {margin:10px 0 0 22px;color:#929c98;font-size:11px;font-variant-numeric:tabular-nums}
+.layout-cell {position:relative;min-width:0;min-height:0}
+.layout-cell>button:first-child {width:100%;height:100%}
+.settings .canvas .cell-remove {position:absolute;right:3px;top:3px;width:24px;height:24px;min-height:0;padding:0;border:1px solid #59655e;background:#1b211e;color:#d3ddd6;border-radius:50%;font:17px/1 system-ui}
+.settings .canvas .cell-remove:hover,.settings .canvas .cell-remove:focus-visible {color:white;background:#713e39;border-color:#bb7970}
+.kind-icon img {width:72%;height:72%;object-fit:contain}
+.canvas .kind-icon {background:transparent;width:clamp(20px,2.4vw,31px);height:clamp(20px,2.4vw,31px)}
+.canvas .kind-icon img {width:100%;height:100%}
+.settings .studio-group {border:0;padding:0;margin:24px 0}
+.settings .studio-heading {margin:0 0 10px;color:#c8d2cc;font-size:14px;font-weight:600}
+.studio-grid {display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,235px),1fr));gap:12px}
+.settings .studio-card {display:flex;flex-direction:column;gap:10px;padding:17px}
+.card-title {display:flex;align-items:center;gap:11px}.card-title h3 {margin:0;font-size:16px;letter-spacing:-.023em}
+.card-title .kind-icon,.admin-heading>.kind-icon {width:40px;height:40px;border-radius:10px}
+.card-description,.detail-description {color:#bdc7c2;font-size:13px;line-height:1.48}
+.card-meta {margin-top:auto;color:#99a69f;font-variant-numeric:tabular-nums}
+.settings .studio-card>.row {padding-top:9px;border-top:1px solid var(--border);justify-content:space-between}
+.settings .back-link,.settings .placement-link {background:transparent;border:0;color:#c4d5bd}
+.settings .back-link {padding-left:0;margin-bottom:10px}
+.detail-description {margin-bottom:16px}.admin-heading:has(>.kind-icon) {justify-content:flex-start;margin-bottom:7px}
+.settings .service-panel>.row:first-child {justify-content:space-between;margin-bottom:12px}.service-panel>.row>h2 {margin:0}
+.connection-tools,.restore-widgets {padding-top:10px}
+.restore-widgets summary {cursor:pointer;color:var(--sub)}
+.settings .connection-tools-toggle {display:inline-flex;align-items:center}
+.connection-tools-toggle::after {content:'';width:6px;height:6px;margin:-3px 1px 0 10px;border:solid currentColor;border-width:0 1.5px 1.5px 0;transform:rotate(45deg)}
+.connection-tools-toggle[aria-expanded=true]::after {margin-top:3px;transform:rotate(225deg)}
+.connection-tools>[hidden] {display:none}
+.connection-tools>.row,.restore-widgets>.row {margin:12px 0}
+.settings .placement-link {display:block;text-align:left}
 .device-panel {max-width:720px}.device-figure {display:grid;place-items:center;background:#141919;border-radius:8px;height:125px;margin-bottom:18px}
 .device-screen {display:flex;gap:3px;border:3px solid #59635e;box-shadow:0 7px 0 -3px #344037;width:185px;aspect-ratio:32/9;padding:3px;border-radius:6px;background:#14191a;transform:perspective(500px) rotateX(9deg)}
 .device-screen i {flex:1;border-radius:2px;background:#344135}.device-screen i:first-child {background:#a7c891}
@@ -95,10 +120,10 @@
 .admin-dialog {width:min(440px,90vw);max-height:90vh;border-radius:13px;padding:22px;background:#202626;box-shadow:0 25px 60px #0007}
 .settings .admin-dialog h2 {margin:0 0 6px;font-size:20px}.settings .fields {margin:0;gap:12px}.settings .form-actions {justify-content:flex-end;margin-top:8px}
 .settings .field span {font-size:12px;font-weight:580;color:#c1c9c3}.settings input,.settings select {border-radius:6px;background:#161c1b}
-.form-error,.import-issue {color:#f2b28d;overflow-wrap:anywhere}.form-error:empty {display:none}
+.form-error {color:#f2b28d;overflow-wrap:anywhere}.form-error:empty {display:none}
 .settings #notice {z-index:5;border:1px solid #475845;box-shadow:0 5px 16px #0003}
 @media(max-width:920px){.settings{grid-template-columns:150px minmax(0,1fr)}.wordmark{font-size:13px}.settings main{padding:18px}.layout-work{grid-template-columns:minmax(0,1fr) 196px;gap:9px}.settings .panel{padding:12px}.layout-tools .page-options summary{padding:5px}.service-type{display:none}.service-row{grid-template-columns:auto minmax(0,1fr) auto}}
-@media(max-width:735px){.layout-work{grid-template-columns:minmax(0,1fr)}.settings .library{position:static;max-height:340px}.settings .admin-heading{flex-wrap:wrap}.settings .side{padding-left:6px;padding-right:6px}.settings{grid-template-columns:139px minmax(0,1fr)}.settings main{padding:12px}.preset-grid{gap:2px}}
+@media(max-width:735px){.layout-work{grid-template-columns:minmax(0,1fr)}.settings .library{contain:none;height:clamp(220px,45vh,340px)}.settings .admin-heading{flex-wrap:wrap}.settings .side{padding-left:6px;padding-right:6px}.settings{grid-template-columns:139px minmax(0,1fr)}.settings main{padding:12px}.preset-grid{gap:2px}}
 
 .preview-screen {position:relative;width:100%;overflow:hidden}.preview-screen .preview {position:absolute;inset:0;transform-origin:top left;border-radius:0}
 .settings .setting-row{display:flex;align-items:center;gap:14px;min-height:42px}
@@ -112,3 +137,6 @@
 .segments{display:flex}.segments button{border-radius:0}.segments button:first-child{border-radius:7px 0 0 7px}.segments button:last-child{border-radius:0 7px 7px 0}
 .settings .canvas.portrait{aspect-ratio:9/32;width:min(100%,135px);margin-inline:auto}
 .settings #editor>.panel+.panel{margin-top:12px}
+
+.about-panel p { max-width:64ch; }
+.about-panel a { color:inherit; text-underline-offset:.2em; }

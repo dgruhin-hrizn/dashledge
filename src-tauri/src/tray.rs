@@ -1,4 +1,4 @@
-//! Menu bar icon. Edge Workbench lives here instead of the Dock: it waits for the
+//! Menu bar icon. Dashledge lives here instead of the Dock: it waits for the
 //! Edge, shows itself on it, and hides when the Edge is unplugged.
 //!
 //! The icon is `icons/tray.png`, a black-on-transparent "template" image that
@@ -28,7 +28,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
         CheckMenuItem::with_id(app, "login", "Open at login", true, at_login, None::<&str>)?;
     let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
     let preview=MenuItem::with_id(app,"preview","Show Window Preview",true,None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit Edge Workbench", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit Dashledge", true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
         &[
@@ -48,7 +48,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     TrayIconBuilder::with_id("edge-starter")
         .icon(Image::from_bytes(include_bytes!("../icons/tray.png"))?)
         .icon_as_template(true)
-        .tooltip("Edge Workbench")
+        .tooltip("Dashledge")
         .menu(&menu)
         .show_menu_on_left_click(true)
         .on_menu_event(move |app, event| match event.id().as_ref() {
@@ -78,7 +78,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
 /// rather leave it off until the user ticks it in the menu.
 pub const OPEN_AT_LOGIN_BY_DEFAULT: bool = false;
 
-/// Turn on "Open at login" the first time Edge Workbench runs, so it's always
+/// Turn on "Open at login" the first time Dashledge runs, so it's always
 /// waiting for the Edge. After that, the menu checkbox is the user's call.
 pub fn default_open_at_login(app: &AppHandle) {
     let Ok(dir) = app.path().app_data_dir() else {
