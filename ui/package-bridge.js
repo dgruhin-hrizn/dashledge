@@ -9,6 +9,9 @@ import {settingValues} from './package-settings.js';
 import {placementColors} from './placement-colors.js';
 
 const frames = new Map(); // contentWindow → entry
+// Every registered frame. A view's SDK says `ready` while its document is still
+// loading, before the frame's load event, so the first message is matched here.
+const entries = new Set();
 let latestMetrics = null;
 const clean = (value, limit) => String(value ?? '').replace(/[\u0000-\u001f\u007f]/g, '').slice(0, limit);
 const readField = (data, path) => path.split('.').reduce((v, k) => v != null && Object.hasOwn(v, k) ? v[k] : undefined, data);
@@ -97,6 +100,18 @@ function post(entry, message) {
   entry.frame.contentWindow?.postMessage({dashledge: 1, ...message}, '*');
 }
 
+function track(entry, win) {
+  if (!win || entry.window === win) return;
+  if (entry.window) frames.delete(entry.window);
+  entry.window = win;
+  frames.set(win, entry);
+}
+// The registered frame a message came from, before its load event mapped it.
+function claim(source) {
+  for (const entry of entries) if (source && entry.frame.contentWindow === source) { track(entry, source); return entry; }
+  return null;
+}
+
 // Track a package frame. `commands` lists the collector commands and `permissions`
 // the capabilities its manifest declares; `schema` is its settings and `saved` this
 // placement's stored values. `openSettings()` opens this placement's settings editor.
@@ -107,14 +122,12 @@ export function registerFrame(frame, {viewer, feed, kind = '', title = '', comma
   const entry = {frame, viewer, feed, kind, title: clean(title, 64) || 'Widget', commands, actions, permissions, schema,
     settings: settingValues(schema, saved), openSettings, colors, displayName, host, serverField, native,
     serverName: '', window: null, data: null, ready: false, metrics: false, keyboard: null};
-  frame.addEventListener('load', () => {
-    for (const [win, other] of frames) if (other === entry) frames.delete(win);
-    entry.window = frame.contentWindow;
-    entry.ready = false;
-    entry.metrics = false;
-    if (entry.window) frames.set(entry.window, entry);
-  });
+  entries.add(entry);
+  // Readiness comes from the view's `ready`, which each new document sends; load fires
+  // after it, so it only maps the window.
+  frame.addEventListener('load', () => track(entry, frame.contentWindow));
   const unregister = () => {
+    entries.delete(entry);
     if (entry.window) frames.delete(entry.window);
     entry.keyboard?.dialog.close();
   };
@@ -143,6 +156,7 @@ export async function handleMessage(entry, message) {
   switch (message.type) {
     case 'ready':
       entry.ready = true;
+      entry.metrics = false;
       post(entry, {type: 'state', state: packageState(entry)});
       if (entry.data) post(entry, {type: 'data', ...entry.data});
       return;
@@ -193,8 +207,9 @@ export async function handleMessage(entry, message) {
 
 if (typeof window !== 'undefined') {
   window.addEventListener('message', event => {
-    const entry = frames.get(event.source);
-    if (!entry || event.data?.dashledge !== 1) return;
+    if (event.data?.dashledge !== 1) return;
+    const entry = frames.get(event.source) || claim(event.source);
+    if (!entry) return;
     handleMessage(entry, event.data);
   });
   // Theme changes reach every package view.
