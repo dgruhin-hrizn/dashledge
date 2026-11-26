@@ -10,7 +10,7 @@ import {editShortcuts,shortcutPins} from './mac-shortcuts.js';
 import {catalogGroups,widgetInfo,installed,connectionsFor,defaultSource,useDefault,placements,removeWidget,recordPackage} from './widget-catalog.js';
 import {permissionSummary} from './package-manifest.js';
 import {editPackageSettings,settingValues} from './package-settings.js';
-import {editPlacementColors,followsColors,placementColors} from './placement-colors.js';
+import {editPlacementColors,followsColors,placementColors,writePreview,clearPreview} from './placement-colors.js';
 import {connectionLabel} from './display-name.js';
 import {guestRows,parseGuests} from './proxmox-guests.js';
 import {general,loadGeneral,updateGeneral,fitDashboard} from './general.js';
@@ -103,7 +103,9 @@ function configurePackage(p,i,pkg){
 function configureColors(p,i){
   const previous=p.slots[i],before=JSON.stringify(previous),kind=previous.kind;
   const name=widgetInfo(config,kind)?.title||titles[kind]||'Widget';
-  editPlacementColors({title:name+' · '+p.name+' · Section '+(i+1),value:previous.colors,general:general(),save:colors=>{
+  // The live widget shows the draft while the editor is open; only Save keeps it.
+  const preview=colors=>colors===undefined?clearPreview():writePreview(previous.id,colors);
+  editPlacementColors({title:name+' · '+p.name+' · Section '+(i+1),value:previous.colors,general:general(),preview,save:colors=>{
     config=state();
     const target=config.pages.find(v=>v.id===p.id),position=target?.slots.findIndex(v=>v.id===previous.id)??-1;
     if(position<0||JSON.stringify(target.slots[position])!==before)throw Error('This section changed. Close and select it again.');
@@ -676,6 +678,7 @@ function syncEditor(){
   if(tab!=='Preview'&&!document.querySelector('dialog[open]'))render();
 }
 window.addEventListener('storage',e=>{if(e.key==='edge-workbench.layout.v1')syncEditor()});
+window.addEventListener('pagehide',clearPreview);
 window.addEventListener('storage',e=>{if(e.key==='edge.google.setup'&&takeGoogleSetup())widgetSettings('googledesk')});
 function openSlackSetup(){if(localStorage.getItem("edge.market.setup")){localStorage.removeItem("edge.market.setup");widgetSettings("markets");return true}const kind=takeSlackSetup();if(kind)widgetSettings(kind);return !!kind}
 window.addEventListener('storage',e=>{if(['edge.market.setup','edge.slack.setup'].includes(e.key))openSlackSetup()});

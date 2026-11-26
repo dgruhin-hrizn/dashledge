@@ -17,7 +17,7 @@ import {addBundledDmdPage,ensure,state,current,activate,save,invoke,el,button,nu
 import {loadPackages,nativeViewport} from './packages.js';
 import {blurFrames,deliverMetrics} from './package-bridge.js';
 import {editPackageSettings,settingValues} from './package-settings.js';
-import {applyTileColors} from './placement-colors.js';
+import {applyTileColors,readPreview,PREVIEW_KEY} from './placement-colors.js';
 const $=s=>document.querySelector(s);
 await loadPackages();
 let config=ensure(),page,tiles=[],timer,metrics={},sample=0;
@@ -80,6 +80,21 @@ function saveSection(tile,kind,properties){
   target.slots[i]={...assignWidget(latest,kind,tile.slot),...properties};
   save(latest);mount();
 }
+// A colour draft from the settings window, shown on one placement until it's saved
+// or cancelled. `shown(slot)` is the slot as the tile should draw it.
+let colorPreview=readPreview();
+const shown=s=>colorPreview?.slot===s.id?{...s,colors:colorPreview.colors}:s;
+function previewColors(next){
+  const before=colorPreview;colorPreview=next;
+  for(const view of mountedPages.values())for(const tile of view.tiles){
+    if(tile.slot.id!==before?.slot&&tile.slot.id!==next?.slot)continue;
+    const slot=shown(tile.slot);
+    applyTileColors(tile.box,slot);tile.box.style.setProperty('--accent',slot.colors?.accent||config.plugins.find(p=>p.id===slot.kind)?.accent||'var(--highlight)');
+    tile.dispose?.colors?.(slot.colors);
+  }
+}
+window.addEventListener('storage',e=>{if(e.key===PREVIEW_KEY)previewColors(readPreview(e.newValue))});
+
 // Replace a section's stored properties without resetting its widget or connection.
 function saveSlot(tile,properties){
   const latest=state(),target=latest.pages.find(p=>p.id===tile.pageId);
@@ -97,8 +112,9 @@ function openPackageSettings(t,custom){
 function renderTile(t){
   const {slot:s,box}=t,kind=s.kind,custom=config.plugins.find(p=>p.id===kind);
   // A placement's own colours override General on this tile only.
-  applyTileColors(box,s);
-  const title=titles[kind]||custom?.title||'Missing plugin';box.style.setProperty('--accent',s.colors?.accent||custom?.accent||'var(--highlight)');
+  const colors=shown(s).colors;
+  applyTileColors(box,{colors});
+  const title=titles[kind]||custom?.title||'Missing plugin';box.style.setProperty('--accent',colors?.accent||custom?.accent||'var(--highlight)');
   if(slackWidgets[kind]){renderSlack(box,s);return}
   if(kind==='applemusic'){renderAppleMusic(box);return}
   if(kind==='googledesk'){renderGoogle(box,s.id);return}
@@ -110,8 +126,8 @@ function renderTile(t){
   if(kind==='rundmd'){t.dispose??=mountDmd(box);return}
   // A widget alone on its page renders at the display's real size if its manifest asks.
   const solo=config.pages.find(p=>p.id===t.pageId)?.slots.length===1;
-  if(originalKinds.includes(kind)){t.dispose??=mountOriginal(box,s,config.sources,{native:solo&&nativeViewport(kind),colors:s.colors});return}
-  if(custom?.apiVersion===2){t.dispose??=mountPackage(box,s,custom,config.sources,{native:solo&&custom.viewport==='native',colors:s.colors,openSettings:()=>openPackageSettings(t,custom)});return}
+  if(originalKinds.includes(kind)){t.dispose??=mountOriginal(box,s,config.sources,{native:solo&&nativeViewport(kind),colors});return}
+  if(custom?.apiVersion===2){t.dispose??=mountPackage(box,s,custom,config.sources,{native:solo&&custom.viewport==='native',colors,openSettings:()=>openPackageSettings(t,custom)});return}
   if(kind==='notes'&&box.querySelector('textarea'))return;
   let nodes=[];
   if(instrumentKinds.includes(kind)){box.classList.add('instrument');box.dataset.kind=kind;nodes=renderInstrument(kind,metrics,t)}
@@ -190,7 +206,7 @@ function mount(){
     if(view)view.tiles.forEach((tile,i)=>{
       const next=p.slots[i];
       if(JSON.stringify(next.packageSettings)!==JSON.stringify(tile.slot.packageSettings))tile.dispose?.settings?.(next.packageSettings);
-      if(JSON.stringify(next.colors)!==JSON.stringify(tile.slot.colors)){tile.dispose?.colors?.(next.colors);applyTileColors(tile.box,next)}
+      if(JSON.stringify(next.colors)!==JSON.stringify(tile.slot.colors)){tile.dispose?.colors?.(shown(next).colors);applyTileColors(tile.box,shown(next))}
       tile.slot=next;
     });
     if(!view){

@@ -37,6 +37,23 @@ export function placementColors(slot, general = {}) {
   };
 }
 
+// Live preview while the colours editor is open. The settings window writes the
+// draft here; the dashboard shows it on that one placement without saving it, and
+// drops it when the key goes away. A stale preview (editor closed abnormally) expires.
+export const PREVIEW_KEY = 'edge.colorPreview';
+const PREVIEW_TTL = 10 * 60 * 1000;
+export function writePreview(slot, colors) {
+  localStorage.setItem(PREVIEW_KEY, JSON.stringify({slot, colors: placementOverride(colors) || {}, at: Date.now()}));
+}
+export function clearPreview() { localStorage.removeItem(PREVIEW_KEY); }
+export function readPreview(raw = localStorage.getItem(PREVIEW_KEY), now = Date.now()) {
+  try {
+    const value = JSON.parse(raw);
+    if (typeof value?.slot !== 'string' || !(now - value.at < PREVIEW_TTL)) return null;
+    return {slot: value.slot, colors: placementOverride(value.colors) || null};
+  } catch { return null; }
+}
+
 // Apply a placement's override to its tile. Built-in tiles read these variables, so
 // setting them on the tile scopes the colours to it; without an override the tile
 // inherits the dashboard's General colours.
@@ -52,7 +69,7 @@ export function applyTileColors(box, slot) {
 // The editor: one swatch per colour, each with "Use General", and a live sample.
 // `save(override)` receives null when both follow General again. Resolves with the
 // saved override (or null), or undefined when cancelled.
-export function editPlacementColors({title, value, general, save}) {
+export function editPlacementColors({title, value, general, save, preview = () => {}}) {
   return new Promise(resolve => {
     const draft = {primary: clean(value?.primary), accent: clean(value?.accent)};
     let result;
@@ -68,7 +85,9 @@ export function editPlacementColors({title, value, general, save}) {
       const colors = placementColors({colors: draft}, general);
       sample.style.setProperty('--sample-text', colors.primary);
       sample.style.setProperty('--sample-accent', colors.accent);
+      preview({primary: draft.primary, accent: draft.accent});
     }
+    const pickers = {};
     for (const [key, label] of [['primary', 'Text'], ['accent', 'Highlight']]) {
       const picker = el('input'), follow = el('input'), hex = el('code');
       picker.type = 'color';
@@ -82,7 +101,9 @@ export function editPlacementColors({title, value, general, save}) {
         hex.textContent = draft[key] ? current : current + ' · General';
         paint();
       };
-      picker.oninput = () => { draft[key] = clean(picker.value); sync(); };
+      pickers[key] = picker;
+      // The Mac's colour panel may report a choice with input or only with change.
+      picker.oninput = picker.onchange = () => { draft[key] = clean(picker.value); sync(); };
       follow.onchange = () => { draft[key] = follow.checked ? null : clean(picker.value) || general[key]; sync(); };
       const followLabel = el('label', 'color-follow');
       followLabel.append(follow, el('span', '', 'Use General'));
@@ -94,6 +115,8 @@ export function editPlacementColors({title, value, general, save}) {
 
     const footer = el('div', 'row form-actions');
     footer.append(button('Cancel', () => dialog.close()), button('Save', () => {
+      // Read the pickers themselves, in case the colour panel hasn't reported yet.
+      for (const key of ['primary', 'accent']) if (draft[key] && clean(pickers[key].value)) draft[key] = clean(pickers[key].value);
       const override = placementOverride(draft, general);
       try {
         save(override);
@@ -105,7 +128,7 @@ export function editPlacementColors({title, value, general, save}) {
     }, 'primary'));
     const intro = el('p', 'sub', 'Colours for this placement only. Other placements and widgets keep the General colours.');
     dialog.append(el('h2', '', title), intro, sample, rows, status, footer);
-    dialog.onclose = () => { dialog.remove(); resolve(result); };
+    dialog.onclose = () => { preview(undefined); dialog.remove(); resolve(result); };
     document.body.append(dialog);
     dialog.showModal();
   });
