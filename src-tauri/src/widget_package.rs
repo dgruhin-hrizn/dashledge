@@ -74,6 +74,7 @@ fn example() -> Result<Vec<u8>, String> {
         ("style.css", include_bytes!("../../widgets/example/style.css").as_slice()),
         ("connector.js", include_bytes!("../../widgets/example/connector.js").as_slice()),
         ("README.md", include_bytes!("../../widgets/example/README.md").as_slice()),
+        ("dashledge.d.ts", include_bytes!("../../widgets/example/dashledge.d.ts").as_slice()),
         ("samples/declarative.widget.json", include_bytes!("../../widgets/example/samples/declarative.widget.json").as_slice()),
     ] {
         zip.start_file(name, FileOptions::default())

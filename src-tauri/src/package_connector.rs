@@ -7,10 +7,10 @@
 //! credential, cannot reach any other host, and has no file or process access.
 use crate::package_manifest::{self, Auth, Manifest, Method, Tier};
 use reqwest::Url;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     ffi::{c_char, c_void, CStr, CString},
     path::PathBuf,
     sync::{
@@ -56,6 +56,9 @@ struct Feed {
     view: PathBuf,
     /// The manifest declares `ui`: views get `/package-ui.css`.
     ui: bool,
+    /// The package's revision when this feed opened. An unpacked package that has
+    /// changed since then reloads.
+    revision: u64,
     viewers: HashMap<String, String>,
     last_attached: Instant,
     output: Arc<Mutex<Output>>,
@@ -268,7 +271,6 @@ struct Runtime {
     storage_file: Option<PathBuf>,
     storage_limit: usize,
     sockets: Mutex<HashMap<i64, i64>>, // global socket → connector's own id
-    log: Mutex<Vec<String>>,
 }
 static RUNTIMES: LazyLock<Mutex<HashMap<usize, Arc<Runtime>>>> = LazyLock::new(Default::default);
 static NEXT_HANDLE: AtomicU64 = AtomicU64::new(1);
@@ -359,11 +361,14 @@ fn host_op(rt: &Runtime, op: &str, args: Value) -> Result<Value, String> {
             Ok(Value::Null)
         }
         "log" => {
-            let mut log = rt.log.lock().unwrap();
-            log.push(args["message"].as_str().unwrap_or("").chars().take(500).collect());
-            if log.len() > 50 {
-                log.remove(0);
-            }
+            let level = match args["level"].as_str() {
+                Some("warn") => "warn",
+                Some("error") => "error",
+                Some("info") => "info",
+                Some("debug") => "debug",
+                _ => "log",
+            };
+            log_line(&rt.kind, level, args["message"].as_str().unwrap_or(""));
             Ok(Value::Null)
         }
         "wsOpen" => {
@@ -496,12 +501,12 @@ pub(crate) fn run_connector(setup: ConnectorSetup, output: Arc<Mutex<Output>>, s
             storage_file: setup.storage_file.clone(),
             storage_limit: setup.manifest.connector.as_ref().map_or(64 * 1024, |c| c.storage as usize),
             sockets: Mutex::new(HashMap::new()),
-            log: Mutex::new(Vec::new()),
         });
         RUNTIMES.lock().unwrap().insert(handle, rt.clone());
         let context = Context(unsafe { connector_new(handle, WATCHDOG_SECONDS) });
         let connection = setup.connection.as_ref().map(|(u, name)| json!({"address": u.as_str(), "name": name}));
         let fail = |error: String| {
+            log_line(&setup.kind, "error", &error);
             let mut out = output.lock().unwrap();
             out.error = Some(error);
             out.rev += 1;
@@ -509,8 +514,9 @@ pub(crate) fn run_connector(setup: ConnectorSetup, output: Arc<Mutex<Output>>, s
         let start = context.eval(PRELUDE, "dashledge://prelude")
             .and_then(|_| context.eval(&format!("__dashledge_start({})", json!({"connection": connection})), "dashledge://start"))
             .and_then(|_| context.eval(&setup.source, &format!("package://{}/connector.js", setup.package)));
-        if let Err(error) = start {
-            fail(error);
+        match start {
+            Ok(()) => log_line(&setup.kind, "info", "Connector started."),
+            Err(error) => fail(error),
         }
         while !stop.load(Ordering::SeqCst) {
             let next = rt.timers.lock().unwrap().iter().map(|t| t.at).min();
@@ -546,6 +552,42 @@ pub(crate) fn run_connector(setup: ConnectorSetup, output: Arc<Mutex<Output>>, s
         RUNTIMES.lock().unwrap().remove(&handle);
         drop(context);
     });
+}
+
+// -------------------------------------------------------------------- logs ----
+
+/// One line a connector wrote with `console`, or an error that stopped a script.
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct LogLine {
+    pub at: i64,
+    pub level: &'static str,
+    pub text: String,
+}
+
+const LOG_LINES: usize = 50;
+/// The last lines from each package's connector, kept while the app runs.
+static LOGS: Mutex<Option<HashMap<String, VecDeque<LogLine>>>> = Mutex::new(None);
+
+pub fn log_line(kind: &str, level: &'static str, text: &str) {
+    let mut logs = LOGS.lock().unwrap();
+    let lines = logs.get_or_insert_with(HashMap::new).entry(kind.to_string()).or_default();
+    lines.push_back(LogLine { at: chrono::Utc::now().timestamp_millis(), level, text: text.chars().take(500).collect() });
+    while lines.len() > LOG_LINES {
+        lines.pop_front();
+    }
+}
+
+pub fn logs_for(kind: &str) -> Vec<LogLine> {
+    LOGS.lock().unwrap().as_ref().and_then(|l| l.get(kind)).map(|l| l.iter().cloned().collect()).unwrap_or_default()
+}
+
+/// A package's recent connector output, for Widget Studio.
+#[tauri::command]
+pub fn package_logs(window: tauri::WebviewWindow, id: String) -> Result<Vec<LogLine>, String> {
+    if window.label() != "settings" {
+        return Err("Open Widget Studio in Settings.".into());
+    }
+    Ok(logs_for(&id))
 }
 
 // ---------------------------------------------------------------- commands ----
@@ -598,8 +640,9 @@ pub fn package_open(window: tauri::WebviewWindow, app: tauri::AppHandle, kind: S
     if needs && connection.is_none() {
         return Err("Choose a connection for this widget in Widget Studio.".into());
     }
+    let revision = crate::package_store::revision(&kind);
     let mut feeds = FEEDS.lock().unwrap();
-    if let Some((id, feed)) = feeds.iter_mut().find(|(_, f)| f.kind == kind && f.connection == connection) {
+    if let Some((id, feed)) = feeds.iter_mut().find(|(_, f)| f.kind == kind && f.connection == connection && f.revision == revision) {
         feed.viewers.insert(viewer, window.label().into());
         feed.last_attached = Instant::now();
         return Ok(json!({"id": id, "entry": entry, "permissions": permission_names(&manifest)}));
@@ -626,7 +669,7 @@ pub fn package_open(window: tauri::WebviewWindow, app: tauri::AppHandle, kind: S
     let mut viewers = HashMap::new();
     viewers.insert(viewer, window.label().to_string());
     let ui = manifest.permissions.contains(&crate::package_manifest::Permission::Ui);
-    feeds.insert(id.clone(), Feed { kind, connection, view, ui, viewers, last_attached: Instant::now(), output, stop });
+    feeds.insert(id.clone(), Feed { kind, connection, view, ui, revision, viewers, last_attached: Instant::now(), output, stop });
     Ok(json!({"id": id, "entry": entry, "permissions": permission_names(&manifest)}))
 }
 
@@ -634,6 +677,10 @@ pub fn package_open(window: tauri::WebviewWindow, app: tauri::AppHandle, kind: S
 pub fn package_read(id: String, viewer: String, since: u64) -> Result<Value, String> {
     let feeds = FEEDS.lock().unwrap();
     let feed = feeds.get(&id).filter(|f| f.viewers.contains_key(&viewer)).ok_or("Widget disconnected")?;
+    // An unpacked package's files changed: the view reopens with a fresh connector.
+    if crate::package_store::revision(&feed.kind) != feed.revision {
+        return Ok(json!({"reload": true}));
+    }
     let out = feed.output.lock().unwrap();
     if out.rev == since {
         return Ok(Value::Null);
@@ -811,5 +858,21 @@ mod tests {
         assert!(wait_for(&output, |o| o.error.is_some()));
         assert!(output.lock().unwrap().error.as_deref().unwrap().contains("terminated"));
         stop.store(true, Ordering::SeqCst);
+    }
+
+    #[test]
+    fn connector_logs_are_kept_per_package_and_capped() {
+        for n in 0..60 {
+            log_line("plugin.log-a", "log", &format!("line {n}"));
+        }
+        log_line("plugin.log-b", "error", "b only");
+        let a = logs_for("plugin.log-a");
+        assert_eq!(a.len(), 50);
+        assert_eq!(a.first().unwrap().text, "line 10");
+        assert!(a.iter().all(|line| line.text != "b only"));
+        assert_eq!(logs_for("plugin.log-b"), vec![LogLine { at: logs_for("plugin.log-b")[0].at, level: "error", text: "b only".into() }]);
+        assert!(logs_for("plugin.log-none").is_empty());
+        log_line("plugin.log-a", "log", &"x".repeat(900));
+        assert_eq!(logs_for("plugin.log-a").last().unwrap().text.len(), 500);
     }
 }

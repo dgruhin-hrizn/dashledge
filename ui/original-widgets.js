@@ -146,6 +146,12 @@ export function mountPackage(box, slot, entry, connections, {native = false, ope
     try {
       const next = await invoke('package_read', {id: feed, viewer, since: rev});
       if (closed) return;
+      // An unpacked package changed on disk: reopen its view and connector.
+      if (next?.reload) {
+        invoke('package_close', {id: feed, viewer}).catch(() => {});
+        feed = null;
+        return connect();
+      }
       if (next) { rev = next.rev; unregister.deliver?.(next); }
       timer = setTimeout(pump, 1000);
     } catch {
