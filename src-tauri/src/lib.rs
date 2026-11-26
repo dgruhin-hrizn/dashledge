@@ -266,6 +266,8 @@ pub fn run() {
             widget_package::save_widget_example,
             package_store::inspect_widget_package, package_store::install_widget_package,
             package_store::list_packages, package_store::remove_widget_package,
+            package_store::choose_unpacked_package, package_store::reload_unpacked_package,
+            package_connector::package_logs,
             package_connector::package_open, package_connector::package_read, package_connector::package_ping,
             package_connector::package_close, package_connector::package_action,
             vault::unlock_connections,

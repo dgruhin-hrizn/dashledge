@@ -4,6 +4,10 @@
 //! version 2 packages are extracted to `<app_data>/packages/<id>/`. Both are described
 //! by a `widget.json` that `package_manifest` validates; installed packages may not
 //! declare a collector.
+//!
+//! For package authors, Widget Studio can also load an unpacked folder. It is checked
+//! like an installed package but served from where it is, and a watcher reloads its
+//! views and connector when its files change.
 use crate::package_manifest::{self, Manifest, Origin, Tier};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::Serialize;
@@ -13,7 +17,10 @@ use std::{
     fs,
     io::{Cursor, Read},
     path::{Path, PathBuf},
+    collections::HashMap,
+    hash::{Hash, Hasher},
     sync::{Mutex, OnceLock},
+    time::Duration,
 };
 use tauri::Manager;
 use zip::ZipArchive;
@@ -23,7 +30,7 @@ const MAX_FILE: u64 = 4 * 1024 * 1024;
 const MAX_FILES: usize = 256;
 const EXTENSIONS: &[&str] = &[
     "html", "js", "mjs", "css", "json", "png", "jpg", "jpeg", "gif", "webp", "svg", "ttf", "otf",
-    "woff", "woff2", "txt", "md",
+    "woff", "woff2", "txt", "md", "ts",
 ];
 
 #[derive(Clone, Debug, Serialize)]
@@ -34,6 +41,9 @@ pub struct PackageInfo {
     pub origin: &'static str,
     pub tier: Tier,
     pub icon_data: Option<String>,
+    /// The folder an unpacked package is loaded from.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
 }
 
 /// Files of a package, keyed by their path relative to `widget.json`.
@@ -144,7 +154,61 @@ fn info(manifest: Manifest, origin: Origin, dir: &Path) -> PackageInfo {
         origin: if origin == Origin::Bundled { "bundled" } else { "installed" },
         icon_data,
         manifest,
+        path: None,
     }
+}
+
+/// Files of an unpacked package folder, within the limits of a package ZIP. Hidden
+/// entries, `node_modules` and file types a package can't include (TypeScript sources,
+/// for example) are skipped. Links are refused.
+pub fn read_folder(root: &Path) -> Result<(Value, Files), String> {
+    fn walk(root: &Path, dir: &Path, files: &mut Files, total: &mut u64) -> Result<(), String> {
+        let mut entries: Vec<_> = fs::read_dir(dir).map_err(|e| e.to_string())?.flatten().collect();
+        entries.sort_by_key(|e| e.file_name());
+        for entry in entries {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.starts_with('.') || name == "node_modules" {
+                continue;
+            }
+            let path = entry.path();
+            let relative = path.strip_prefix(root).map_err(|e| e.to_string())?.to_string_lossy().replace('\\', "/");
+            let kind = fs::symlink_metadata(&path).map_err(|e| e.to_string())?;
+            if kind.file_type().is_symlink() {
+                return Err(format!("“{relative}” is a link. Packages can’t contain links."));
+            }
+            if kind.is_dir() {
+                walk(root, &path, files, total)?;
+                continue;
+            }
+            if !allowed_name(&relative) || package_manifest::package_path(&relative, "Package file").is_err() {
+                continue;
+            }
+            if kind.len() > MAX_FILE {
+                return Err(format!("“{relative}” is larger than 4 MiB."));
+            }
+            *total += kind.len();
+            if *total > MAX_PACKAGE as u64 || files.len() >= MAX_FILES {
+                return Err(format!("The folder holds more than a package may: {MAX_FILES} files or 8 MiB."));
+            }
+            files.insert(relative, fs::read(&path).map_err(|e| e.to_string())?);
+        }
+        Ok(())
+    }
+    let mut files = Files::new();
+    walk(root, root, &mut files, &mut 0)?;
+    let raw = serde_json::from_slice(files.get("widget.json").ok_or("The folder has no widget.json.")?)
+        .map_err(|e| format!("Invalid widget.json: {e}"))?;
+    Ok((raw, files))
+}
+
+/// Check an unpacked folder and describe it as a package served from that folder.
+pub fn unpacked_info(dir: &Path) -> Result<PackageInfo, String> {
+    let (raw, files) = read_folder(dir)?;
+    let manifest = check(&raw, &files)?;
+    let mut package = info(manifest, Origin::Installed, dir);
+    package.origin = "unpacked";
+    package.path = Some(dir.to_string_lossy().into_owned());
+    Ok(package)
 }
 
 /// Write a checked package to `root/<id>`, replacing any earlier version in one rename.
@@ -209,12 +273,85 @@ pub fn bundled_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 
 static ROOTS: OnceLock<(PathBuf, PathBuf)> = OnceLock::new();
 static CACHE: Mutex<Option<Vec<(PackageInfo, PathBuf)>>> = Mutex::new(None);
+/// Folders loaded as unpacked packages, kept in `<app_data>/packages-unpacked.json`.
+static UNPACKED: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+static UNPACKED_FILE: OnceLock<PathBuf> = OnceLock::new();
+/// Bumped when an unpacked package's files change, so open views and connectors reload.
+static REVISIONS: Mutex<Option<HashMap<String, u64>>> = Mutex::new(None);
 
 /// Remember where packages live. Called once at startup.
 pub fn init(app: &tauri::AppHandle) -> Result<(), String> {
     let _ = ROOTS.set((bundled_root(app)?, installed_root(app)?));
+    let file = app.path().app_data_dir().map_err(|e| e.to_string())?.join("packages-unpacked.json");
+    let saved: Vec<PathBuf> = fs::read(&file).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+    *UNPACKED.lock().unwrap() = saved;
+    let _ = UNPACKED_FILE.set(file);
     refresh();
+    std::thread::spawn(watch_unpacked);
     Ok(())
+}
+
+fn save_unpacked(paths: &[PathBuf]) -> Result<(), String> {
+    let file = UNPACKED_FILE.get().ok_or("Packages aren’t ready yet.")?;
+    fs::write(file, serde_json::to_vec_pretty(paths).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
+}
+
+/// How many times an unpacked package has changed since launch; 0 for other packages.
+pub fn revision(id: &str) -> u64 {
+    REVISIONS.lock().unwrap().as_ref().and_then(|r| r.get(id).copied()).unwrap_or(0)
+}
+
+fn bump(id: &str) {
+    *REVISIONS.lock().unwrap().get_or_insert_with(HashMap::new).entry(id.to_string()).or_insert(0) += 1;
+}
+
+/// A cheap summary of a folder's files: names, sizes and modification times.
+fn fingerprint(dir: &Path) -> u64 {
+    fn walk(dir: &Path, hasher: &mut std::collections::hash_map::DefaultHasher, depth: usize) {
+        let Ok(entries) = fs::read_dir(dir) else { return };
+        let mut entries: Vec<_> = entries.flatten().collect();
+        entries.sort_by_key(|e| e.file_name());
+        for entry in entries {
+            let name = entry.file_name();
+            if name.to_string_lossy().starts_with('.') || name == "node_modules" {
+                continue;
+            }
+            let Ok(meta) = fs::symlink_metadata(entry.path()) else { continue };
+            name.hash(hasher);
+            if meta.is_dir() && depth < 8 {
+                walk(&entry.path(), hasher, depth + 1);
+            } else {
+                meta.len().hash(hasher);
+                meta.modified().ok().hash(hasher);
+            }
+        }
+    }
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    walk(dir, &mut hasher, 0);
+    hasher.finish()
+}
+
+/// Poll unpacked folders once a second. A change refreshes the package listing and
+/// bumps the package's revision; the dashboard then reopens its views and connector.
+fn watch_unpacked() {
+    let mut seen: HashMap<PathBuf, u64> = HashMap::new();
+    loop {
+        std::thread::sleep(Duration::from_secs(1));
+        let paths = UNPACKED.lock().unwrap().clone();
+        seen.retain(|path, _| paths.contains(path));
+        for path in paths {
+            let now = fingerprint(&path);
+            if seen.insert(path.clone(), now).is_some_and(|before| before != now) {
+                refresh();
+                let id = fs::read(path.join("widget.json")).ok()
+                    .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+                    .and_then(|raw| raw["id"].as_str().map(str::to_owned));
+                if let Some(id) = id {
+                    bump(&id);
+                }
+            }
+        }
+    }
 }
 
 /// Forget the cached listing after an install or removal.
@@ -241,6 +378,15 @@ pub fn all() -> Vec<(PackageInfo, PathBuf)> {
         .into_iter()
         .map(|p| { let dir = bundled.join(&p.manifest.id); (p, dir) })
         .collect();
+    // An unpacked folder takes the place of an installed package with the same ID,
+    // so an author can work on a new version of a widget that's already in use.
+    for dir in UNPACKED.lock().unwrap().iter() {
+        if let Ok(package) = unpacked_info(dir) {
+            if !list.iter().any(|(p, _)| p.manifest.id == package.manifest.id) {
+                list.push((package, dir.clone()));
+            }
+        }
+    }
     if let Some(installed) = installed {
         for package in read_root(&installed, Origin::Installed) {
             if !list.iter().any(|(p, _)| p.manifest.id == package.manifest.id) {
@@ -288,7 +434,7 @@ pub fn inspect_widget_package(window: tauri::WebviewWindow, request: tauri::ipc:
     }
     let manifest = check(&raw, &files)?;
     let icon = icon_data(&manifest.icon, &files[&manifest.icon]).ok_or("The icon must be a PNG or SVG up to 256 KiB.")?;
-    serde_json::to_value(PackageInfo { tier: manifest.tier(), origin: "installed", icon_data: Some(icon), manifest })
+    serde_json::to_value(PackageInfo { tier: manifest.tier(), origin: "installed", icon_data: Some(icon), manifest, path: None })
         .map_err(|e| e.to_string())
 }
 
@@ -312,9 +458,63 @@ pub fn list_packages() -> Vec<PackageInfo> {
     all().into_iter().map(|(p, _)| p).collect()
 }
 
+/// Load an unpacked package folder the author chooses. Widget Studio never passes a
+/// path itself: the folder comes from the system's folder picker.
+#[tauri::command]
+pub async fn choose_unpacked_package(window: tauri::WebviewWindow) -> Result<Option<PackageInfo>, String> {
+    settings_only(&window)?;
+    let Some(folder) = rfd::AsyncFileDialog::new().set_title("Choose a widget package folder").pick_folder().await else {
+        return Ok(None);
+    };
+    let dir = folder.path().canonicalize().map_err(|e| e.to_string())?;
+    let package = unpacked_info(&dir)?;
+    if all().iter().any(|(p, _)| p.origin == "bundled" && p.manifest.id == package.manifest.id) {
+        return Err("A built-in widget already uses this ID.".into());
+    }
+    let mut paths = UNPACKED.lock().unwrap().clone();
+    paths.retain(|path| path != &dir && unpacked_info(path).map_or(true, |p| p.manifest.id != package.manifest.id));
+    paths.push(dir);
+    save_unpacked(&paths)?;
+    *UNPACKED.lock().unwrap() = paths;
+    refresh();
+    bump(&package.manifest.id);
+    Ok(Some(package))
+}
+
+/// Check an unpacked package again, for example after editing widget.json, and reload
+/// its open views. Returns the error that keeps it from loading, if any.
+#[tauri::command]
+pub fn reload_unpacked_package(window: tauri::WebviewWindow, id: String) -> Result<PackageInfo, String> {
+    settings_only(&window)?;
+    let dir = unpacked_dir(&id).ok_or("This package isn’t loaded from a folder.")?;
+    let package = unpacked_info(&dir)?;
+    refresh();
+    bump(&id);
+    Ok(package)
+}
+
+/// The folder an unpacked package with this ID was loaded from. A folder whose
+/// widget.json no longer validates still matches by the ID it declares.
+fn unpacked_dir(id: &str) -> Option<PathBuf> {
+    UNPACKED.lock().unwrap().iter().find(|dir| {
+        fs::read(dir.join("widget.json")).ok()
+            .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+            .is_some_and(|raw| raw["id"].as_str() == Some(id))
+    }).cloned()
+}
+
 #[tauri::command]
 pub fn remove_widget_package(window: tauri::WebviewWindow, app: tauri::AppHandle, id: String) -> Result<(), String> {
     settings_only(&window)?;
+    // An unpacked package is only unlinked; its folder stays as it is.
+    if let Some(dir) = unpacked_dir(&id) {
+        let mut paths = UNPACKED.lock().unwrap().clone();
+        paths.retain(|path| path != &dir);
+        save_unpacked(&paths)?;
+        *UNPACKED.lock().unwrap() = paths;
+        refresh();
+        return Ok(());
+    }
     let rest = id.strip_prefix("plugin.").unwrap_or("");
     if rest.is_empty() || !rest.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"-.".contains(&b)) || rest.contains("..") {
         return Err("Unknown package".into());
@@ -458,5 +658,59 @@ mod tests {
         assert!(icon_data("icon.svg", b"<svg xmlns='http://www.w3.org/2000/svg'/>").unwrap().starts_with("data:image/svg+xml;base64,"));
         assert!(icon_data("icon.svg", b"not an image").is_none());
         assert!(icon_data("icon.png", b"GIF89a").is_none());
+    }
+
+    #[test]
+    fn unpacked_folders_are_checked_like_installs() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        fs::create_dir_all(root.join("view")).unwrap();
+        fs::create_dir_all(root.join(".git")).unwrap();
+        fs::create_dir_all(root.join("node_modules/x")).unwrap();
+        fs::write(root.join("widget.json"), manifest(serde_json::json!({}))).unwrap();
+        fs::write(root.join("icon.png"), PNG).unwrap();
+        fs::write(root.join("view/index.html"), "<!doctype html>").unwrap();
+        fs::write(root.join("view/app.ts"), "export {}").unwrap();
+        fs::write(root.join("design.psd"), "skip").unwrap();
+        fs::write(root.join(".git/HEAD"), "ref").unwrap();
+        fs::write(root.join("node_modules/x/index.js"), "skip").unwrap();
+        let (_, files) = read_folder(root).unwrap();
+        assert_eq!(files.keys().map(String::as_str).collect::<Vec<_>>(), ["icon.png", "view/app.ts", "view/index.html", "widget.json"]);
+        let package = unpacked_info(root).unwrap();
+        assert_eq!(package.origin, "unpacked");
+        assert_eq!(package.path.as_deref(), Some(root.to_string_lossy().as_ref()));
+
+        std::os::unix::fs::symlink("/etc/passwd", root.join("view/passwd.txt")).unwrap();
+        assert!(read_folder(root).unwrap_err().contains("link"));
+        fs::remove_file(root.join("view/passwd.txt")).unwrap();
+
+        fs::write(root.join("widget.json"), manifest(serde_json::json!({"collector": {"entry": "c.mjs", "outputs": ["a.json"]}}))).unwrap();
+        assert!(unpacked_info(root).unwrap_err().contains("collector"));
+        fs::remove_file(root.join("widget.json")).unwrap();
+        assert!(unpacked_info(root).unwrap_err().contains("widget.json"));
+    }
+
+    #[test]
+    fn the_example_folder_loads_unpacked() {
+        let example = Path::new(env!("CARGO_MANIFEST_DIR")).join("../widgets/example");
+        let package = unpacked_info(&example).unwrap();
+        assert_eq!(package.manifest.id, "plugin.weather-example");
+        assert!(package.icon_data.is_some());
+    }
+
+    #[test]
+    fn a_changed_file_changes_the_fingerprint() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("index.html"), "one").unwrap();
+        let before = fingerprint(dir.path());
+        assert_eq!(before, fingerprint(dir.path()));
+        fs::write(dir.path().join("index.html"), "two!").unwrap();
+        assert_ne!(before, fingerprint(dir.path()));
+        let after = fingerprint(dir.path());
+        fs::write(dir.path().join(".DS_Store"), "x").unwrap();
+        assert_eq!(after, fingerprint(dir.path()), "hidden files don't reload the package");
+        bump("plugin.fingerprint-test");
+        assert_eq!(revision("plugin.fingerprint-test"), 1);
+        assert_eq!(revision("plugin.other"), 0);
     }
 }

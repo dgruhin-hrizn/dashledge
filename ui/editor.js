@@ -332,6 +332,17 @@ function widgetDetail(kind){
     })));
   }
   if(kind==='googledesk')main.append(panel('Mail and calendar accounts',googleSettings()));
+  if(info.apiVersion===2&&info.unpacked)main.append(panel('Unpacked package',el('p','sub',info.path||''),
+    el('p','sub','Views and the connector reload when files in this folder change. Reload after editing widget.json.'),
+    button('Reload',async()=>{
+      try{
+        const next=await invoke('reload_unpacked_package',{id:kind});
+        change(()=>recordPackage(config,next),false);syncSourceTables();notice(next.title+' reloaded.');
+      }catch(e){notice(e.message||String(e))}
+    })));
+  if(info.apiVersion===2&&info.tier==='connector')main.append(panel('Connector log',
+    el('p','sub','The last 50 lines its connector wrote with console, and any error that stopped it.'),
+    button('Show log',()=>connectorLog(kind,info.title))));
   if(kind==='rundmd'){
     const preview=el('div','dmd-studio-preview');
     main.append(panel('Player',preview,button('Open Run-DMD menu',()=>preview.querySelector('button').click())));
@@ -371,6 +382,29 @@ function installV2(info,bytes){
     syncSourceTables();
   },old?'Update widget':'Install widget');
 }
+// A package connector's recent console output, refreshed while the dialog is open.
+function connectorLog(kind,title){
+  const dialog=el('dialog','connector-log'),list=el('ol','connector-log-lines');
+  list.setAttribute('aria-live','polite');
+  let timer;
+  async function draw(){
+    try{
+      const lines=await invoke('package_logs',{id:kind});
+      const atEnd=list.scrollTop+list.clientHeight>=list.scrollHeight-4;
+      list.replaceChildren(...(lines.length?lines.map(line=>{
+        const item=el('li','log-'+line.level);
+        item.append(el('time','',new Date(line.at).toLocaleTimeString()),el('span','',line.text));
+        return item;
+      }):[el('li','sub','No output yet. Place the widget on a page to start its connector.')]));
+      if(atEnd)list.scrollTop=list.scrollHeight;
+    }catch(e){list.replaceChildren(el('li','log-error',String(e)))}
+    timer=setTimeout(draw,2000);
+  }
+  const footer=el('footer');footer.append(button('Close',()=>dialog.close()));
+  dialog.append(el('h2','',title+' · Connector log'),list,footer);
+  dialog.onclose=()=>{clearTimeout(timer);dialog.remove()};
+  document.body.append(dialog);dialog.showModal();draw();
+}
 function plugins(){
   const upload=input('','file');upload.accept='.zip,.json';upload.hidden=true;
   upload.onchange=async()=>{
@@ -398,7 +432,17 @@ function plugins(){
     sample.disabled=true;
     try{if(await invoke('save_widget_example'))notice('Example package saved.')}catch(e){notice(String(e))}finally{sample.disabled=false}
   });
-  const actions=row(sample,decorated('Install package',()=>upload.click(),'plus','primary'),upload);
+  // Authors: load a package folder in place; it reloads when its files change.
+  const unpacked=button('Load unpacked package',async()=>{
+    unpacked.disabled=true;
+    try{
+      const info=await invoke('choose_unpacked_package');
+      if(!info)return;
+      if(!change(()=>recordPackage(config,info),false))throw Error('Could not save this package.');
+      syncSourceTables();notice(info.title+' loaded from its folder. Edits reload it.');
+    }catch(e){notice(e.message||String(e))}finally{unpacked.disabled=false}
+  });
+  const actions=row(sample,unpacked,decorated('Install package',()=>upload.click(),'plus','primary'),upload);
   main.append(heading('Widget Studio',actions));
   const removed=config.removedWidgets||[];
   if(removed.length){

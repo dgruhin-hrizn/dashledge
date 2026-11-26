@@ -87,6 +87,7 @@ export function packageEntry(info){
   if(info.displayName?.serverField)entry.serverField=info.displayName.serverField;
   if(info.permissions?.length)entry.permissions=[...info.permissions];
   if(info.settings?.length)entry.settings=info.settings.map(setting=>({...setting}));
+  if(info.origin==='unpacked'){entry.unpacked=true;entry.path=info.path}
   return entry;
 }
 export function recordPackage(config,info){

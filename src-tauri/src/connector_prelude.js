@@ -67,8 +67,8 @@
   Object.assign(WebSocket, {CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3});
   globalThis.WebSocket = WebSocket;
 
-  const log = (...parts) => call('log', {message: parts.map(p => typeof p === 'string' ? p : JSON.stringify(p)).join(' ')});
-  globalThis.console = {log, info: log, warn: log, error: log, debug: log};
+  const log = level => (...parts) => call('log', {level, message: parts.map(p => typeof p === 'string' ? p : p instanceof Error ? String(p) : JSON.stringify(p)).join(' ')});
+  globalThis.console = {log: log('log'), info: log('info'), warn: log('warn'), error: log('error'), debug: log('debug')};
   const storage = Object.freeze({get: key => call('storageGet', {key}), set: (key, value) => call('storageSet', {key, value})});
 
   globalThis.__dashledge_start = config => {
