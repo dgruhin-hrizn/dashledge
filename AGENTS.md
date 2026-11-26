@@ -1,3 +1,7 @@
+# Commands
+
+Install dependencies with `npm ci`. Run the app in development with `npm run dev`. Run `npm test` for the JavaScript and Rust tests before opening a pull request.
+
 # Widget development
 
 For each new widget or update to an existing widget, create a dedicated branch and Git worktree from the latest `origin/main`. Implement and test that widget in its worktree, then push the branch and open one pull request targeting `main`.
