@@ -27,6 +27,7 @@ Every widget with its own view is a **package**: a folder with a `widget.json` m
 | `ui/package-bridge.js` | Host side of the bridge: state, commands, capability gates |
 | `ui/package-sdk.js` | Injected into every view as `window.Dashledge` |
 | `ui/package-settings.js`, `ui/placement-colors.js` | Per-placement settings and colours: resolution and the shared editors |
+| `ui/package-choices.js` | Options views offer for `dynamic` settings, kept per widget and connection; Check now |
 | `ui/package-manifest.js` | Install-sheet text (`permissionSummary`) and tier names |
 | `ui/package-ui.css` | The `ui` capability's stylesheet |
 
@@ -64,9 +65,9 @@ The validator refuses a collector in an installed or unpacked package. A view on
   - the permissions;
   - the settings, when the `settings` permission is declared.
 - **Commands** run only when the manifest declares them:
-  - `model` for collector commands;
+  - `model`, and any other command in `collector.commands` (sent to the collector's stdin as `{command, args}` by `widget_command`);
   - `action` for declarative actions, which Rust checks again;
-  - `settings.open`, `keyboard.open`, `mac.metrics` and `mac.subscribe` when the matching permission is present.
+  - `settings.open`, `settings.offer`, `keyboard.open`, `mac.metrics` and `mac.subscribe` when the matching permission is present.
   - Anything else gets `Unknown widget command`. The bridge is the enforcement point; SDK-side checks are convenience only.
 - Touch from the Edge is forwarded into frames. The SDK replays it as pointer events, scrolling and taps, then reports whether a horizontal drag belongs to the page, so page swipes still work.
 - The view CSP names `tauri://localhost` explicitly. `'self'` blocks every script in an opaque-origin frame.
@@ -83,6 +84,8 @@ A **placement** is one slot on one page. Keep its choices with it, never in the 
 
 Settings and colours are left out of the dashboard's page signature, so changing them updates the live view without rebuilding the page. The placement panel (`placementPanel` in `ui/editor.js`) keeps colours and settings in one draft. While it differs from the saved slot, the panel writes it to `localStorage['edge.placementPreview']` (`writePreview` in `ui/placement-colors.js`), and the dashboard shows it on that one placement (`shown()` in `ui/dashboard.js`) until Save or Discard. Selecting another placement or leaving the tab discards the draft. The panel and the gear draw settings with the same `settingsForm` (`ui/package-settings.js`). Saving refuses when the section no longer holds the widget ("This section changed"). Settings reach only the view: a connector serves every placement on the same connection.
 
+**Dynamic settings** (`settings.choices`). A `choice` or `multi` setting marked `dynamic` lists what the view finds at run time, such as the accounts on this Mac, instead of options in the manifest. The view calls `Dashledge.settings.offer(id, options)`; the bridge cleans the list and stores it in `localStorage['edge.packageChoices']`, keyed by widget and connection, so the placement panel and the gear list it in any window even when no view is on screen. Values are checked by shape only, never against the latest offer: a saved account that is offline right now keeps its place and its name, and the editor shows it as not available. **Check now** writes a request that every window's bridge forwards to live views of that widget and connection (`Dashledge.settings.onRefresh`). A `names` setting holds the user's name for each option of the setting named by `for`. Bundled packages have no Widget Studio defaults: a new placement starts from the manifest's defaults.
+
 ## Manifest fields that change app behaviour
 
 `package_manifest.rs` is the reference; unknown fields are refused. These are the fields the host acts on:
@@ -95,8 +98,9 @@ Settings and colours are left out of the dashboard's page signature, so changing
   - `test`: the routes the **Test** button reads.
   - The labels shown in the connection form.
 - `displayName.serverField`: the dot path where the server reports its own name. The display name is the user's connection name, else that field, else the address's host.
-- `permissions` and `settings`: capabilities and the per-placement settings schema. Rust fills defaults.
-- `collector.outputs` / `collector.commands`: the only files served from the collector's directory, and the only commands the bridge forwards.
+- `permissions` and `settings`: capabilities and the per-placement settings schema. Rust fills defaults. `dynamic` settings need `settings.choices`; `multi` values are lists (`["*"]` is every option), `names` values map option values to names.
+- `page` (bundled widgets only): `false` keeps a fresh layout from getting a full-screen page for the widget (`addOriginalPages`), as AI Plan Monitor does. Layouts that already have the page keep it. Installed packages never get one, so the validator refuses the field there.
+- `collector.outputs` / `collector.commands`: the only files served from the collector's directory, and the only commands the bridge forwards. A collector reads its commands with `onCommand(name, fn)` from `_shared/context.mjs`.
 
 ## Rules
 

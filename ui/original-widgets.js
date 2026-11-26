@@ -42,9 +42,11 @@ export function widgetSources(kind, selected, sources) {
     });
 }
 
-export function mountOriginal(box, slot, connections, {native = false, colors = null} = {}) {
+export function mountOriginal(box, slot, connections, {native = false, colors = null, openSettings = null} = {}) {
   const sources = widgetSources(slot.kind, slot.source, connections);
   const viewer = crypto.randomUUID();
+  const info = packageInfo.get(slot.kind);
+  let saved = slot.packageSettings;
   let feed, timer, closed = false, unregister = () => {};
   box.classList.add('original-widget');
   const status = el('div', 'widget-status');
@@ -67,8 +69,9 @@ export function mountOriginal(box, slot, connections, {native = false, colors = 
       frame.dataset.packageFrame = slot.kind;
       unregister();
       const chosen = connections.find(source => source.kind === slot.kind && source.id === slot.source);
-      unregister = registerFrame(frame, {viewer, feed: id, commands: packageInfo.get(slot.kind)?.collector?.commands || [],
-        displayName: chosen?.name?.trim() || '', host: hostOf(chosen?.address), native, colors});
+      unregister = registerFrame(frame, {viewer, feed: id, kind: slot.kind, title: titles[slot.kind],
+        commands: info?.collector?.commands || [], permissions: info?.permissions || [], schema: info?.settings || [], saved,
+        source: slot.source || '', openSettings, displayName: chosen?.name?.trim() || '', host: hostOf(chosen?.address), native, colors});
       frame.src = '/widget-view/' + encodeURIComponent(id) + '/index.html';
       box.replaceChildren(frame);
       timer = setTimeout(check, 8000);
@@ -91,13 +94,14 @@ export function mountOriginal(box, slot, connections, {native = false, colors = 
       timer = setTimeout(connect, 1500);
     }
   }
-  if (!packageInfo.get(slot.kind)?.sources || sources.length) connect();
+  if (!info?.sources || sources.length) connect();
   else {
     message.textContent = 'Choose a ' + titles[slot.kind] + ' connection in Widget Studio.';
     status.append(button('Settings', () => invoke('open_settings')));
   }
   const dispose = () => { closed = true; clearTimeout(timer); unregister(); release(feed); };
-  // This placement's colours changed: restyle the live view without reloading it.
+  // This placement's settings or colours changed: update the live view without reloading it.
+  dispose.settings = next => { saved = next; unregister.settings?.(next); };
   dispose.colors = next => { colors = next; unregister.colors?.(next); };
   return dispose;
 }
@@ -133,7 +137,7 @@ export function mountPackage(box, slot, entry, connections, {native = false, ope
       unregister();
       // Permissions come from the package on disk, as the host validated it.
       unregister = registerFrame(frame, {viewer, feed, kind: slot.kind, title: entry.title, actions: entry.actions || [],
-        permissions: opened.permissions || [], schema: entry.settings || [], saved, openSettings,
+        permissions: opened.permissions || [], schema: entry.settings || [], saved, source: slot.source || '', openSettings,
         displayName: source?.name?.trim() || '', host: hostOf(source?.address), serverField: entry.serverField, native, colors});
       frame.src = '/widget-view/' + encodeURIComponent(feed) + '/' + encodeURIComponent(opened.entry);
       box.replaceChildren(frame);

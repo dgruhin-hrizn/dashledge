@@ -49,6 +49,13 @@ pub struct Manifest {
     /// Per-placement settings, edited in Pages & layouts or from the view's own gear.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub settings: Vec<Setting>,
+    /// Bundled widgets only: `false` keeps a fresh layout from getting a full-screen
+    /// page for this widget. Layouts that already have one keep it.
+    #[serde(default = "yes", skip_serializing_if = "Clone::clone")]
+    pub page: bool,
+}
+fn yes() -> bool {
+    true
 }
 
 /// A Dashledge capability a package view asks for. The dashboard's package bridge
@@ -67,6 +74,10 @@ pub enum Permission {
     /// This Mac's CPU, GPU, memory and network readings.
     #[serde(rename = "mac.metrics")]
     MacMetrics,
+    /// Options the view finds at run time, such as accounts on this Mac, for its
+    /// `dynamic` settings. The view offers them with `Dashledge.settings.offer()`.
+    #[serde(rename = "settings.choices")]
+    SettingsChoices,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -76,6 +87,12 @@ pub enum SettingKind {
     Number,
     Toggle,
     Choice,
+    /// Several options. The value is a list; `["*"]` means every option, including
+    /// ones offered later.
+    Multi,
+    /// The user's own name for each option of the `choice` or `multi` setting named
+    /// by `for`. The value maps option values to names.
+    Names,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -100,6 +117,22 @@ pub struct Setting {
     pub step: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_length: Option<u32>,
+    /// A `choice` or `multi` setting whose options the view offers at run time
+    /// (`settings.choices` permission) instead of listing them here.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub dynamic: bool,
+    /// For a `names` setting: the `choice` or `multi` setting whose options it names.
+    #[serde(default, rename = "for", skip_serializing_if = "Option::is_none")]
+    pub for_setting: Option<String>,
+}
+
+/// The most options a view may offer for one dynamic setting, and a multi value's length.
+pub const MAX_CHOICES: usize = 64;
+
+/// A value a view may offer for a dynamic setting: 1–128 letters, digits or `._:@/-`.
+/// `*` is reserved for "every option" in a multi value.
+pub fn choice_value(value: &str) -> bool {
+    (1..=128).contains(&value.len()) && value.bytes().all(|b| b.is_ascii_alphanumeric() || b"._:@/-".contains(&b))
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -414,6 +447,9 @@ pub fn validate(raw: &Value, origin: Origin) -> Result<Manifest, String> {
             if manifest.collector.is_some() {
                 return fail("Installed packages can’t run a collector. Use a connector, which runs sandboxed.");
             }
+            if !manifest.page {
+                return fail("Only bundled widgets get a page of their own, so `page` applies to them only.");
+            }
         }
         Origin::Bundled => name(&manifest.id, "Bundled widget ID")?,
     }
@@ -496,11 +532,21 @@ pub fn validate(raw: &Value, origin: Origin) -> Result<Manifest, String> {
     if granted.contains(&Permission::Settings) != !manifest.settings.is_empty() {
         return fail("Declare the settings permission together with at least one setting.");
     }
+    if granted.contains(&Permission::SettingsChoices) != manifest.settings.iter().any(|s| s.dynamic) {
+        return fail("Declare the settings.choices permission together with at least one dynamic setting.");
+    }
     if manifest.settings.len() > 16 {
         return fail("Declare at most 16 settings.");
     }
     unique(manifest.settings.iter().map(|s| s.id.as_str()), "Setting ID")?;
-    for setting in &mut manifest.settings {
+    for index in 0..manifest.settings.len() {
+        let (before, rest) = manifest.settings.split_at_mut(index);
+        let setting = &mut rest[0];
+        if let Some(target) = &setting.for_setting {
+            if !before.iter().any(|s| &s.id == target && matches!(s.kind, SettingKind::Choice | SettingKind::Multi)) {
+                return fail(format!("Setting “{}” must name an earlier choice or multi setting in `for`.", setting.id));
+            }
+        }
         normalize_setting(setting)?;
     }
     if let Some(collector) = &manifest.collector {
@@ -512,6 +558,10 @@ pub fn validate(raw: &Value, origin: Origin) -> Result<Manifest, String> {
             output(pattern)?;
         }
         unique(collector.commands.iter().map(String::as_str), "Collector command")?;
+        // These names are the bridge's own messages, so a collector can't take them.
+        if let Some(reserved) = collector.commands.iter().find(|c| c.as_str() == "action") {
+            return fail(format!("Collector command “{reserved}” is reserved."));
+        }
     }
     Ok(manifest)
 }
@@ -526,11 +576,21 @@ fn normalize_setting(setting: &mut Setting) -> Result<(), String> {
     if setting.kind != SettingKind::Number && numeric {
         return fail(format!("Setting “{id}”: min, max and step apply to number settings."));
     }
-    if setting.kind != SettingKind::Text && setting.max_length.is_some() {
-        return fail(format!("Setting “{id}”: maxLength applies to text settings."));
+    if !matches!(setting.kind, SettingKind::Text | SettingKind::Names) && setting.max_length.is_some() {
+        return fail(format!("Setting “{id}”: maxLength applies to text and names settings."));
     }
-    if setting.kind != SettingKind::Choice && !setting.options.is_empty() {
-        return fail(format!("Setting “{id}”: options apply to choice settings."));
+    let listed = matches!(setting.kind, SettingKind::Choice | SettingKind::Multi);
+    if !listed && !setting.options.is_empty() {
+        return fail(format!("Setting “{id}”: options apply to choice and multi settings."));
+    }
+    if !listed && setting.dynamic {
+        return fail(format!("Setting “{id}”: only choice and multi settings can be dynamic."));
+    }
+    if setting.dynamic && !setting.options.is_empty() {
+        return fail(format!("Setting “{id}”: a dynamic setting gets its options from the view, not from options."));
+    }
+    if (setting.kind == SettingKind::Names) != setting.for_setting.is_some() {
+        return fail(format!("Setting “{id}”: names settings, and only they, declare `for`."));
     }
     let wrong = || fail(format!("Setting “{id}” has a default that doesn’t fit its type."));
     match setting.kind {
@@ -564,26 +624,73 @@ fn normalize_setting(setting: &mut Setting) -> Result<(), String> {
                 return wrong();
             }
         }
+        SettingKind::Choice if setting.dynamic => {
+            // Nothing chosen yet is "", and the view decides what that shows.
+            match setting.default.get_or_insert(Value::String(String::new())) {
+                Value::String(v) if v.is_empty() || choice_value(v) => {}
+                _ => return wrong(),
+            }
+        }
         SettingKind::Choice => {
-            if !(2..=24).contains(&setting.options.len()) {
-                return fail(format!("Setting “{id}” needs 2–24 options."));
-            }
-            let mut values = HashSet::new();
-            for option in &mut setting.options {
-                text(&option.value, &format!("Setting “{id}” option value"), 64)?;
-                text(&option.label, &format!("Setting “{id}” option label"), 48)?;
-                option.label = option.label.trim().to_string();
-                if !values.insert(option.value.clone()) {
-                    return fail(format!("Setting “{id}” lists an option twice."));
-                }
-            }
+            let values = static_options(setting)?;
             let first = Value::String(setting.options[0].value.clone());
             if !setting.default.get_or_insert(first).as_str().is_some_and(|v| values.contains(v)) {
                 return wrong();
             }
         }
+        SettingKind::Multi => {
+            let values = if setting.dynamic { HashSet::new() } else { static_options(setting)? };
+            let dynamic = setting.dynamic;
+            let Some(list) = setting.default.get_or_insert(serde_json::json!(["*"])).as_array() else { return wrong() };
+            let mut seen = HashSet::new();
+            let every = list.len() == 1 && list[0] == "*";
+            if list.len() > MAX_CHOICES
+                || (!every
+                    && !list.iter().all(|v| {
+                        v.as_str().is_some_and(|v| {
+                            (if dynamic { choice_value(v) } else { values.contains(v) }) && seen.insert(v.to_string())
+                        })
+                    }))
+            {
+                return wrong();
+            }
+        }
+        SettingKind::Names => {
+            let limit = setting.max_length.unwrap_or(48);
+            if !(1..=128).contains(&limit) {
+                return fail(format!("Setting “{id}”: maxLength must be 1–128."));
+            }
+            setting.max_length = Some(limit);
+            let Some(names) = setting.default.get_or_insert(serde_json::json!({})).as_object() else { return wrong() };
+            if names.len() > MAX_CHOICES
+                || !names.iter().all(|(k, v)| {
+                    choice_value(k)
+                        && v.as_str().is_some_and(|v| v.chars().count() <= limit as usize && !v.chars().any(char::is_control))
+                })
+            {
+                return wrong();
+            }
+        }
     }
     Ok(())
+}
+
+/// Check a choice or multi setting's listed options; returns their values.
+fn static_options(setting: &mut Setting) -> Result<HashSet<String>, String> {
+    let id = setting.id.clone();
+    if !(2..=24).contains(&setting.options.len()) {
+        return fail(format!("Setting “{id}” needs 2–24 options."));
+    }
+    let mut values = HashSet::new();
+    for option in &mut setting.options {
+        text(&option.value, &format!("Setting “{id}” option value"), 64)?;
+        text(&option.label, &format!("Setting “{id}” option label"), 48)?;
+        option.label = option.label.trim().to_string();
+        if option.value == "*" || !values.insert(option.value.clone()) {
+            return fail(format!("Setting “{id}” lists an option twice or uses the reserved value *."));
+        }
+    }
+    Ok(values)
 }
 
 /// Does `file`, requested by a view, match one of a collector's output patterns?
@@ -777,5 +884,94 @@ mod tests {
         assert!(check(json!({"id": "t", "label": "T", "type": "toggle", "options": [{"value": "a", "label": "A"}]})).is_err());
         assert!(check(json!({"id": "t", "label": "Bad\u{0007}label", "type": "toggle"})).is_err());
         assert!(check(json!({"id": "Bad", "label": "T", "type": "toggle"})).is_err());
+    }
+
+    fn dynamic(settings: Value) -> Result<Manifest, String> {
+        validate(&view_only(json!({"permissions": ["settings", "settings.choices"], "settings": settings})), Origin::Installed)
+    }
+
+    #[test]
+    fn dynamic_settings_need_their_permission_and_no_listed_options() {
+        let accounts = json!([{"id": "accounts", "label": "Accounts", "type": "multi", "dynamic": true}]);
+        let m = dynamic(accounts.clone()).unwrap();
+        assert_eq!(m.settings[0].default, Some(json!(["*"])));
+        assert_eq!(serde_json::to_value(&m).unwrap()["permissions"], json!(["settings", "settings.choices"]));
+        // The permission and a dynamic setting come together.
+        assert!(validate(&view_only(json!({"permissions": ["settings"], "settings": accounts})), Origin::Installed).is_err());
+        let fixed = json!([{"id": "unit", "label": "Unit", "type": "toggle"}]);
+        assert!(dynamic(fixed).unwrap_err().contains("settings.choices"));
+        // Options come from the view, so listing them too is refused.
+        assert!(dynamic(json!([{"id": "a", "label": "A", "type": "multi", "dynamic": true,
+            "options": [{"value": "x", "label": "X"}, {"value": "y", "label": "Y"}]}])).is_err());
+        assert!(dynamic(json!([{"id": "a", "label": "A", "type": "toggle", "dynamic": true}])).is_err());
+        let pin = dynamic(json!([{"id": "pin", "label": "Pin", "type": "choice", "dynamic": true}])).unwrap();
+        assert_eq!(pin.settings[0].default, Some(json!("")));
+    }
+
+    #[test]
+    fn multi_and_names_defaults_fit_their_shape() {
+        let multi = |default: Value| dynamic(json!([{"id": "a", "label": "A", "type": "multi", "dynamic": true, "default": default}]));
+        assert!(multi(json!(["claude:main", "codex:work_2"])).is_ok());
+        for bad in [json!("claude:main"), json!(["a", "a"]), json!(["*", "a"]), json!(["has space"]), json!([""])] {
+            assert!(multi(bad.clone()).is_err(), "{bad}");
+        }
+        let fixed = json!([{"id": "a", "label": "A", "type": "multi", "default": ["x"],
+            "options": [{"value": "x", "label": "X"}, {"value": "y", "label": "Y"}]}]);
+        assert!(validate(&view_only(json!({"permissions": ["settings"], "settings": fixed})), Origin::Installed).is_ok());
+        let names = |extra: Value| {
+            let mut n = json!({"id": "names", "label": "Names", "type": "names", "for": "a"});
+            for (k, v) in extra.as_object().unwrap() { n[k] = v.clone(); }
+            dynamic(json!([{"id": "a", "label": "A", "type": "multi", "dynamic": true}, n]))
+        };
+        let ok = names(json!({})).unwrap();
+        assert_eq!(ok.settings[1].default, Some(json!({})));
+        assert_eq!(ok.settings[1].max_length, Some(48));
+        assert_eq!(serde_json::to_value(&ok).unwrap()["settings"][1]["for"], json!("a"));
+        assert!(names(json!({"default": {"claude:main": "Work"}})).is_ok());
+        assert!(names(json!({"default": {"bad key": "Work"}})).is_err());
+        assert!(names(json!({"maxLength": 4, "default": {"a": "Too long"}})).is_err());
+        assert!(names(json!({"for": "missing"})).is_err());
+        // `for` must point back at a listed setting declared before it.
+        assert!(dynamic(json!([{"id": "names", "label": "Names", "type": "names", "for": "a"},
+            {"id": "a", "label": "A", "type": "multi", "dynamic": true}])).is_err());
+        assert!(dynamic(json!([{"id": "a", "label": "A", "type": "multi", "dynamic": true},
+            {"id": "t", "label": "T", "type": "text", "for": "a"}])).is_err());
+    }
+
+    #[test]
+    fn choice_values_are_plain_identifiers() {
+        for ok in ["claude:main", "codex:work_2", "user@example.com", "a/b.c-d"] {
+            assert!(choice_value(ok), "{ok}");
+        }
+        for bad in ["", "*", "has space", "line\nbreak", &"x".repeat(129)] {
+            assert!(!choice_value(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn page_is_on_by_default_and_only_bundled_widgets_turn_it_off() {
+        let b = validate(&bundled(), Origin::Bundled).unwrap();
+        assert!(b.page);
+        assert!(serde_json::to_value(&b).unwrap().get("page").is_none(), "the default isn't written out");
+        let mut off = bundled();
+        off["page"] = json!(false);
+        let m = validate(&off, Origin::Bundled).unwrap();
+        assert!(!m.page);
+        assert_eq!(serde_json::to_value(&m).unwrap()["page"], json!(false));
+        off["page"] = json!("no");
+        assert!(validate(&off, Origin::Bundled).is_err());
+        let mut installed_off = installed();
+        installed_off["page"] = json!(false);
+        assert!(validate(&installed_off, Origin::Installed).unwrap_err().contains("bundled"));
+        let mut installed_on = installed();
+        installed_on["page"] = json!(true);
+        assert!(validate(&installed_on, Origin::Installed).is_ok());
+    }
+
+    #[test]
+    fn collector_commands_cannot_take_bridge_names() {
+        let commands = |list: Value| { let mut p = bundled(); p["collector"]["commands"] = list; validate(&p, Origin::Bundled) };
+        assert!(commands(json!(["action"])).is_err());
+        assert!(commands(json!(["refresh"])).is_ok());
     }
 }

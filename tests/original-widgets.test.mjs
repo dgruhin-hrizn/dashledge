@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
-import {addOriginalPages,initial,originalKinds} from '../ui/model.js';
+import {addOriginalPages,initial,originalKinds,pagelessKinds} from '../ui/model.js';
 import {widgetSources} from '../ui/original-widgets.js';
 import {modelControls} from '../widgets/packages/omlx/collector/model-control.mjs';
 
@@ -13,9 +13,26 @@ test('upgrade adds missing full-screen dashboards once and honors later edits', 
   const existing=structuredClone(layout.pages);
   assert.equal(addOriginalPages(layout),true);
   assert.deepEqual(layout.pages.slice(0,existing.length),existing);
-  for(const kind of originalKinds)assert.equal(layout.pages.filter(p=>p.slots.length===1&&p.slots[0].kind===kind).length,1);
+  for(const kind of originalKinds)assert.equal(layout.pages.filter(p=>p.slots.length===1&&p.slots[0].kind===kind).length,pagelessKinds.has(kind)?0:1,kind);
   layout.pages.pop();const edited=structuredClone(layout);
   assert.equal(addOriginalPages(layout),false);assert.deepEqual(layout,edited);
+});
+
+test('a fresh layout gets no AI Plan Monitor page; the other bundled widgets keep theirs',()=>{
+  assert.ok(originalKinds.includes('plans'));
+  assert.ok(pagelessKinds.has('plans'),'plans/widget.json says page: false');
+  const layout=initial();
+  addOriginalPages(layout);
+  const solo=kind=>layout.pages.filter(p=>p.slots.length===1&&p.slots[0].kind===kind).length;
+  assert.equal(solo('plans'),0);
+  for(const kind of ['comfy','ember','emby','omlx','proxmox','unraid'])assert.equal(solo(kind),1,kind);
+});
+
+test('a layout that already has an AI Plan Monitor page keeps it',()=>{
+  const layout=initial();
+  layout.pages.push({id:'ai',name:'AI Plan Monitor',preset:'One',slots:[{id:'p',kind:'plans',source:'',volume:''}]});
+  addOriginalPages(layout);
+  assert.equal(layout.pages.filter(p=>p.slots.length===1&&p.slots[0].kind==='plans').length,1);
 });
 
 test('the worker wall and server selector start with the assigned endpoint',()=>{

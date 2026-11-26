@@ -1,15 +1,16 @@
 import {join} from 'node:path';
 import {writeFile,rename} from 'node:fs/promises';
-import {context,onRefresh} from '../../packages/_shared/context.mjs';
+import {context,onCommand} from '../../_shared/context.mjs';
 import {merge,nextCheck,profiles,readProfile} from './sources.mjs';
 
 // Each account keeps its own schedule: readings every minute, sign-in problems every five,
-// and failures back off. A refresh from Settings reads every account now.
+// and failures back off. Check now in the placement's settings reads every account now.
 const accounts=new Map(), due=new Map(), failures=new Map();
-const file=join(context.directory,'plans.json');
+const file=join(context.directory,'snapshot.js');
 let writes=Promise.resolve();
 function publish(){
-  const data=JSON.stringify({at:Date.now(),accounts:[...accounts.values()]});
+  // The view loads this with a <script>, which an opaque-origin frame may do; fetch it may not.
+  const data='window.plansSample('+JSON.stringify({at:Date.now(),accounts:[...accounts.values()]})+');';
   writes=writes.catch(()=>{}).then(async()=>{await writeFile(file+'.tmp',data);await rename(file+'.tmp',file);});
   return writes;
 }
@@ -43,5 +44,5 @@ async function refresh(force=false){
     else timer=setTimeout(refresh,15000);
   }
 }
-onRefresh(()=>refresh(true));
+onCommand('refresh',()=>refresh(true));
 refresh(true);

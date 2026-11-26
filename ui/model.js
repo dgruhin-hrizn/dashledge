@@ -1,6 +1,6 @@
 import {slackWidgets} from './slack-catalog.js';
 export const presets={One:[1],Two:[1,1],Three:[1,1,1],Four:[1,1,1,1],Five:[1,1,1,1,1],Six:[2,2,2],Featured:[1,2]};
-export const titles={...Object.fromEntries(Object.entries(slackWidgets).map(([kind,w])=>[kind,'Slack '+w.name])),plans:'AI Plan Monitor',markets:'Market Watch',photos:'Apple Photos',shortcuts:'Mac Shortcuts',rundmd:'Run-DMD',cpu:'CPU',gpu:'GPU',memory:'Memory',disk:'Disk space',network:'Network',machine:'This Mac',power:'Power & thermal',interfaces:'Network interfaces',volumes:'Storage volumes',world:'World clocks',clock:'Local time',focus:'Focus timer',notes:'Scratchpad',googledesk:'Mail & Calendar',spotify:'Spotify',applemusic:'Apple Music',empty:'Empty section'};
+export const titles={...Object.fromEntries(Object.entries(slackWidgets).map(([kind,w])=>[kind,'Slack '+w.name])),markets:'Market Watch',photos:'Apple Photos',shortcuts:'Mac Shortcuts',rundmd:'Run-DMD',cpu:'CPU',gpu:'GPU',memory:'Memory',disk:'Disk space',network:'Network',machine:'This Mac',power:'Power & thermal',interfaces:'Network interfaces',volumes:'Storage volumes',world:'World clocks',clock:'Local time',focus:'Focus timer',notes:'Scratchpad',googledesk:'Mail & Calendar',spotify:'Spotify',applemusic:'Apple Music',empty:'Empty section'};
 export const id=()=>crypto.randomUUID();
 export const slot=(kind='empty')=>({id:id(),kind,source:'',volume:''});
 export function makePage(name,preset,kinds=[]){return {id:id(),name,preset,slots:Array.from({length:count(preset)},(_,i)=>slot(kinds[i]))}}
@@ -8,10 +8,13 @@ export const count=p=>presets[p].reduce((x,y)=>x+y,0);
 export function initial(){return {version:1,pages:[makePage('System','Five',['cpu','gpu','memory','disk','network']),makePage('Studio','Featured',['comfy','omlx','spotify']),makePage('Media','One',['emby']),makePage('Everyday','Four',['clock','focus','notes','machine'])],sources:[],plugins:[]}}
 // Bundled package widgets, filled from their manifests by ui/packages.js.
 export const originalKinds = [];
+// Bundled widgets whose manifest says `page: false`: a fresh layout gets no page for them.
+export const pagelessKinds = new Set();
 export function addOriginalPages(config) {
   // Wait until the bundled packages are known, so an unreadable list can't mark this done.
   if (config.originalDashboards || !originalKinds.length) return false;
   for (const kind of originalKinds) {
+    if (pagelessKinds.has(kind)) continue;
     if (config.pages.some(p => p.slots.length === 1 && p.slots[0].kind === kind)) continue;
     const page = makePage(titles[kind], 'One', [kind]);
     page.slots[0].source = config.sources.find(source => source.kind === kind)?.id || '';

@@ -1,7 +1,7 @@
 //! Run widget collectors while a dashboard or live preview is subscribed.
 //! Each virtual directory serves the package's view plus only the output files its
-//! manifest declares. Bundled packages come from `widgets/packages/`; Market Watch and
-//! AI Plan Monitor keep their built-in collectors in `widgets/collectors/`.
+//! manifest declares. Bundled packages come from `widgets/packages/`; Market Watch
+//! keeps its built-in collector in `widgets/collectors/`.
 use crate::connections::{endpoint, resolve, widget_credentials};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -121,7 +121,6 @@ fn plan(kind: &str, assets: &Path) -> Result<Plan, String> {
     }
     let outputs: &[&str] = match kind {
         "markets" => &["market.json", "logos/*.png"],
-        "plans" => &["plans.json"],
         _ => return Err("Unknown widget".into()),
     };
     Ok(Plan {
@@ -203,7 +202,7 @@ pub async fn widget_open(
             info.manifest.sources.map_or(0..=0, |s| (s.min as usize)..=(s.max as usize))
         }
         Some(_) => return Err("This widget has no collector.".into()),
-        None if matches!(kind.as_str(), "markets" | "plans") => 0..=0,
+        None if kind == "markets" => 0..=0,
         None => return Err("Unknown widget".into()),
     };
     if !count.contains(&sources.len()) || viewer.len() > 80 {
@@ -274,13 +273,20 @@ pub fn widget_close(id: String, viewer: String) {
         feed.last_attached=Instant::now();
     }
 }
+/// A command the collector's manifest declares, other than oMLX's `model`, sent to its
+/// stdin as `{"command": name, "args": args}`. Only a viewer of the feed may send one.
 #[tauri::command]
-pub fn plans_refresh(id: String, viewer: String) -> Result<(), String> {
+pub fn widget_command(id: String, viewer: String, name: String, args: Option<Value>) -> Result<(), String> {
     let mut feeds = FEEDS.lock().unwrap();
-    let feed = feeds.get_mut(&id)
-        .filter(|f| f.kind == "plans" && f.viewers.contains_key(&viewer))
-        .ok_or("Plan monitor disconnected")?;
-    writeln!(feed.child.stdin.as_mut().ok_or("Collector disconnected")?, "{}", json!({"refresh": true}))
+    let feed = feeds
+        .get_mut(&id)
+        .filter(|f| name != "model" && f.commands.contains(&name) && f.viewers.contains_key(&viewer))
+        .ok_or("Unknown widget command")?;
+    let message = json!({"command": name, "args": args.unwrap_or(Value::Null)});
+    if message.to_string().len() > 4096 {
+        return Err("Widget command too large".into());
+    }
+    writeln!(feed.child.stdin.as_mut().ok_or("Collector disconnected")?, "{message}")
         .map_err(|_| "Collector disconnected".into())
 }
 #[tauri::command]

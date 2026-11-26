@@ -641,7 +641,7 @@ mod tests {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../widgets/packages");
         let listed = read_root(&root, Origin::Bundled);
         let ids: Vec<_> = listed.iter().map(|p| p.manifest.id.as_str()).collect();
-        assert_eq!(ids, ["comfy", "ember", "emby", "omlx", "proxmox", "unraid"]);
+        assert_eq!(ids, ["comfy", "ember", "emby", "omlx", "plans", "proxmox", "unraid"]);
         for package in &listed {
             let dir = root.join(&package.manifest.id);
             let collector = package.manifest.collector.as_ref().unwrap();
@@ -651,6 +651,7 @@ mod tests {
             assert!(package.icon_data.is_some(), "{} icon", package.manifest.id);
         }
         assert!(is_bundled("emby") && !is_bundled("plugin.emby") && !is_bundled("markets"));
+        assert!(is_bundled("plans"));
     }
 
     #[test]

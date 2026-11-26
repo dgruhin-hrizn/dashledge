@@ -7,6 +7,7 @@ import {general, onGeneral} from './general.js';
 import {openTouchKeyboard} from './search-keyboard.js';
 import {settingValues} from './package-settings.js';
 import {placementColors} from './placement-colors.js';
+import {cleanOptions, onRefreshRequest, storeChoices} from './package-choices.js';
 
 const frames = new Map(); // contentWindow → entry
 // Every registered frame. A view's SDK says `ready` while its document is still
@@ -114,12 +115,13 @@ function claim(source) {
 
 // Track a package frame. `commands` lists the collector commands and `permissions`
 // the capabilities its manifest declares; `schema` is its settings and `saved` this
-// placement's stored values. `openSettings()` opens this placement's settings editor.
+// placement's stored values; `source` is its connection ID, which keys the options a
+// `settings.choices` view offers. `openSettings()` opens this placement's settings editor.
 // Returns unregister(); `deliver(data)` sends a package feed's data, now or once ready,
 // and `settings(saved)` sends the placement's changed settings to the live view.
 export function registerFrame(frame, {viewer, feed, kind = '', title = '', commands = [], actions = [], permissions = [],
-  schema = [], saved = {}, openSettings = null, colors = null, displayName = '', host = '', serverField = '', native = false}) {
-  const entry = {frame, viewer, feed, kind, title: clean(title, 64) || 'Widget', commands, actions, permissions, schema,
+  schema = [], saved = {}, source = '', openSettings = null, colors = null, displayName = '', host = '', serverField = '', native = false}) {
+  const entry = {frame, viewer, feed, kind, title: clean(title, 64) || 'Widget', commands, actions, permissions, schema, source,
     settings: settingValues(schema, saved), openSettings, colors, displayName, host, serverField, native,
     serverName: '', window: null, data: null, ready: false, metrics: false, keyboard: null};
   entries.add(entry);
@@ -178,6 +180,9 @@ export async function handleMessage(entry, message) {
       try {
         if (message.name === 'model' && entry.commands.includes('model'))
           return reply(await invoke('widget_model_action', {id: entry.feed, viewer: entry.viewer, command: message.args}));
+        // Any other collector command the manifest declares; the host checks it again.
+        if (entry.commands.includes(message.name))
+          return reply(await invoke('widget_command', {id: entry.feed, viewer: entry.viewer, name: message.name, args: message.args ?? null}));
         // A declarative action: the host checks it against the manifest again.
         if (message.name === 'action' && entry.actions.includes(message.args?.id)) {
           const args = message.args.args && typeof message.args.args === 'object' ? message.args.args : {};
@@ -191,6 +196,13 @@ export async function handleMessage(entry, message) {
         if (message.name === 'keyboard.open' && granted(entry, 'keyboard')) {
           if (!onScreen(entry)) return reply(undefined, 'The keyboard opens only while the widget is on screen');
           return reply(await openKeyboard(entry, message.args && typeof message.args === 'object' ? message.args : {}));
+        }
+        // Options for one of the package's own dynamic settings, kept for the settings editor.
+        if (message.name === 'settings.offer' && granted(entry, 'settings.choices')) {
+          const setting = entry.schema.find(item => item.id === message.args?.setting && item.dynamic);
+          if (!setting) return reply(undefined, 'Not a dynamic setting');
+          storeChoices(entry.kind, entry.source, setting.id, cleanOptions(message.args.options));
+          return reply(true);
         }
         if (message.name === 'mac.metrics' && granted(entry, 'mac.metrics')) return reply(latestMetrics);
         if (message.name === 'mac.subscribe' && granted(entry, 'mac.metrics')) {
@@ -211,6 +223,12 @@ if (typeof window !== 'undefined') {
     const entry = frames.get(event.source) || claim(event.source);
     if (!entry) return;
     handleMessage(entry, event.data);
+  });
+  // Check now in a settings editor, in this window or another: ask the live views of
+  // that widget and connection to look again.
+  onRefreshRequest((kind, source) => {
+    for (const entry of entries)
+      if (entry.ready && entry.kind === kind && entry.source === source && granted(entry, 'settings.choices')) post(entry, {type: 'refresh'});
   });
   // Theme changes reach every package view.
   onGeneral(() => {

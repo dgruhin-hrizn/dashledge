@@ -3,8 +3,13 @@ import test from 'node:test';
 import {chmodSync,mkdtempSync,mkdirSync,writeFileSync,rmSync} from 'node:fs';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
-import {classifyClaude,claudeSignIn,codexDetails,filePlan,merge,message,nextCheck,planName,profiles,codexWindows,readClaude,claudeWindows} from '../widgets/collectors/plans/sources.mjs';
-import {accountStatus,badges,pace,paceText,primaryWindow,visibleAccounts,windowCaption,windowState} from '../ui/plan-model.js';
+import {classifyClaude,claudeSignIn,codexDetails,filePlan,merge,message,nextCheck,planName,profiles,codexWindows,readClaude,claudeWindows} from '../widgets/packages/plans/collector/sources.mjs';
+import {readFileSync} from 'node:fs';
+import vm from 'node:vm';
+
+// The view's model is a classic script (views load it with <script>); run it the same way.
+vm.runInThisContext(readFileSync(new URL('../widgets/packages/plans/view/plan-model.js',import.meta.url),'utf8'));
+const {accountOptions,accountStatus,badges,pace,paceText,primaryWindow,visibleAccounts,windowCaption,windowState}=globalThis.planModel;
 
 test('Codex uses reported windows and preserves a genuine zero',()=>{
   assert.deepEqual(codexWindows({codex:{primary:{usedPercent:0,windowDurationMins:10080,resetsAt:123}},extra:{limitName:'Extra',primary:{usedPercent:67,windowDurationMins:300},secondary:{usedPercent:null}}}),[
@@ -148,13 +153,24 @@ test('account status distinguishes checking, readings, stale and needed action',
 test('placements show their chosen accounts or their pinned one',()=>{
   const all=[{id:'a'},{id:'b'},{id:'c'}];
   assert.deepEqual(visibleAccounts(all,{}).map(a=>a.id),['a','b','c']);
-  assert.deepEqual(visibleAccounts(all,{ids:['c','a']}).map(a=>a.id),['a','c']);
-  assert.deepEqual(visibleAccounts(all,{mode:'account',pin:'b'}).map(a=>a.id),['b']);
-  assert.deepEqual(visibleAccounts(all,{mode:'account',pin:'gone'}),[]);
-  assert.deepEqual(visibleAccounts(all,{mode:'account'}).map(a=>a.id),['a']);
+  assert.deepEqual(visibleAccounts(all,{accounts:['*']}).map(a=>a.id),['a','b','c']);
+  assert.deepEqual(visibleAccounts(all,{accounts:['c','a']}).map(a=>a.id),['a','c']);
+  assert.deepEqual(visibleAccounts(all,{accounts:['b']}).map(a=>a.id),['b']);
+  assert.deepEqual(visibleAccounts(all,{accounts:['gone']}),[]);
+  assert.deepEqual(visibleAccounts(all,{accounts:[]}),[]);
 });
 test('badges call out a reached limit and banked resets',()=>{
   assert.deepEqual(badges({reached:true,resets:1}),[{tone:'alert',text:'Limit reached'},{tone:'calm',text:'1 reset banked'}]);
   assert.deepEqual(badges({resets:4}),[{tone:'calm',text:'4 resets banked'}]);
   assert.deepEqual(badges({}),[]);
+});
+test('accounts are offered to settings with the status the tile shows',()=>{
+  const now=Date.UTC(2026,0,1);
+  const options=accountOptions([
+    {id:'claude:main',provider:'Claude',name:'Default',plan:'Max',at:now,windows:[{label:'5-hour',used:40,reset:now+3600000,minutes:300}]},
+    {id:'codex:local',provider:'Codex',name:'Current account',state:'signedOut',windows:[]},
+  ],now,{loaded:true});
+  assert.deepEqual(options[0],{value:'claude:main',label:'Claude Max · Default',detail:'60% left · 5-hour · Updated just now'});
+  assert.equal(options[1].label,'Codex · Current account');
+  assert.match(options[1].detail,/^Not signed in/);
 });

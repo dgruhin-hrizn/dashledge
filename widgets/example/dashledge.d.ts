@@ -12,8 +12,19 @@
 // ---------------------------------------------------------------- views ----
 
 declare namespace DashledgeView {
-  type Permission = 'settings' | 'keyboard' | 'ui' | 'mac.metrics';
-  type SettingValue = string | number | boolean;
+  type Permission = 'settings' | 'settings.choices' | 'keyboard' | 'ui' | 'mac.metrics';
+  /** `multi` settings hold a list (`["*"]` is every option, including later ones); `names` settings map option values to names. */
+  type SettingValue = string | number | boolean | string[] | Record<string, string>;
+
+  /** An option a view offers for a dynamic setting. */
+  interface Choice {
+    /** 1–128 letters, digits or `._:@/-`; `*` is reserved. */
+    value: string;
+    /** Shown in the settings list (up to 64 characters). */
+    label: string;
+    /** A second line, such as a status (up to 120 characters). */
+    detail?: string;
+  }
 
   interface Theme {
     mode: 'dark';
@@ -101,6 +112,10 @@ declare namespace DashledgeView {
       readonly values: Record<string, SettingValue>;
       /** Open this placement's settings editor (the same one as Pages & layouts). Resolves with the saved values, or null if cancelled. */
       open(): Promise<Record<string, SettingValue> | null>;
+      /** Requires `settings.choices`. Offer the options you found for one of your `dynamic` settings (at most 64). Settings editors list the latest offer, even when no view is on screen. Offer again only when the list changes. */
+      offer(setting: string, options: Choice[]): Promise<true>;
+      /** Requires `settings.choices`. Called when someone taps Check now in this placement's settings: look again, then offer. Returns an unsubscribe function. */
+      onRefresh(callback: () => void): () => void;
     };
     /** Requires the `keyboard` permission. */
     keyboard: {

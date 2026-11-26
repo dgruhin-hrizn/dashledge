@@ -1,4 +1,3 @@
-import {editPlans} from './plan-monitor.js';
 import {slackSettings,takeSlackSetup} from './slack.js';
 import {slackWidgets,slackTarget} from './slack-catalog.js';
 import {googleSettings,takeGoogleSetup} from './google-desk.js';
@@ -71,8 +70,7 @@ function pageControls(p){
   return row(options,undoButton);
 }
 function configureWidget(kind,slot,save,title){
-  if(kind==='plans')editPlans(slot,planDisplay=>save({planDisplay}),{title});
-  else if(kind==='photos')editPhotos(slot.photoDisplay,photoDisplay=>save({photoDisplay}),{title});
+  if(kind==='photos')editPhotos(slot.photoDisplay,photoDisplay=>save({photoDisplay}),{title});
   else editShortcuts(slot.kind==='shortcuts'?shortcutPins(slot):[],shortcutPins=>save({shortcutPins}),{title});
 }
 function configureSection(p,i,kind='shortcuts'){
@@ -122,7 +120,6 @@ function placementPanel(p,i,s,assign,vertical){
       change(()=>s.slackTarget=control.value.trim());
     }));
   }
-  if(s.kind==='plans')options.push(button('Configure accounts',()=>configureSection(p,i,'plans')));
   if(s.kind==='markets')options.push(field('Featured symbol',marketPicker(s,marketSymbol=>change(()=>s.marketSymbol=marketSymbol))),button('Edit watchlist',()=>editWatchlist(s,props=>change(()=>Object.assign(s,props)))));
   if(s.kind==='photos')options.push(button('Configure photos',()=>configureSection(p,i,'photos')));
   if(s.kind==='shortcuts'){
@@ -140,7 +137,7 @@ function placementPanel(p,i,s,assign,vertical){
 
   // A draft that previews on the Edge.
   const colors=followsColors(s.kind,{slack:!!slackWidgets[s.kind],custom,bundled:packageInfo.get(s.kind)});
-  const pkg=custom?.apiVersion===2&&custom.settings?.length?custom:null;
+  const own=custom?.apiVersion===2?custom:packageInfo.get(s.kind),pkg=own?.settings?.length?own:null;
   if(!colors&&!pkg){discardDraft();return box}
   if(placementDraft?.slot!==s.id||placementDraft.kind!==s.kind){
     discardDraft();
@@ -219,7 +216,7 @@ function placementPanel(p,i,s,assign,vertical){
     };
     drafted.append(group('Colour',el('span','placement-label','Highlight'),swatches('Highlight','accent',HIGHLIGHTS),el('span','placement-label','Text'),swatches('Text','primary',TEXTS)));
   }
-  if(pkg)drafted.append(group('Widget settings',settingsForm({schema:pkg.settings,draft:draft.packageSettings,brand:pkg.title,icon:'/widget-icon/'+encodeURIComponent(pkg.id),onChange:update})));
+  if(pkg)drafted.append(group('Widget settings',settingsForm({schema:pkg.settings,draft:draft.packageSettings,brand:pkg.title,icon:'/widget-icon/'+encodeURIComponent(pkg.id),choices:{kind:s.kind,source:s.source||''},onChange:update})));
   drafted.append(bar);box.append(drafted);
   update();
   return box;
@@ -284,7 +281,7 @@ function layouts(){
   // Edit the page as it is now: the layout may have been reloaded since this was drawn.
   const live=()=>config.pages.find(v=>v.id===p.id)||p;
   const assign=(i,kind)=>{
-    if(!['photos','shortcuts','plans'].includes(kind))return change(()=>{const page=live();page.slots[i]=assignWidget(config,kind,page.slots[i]);index=i});
+    if(!['photos','shortcuts'].includes(kind))return change(()=>{const page=live();page.slots[i]=assignWidget(config,kind,page.slots[i]);index=i});
     configureSection(live(),i,kind);
   };
   const vertical=general().vertical,st=liveStage();st.page=p.id;
@@ -502,13 +499,12 @@ function widgetDetail(kind){
       value=>localStorage.setItem('edge.'+kind+'.spectrum',value));
     main.append(panel('Appearance',field('Disc behind the album cover',disc),field('Playback bar spectrum',spectrum)));
   }
-  if(kind==='plans')main.append(panel('Widget defaults',button('Configure default accounts',()=>editPlans({},value=>{config=state();change(()=>config.planDefaults=value,false)},{title:'AI Plan Monitor · Widget defaults'}))));
   if(kind==='markets')main.append(panel('Alpaca market data',marketConnection()));
   if(slackWidgets[kind])main.append(panel('Slack workspace',slackSettings()));
-  if(['photos','shortcuts','plans'].includes(kind)){
+  if(['photos','shortcuts'].includes(kind)){
     const spaces=config.pages.flatMap(p=>p.slots.flatMap((s,i)=>s.kind==='empty'?[[s.id,p.name+' · Section '+(i+1)]]:[]));
     const dest=select([['new','New full-screen page'],...spaces],'new',()=>{});
-    main.append(panel('Add to a layout',field('Destination',dest),button(kind==='plans'?'Configure accounts…':kind==='photos'?'Configure photos…':'Choose shortcuts…',()=>{
+    main.append(panel('Add to a layout',field('Destination',dest),button(kind==='photos'?'Configure photos…':'Choose shortcuts…',()=>{
       if(dest.value!=='new'){
         const target=config.pages.find(p=>p.slots.some(s=>s.id===dest.value));
         if(target)configureSection(target,target.slots.findIndex(s=>s.id===dest.value),kind);

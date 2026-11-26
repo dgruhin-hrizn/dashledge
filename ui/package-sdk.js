@@ -6,6 +6,7 @@
 //   blur    the page holding the view was hidden
 //   reply   the answer to window.Dashledge.command()
 //   metrics this Mac's readings, for views that declare mac.metrics
+//   refresh Check now in the placement's settings, for views that declare settings.choices
 // `window.Zurface` is the same object, for views written against that API.
 (() => {
   const host = window.parent;
@@ -13,7 +14,7 @@
   const send = message => host.postMessage({dashledge: 1, ...message}, '*');
   let state = {instanceID: '', touchMode: false, displayName: '',
     theme: {mode: 'dark', primary: '#edf0e6', accent: '#f88d4f'}};
-  const subscribers = new Set(), pending = new Map(), dataListeners = new Set(), metricListeners = new Set();
+  const subscribers = new Set(), pending = new Map(), dataListeners = new Set(), metricListeners = new Set(), refreshListeners = new Set();
   let latest = null, metrics = null, metricsWanted = false;
   let nextId = 1;
 
@@ -66,6 +67,14 @@
   api.settings = {
     get values() { return {...(state.settings || {})}; },
     open: () => api.command('settings.open'),
+    // settings.choices: the options this view found for one of its dynamic settings,
+    // as [{value, label, detail?}]. Settings editors list the latest offer.
+    offer: (setting, options) => api.command('settings.offer', {setting, options}),
+    // Called when someone taps Check now in this placement's settings.
+    onRefresh(callback) {
+      refreshListeners.add(callback);
+      return () => refreshListeners.delete(callback);
+    },
   };
   // keyboard: the shared touch keyboard. Resolves with the text, or null when closed.
   api.keyboard = {open: (options = {}) => api.command('keyboard.open', options)};
@@ -234,6 +243,8 @@
       for (const callback of dataListeners) callback(latest);
     } else if (message.type === 'metrics') {
       emitMetrics(message.metrics);
+    } else if (message.type === 'refresh') {
+      for (const callback of refreshListeners) callback();
     } else if (message.type === 'blur') {
       window.dispatchEvent(new Event('blur'));
     } else if (message.type === 'reply') {
