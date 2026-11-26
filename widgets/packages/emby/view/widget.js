@@ -39,7 +39,7 @@
     const box=el('article','','hero');
     if(!s){
       const text=el('div','','details');
-      text.append(el('small','NOW PLAYING','eyebrow'),el('h1',section('sessions')?.error || (value('sessions')?'The screen is yours.':'Waiting for Emby')),el('p',value('sessions')?'No active streams on Goliath.':'Waiting for the capture service.'));
+      text.append(el('small','NOW PLAYING','eyebrow'),el('h1',section('sessions')?.error || (value('sessions')?'The screen is yours.':'Waiting for Emby')),el('p',value('sessions')?'No active streams on '+serverName()+'.':'Waiting for the capture service.'));
       box.append(text);return box;
     }
     if(art(s.backdrop || s.poster))box.style.setProperty('--still','url("'+(art(s.backdrop)||art(s.poster))+'")');
@@ -260,6 +260,8 @@
     update.textContent=info.release?.version?'Update · '+info.release.version+' ›':'Update available ›';
     if(dialog.open){if(update.hidden)dialog.close();else renderNotes();}
   }
+  // The connection's name, else the name Emby reports, else the address's host.
+  function serverName(){return window.Dashledge?.displayName(value('info')?.ServerName)||value('info')?.ServerName||'your server'}
   function draw(force=false){
     const stale=sample && Date.now()-sample.at>25000;
     const next=[selected,sample?.at,stale].join('|');
@@ -273,7 +275,8 @@
     status.textContent=!sample?'Connecting':stale?'Last reading':errors.length?errors[0][0]+' · '+errors[0][1].error:'Live';
     status.dataset.live=String(!!sample&&!stale&&!errors.length);
     document.querySelector('#summary').textContent=playing.length?playing.length+' '+(playing.length===1?'stream':'streams'):'';
-    document.querySelector('#host').textContent=join([info.ServerName||'Goliath',info.Version,info.HasPendingRestart&&'Restart pending']);
+    document.querySelector('#host').textContent=join([serverName(),info.Version,info.HasPendingRestart&&'Restart pending']);
+    document.title='Emby · '+serverName();
     document.querySelector('#viewers').textContent=idle.length?'Recently connected  ·  '+[...new Set(idle.map(s=>s.user))].join(', '):'';
     document.querySelector('#library').textContent=join(Object.entries({MovieCount:'movies',SeriesCount:'series',EpisodeCount:'episodes',SongCount:'tracks'}).filter(([key])=>counts[key]>0).map(([key,name])=>counts[key].toLocaleString()+' '+name));
     if(current){
@@ -309,6 +312,7 @@
     if(focusId)[...wall.children].find(c=>c.dataset.id===focusId)?.querySelector('.poster-hit')?.focus({preventScroll:true});
   }
   window.serverSnapshot=s=>{if(s?.kind==='emby'){sample=s;draw();}};
+  window.Dashledge?.subscribe(()=>{if(sample)draw(true)});
   function refresh(){
     if(document.hidden||pending)return;
     if(!dialog.open && !selected && Date.now()>=rotateAt && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches){
