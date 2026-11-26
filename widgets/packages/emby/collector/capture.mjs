@@ -165,7 +165,7 @@ async function run(kind) {
         if(id==='info' && value.HasUpdateAvailable){
           const key=JSON.stringify(value);
           if(key!==releaseKey || now>=releaseUntil){
-            release=await updateDetails(value,path=>json(target+path,headers),url=>json(url,{'User-Agent':'Emby-Zurface-Widget'}));
+            release=await updateDetails(value,path=>json(target+path,headers),url=>json(url,{'User-Agent':'Dashledge-Emby-Widget'}));
             releaseKey=key;releaseUntil=now+(release.notes?3600000:300000);
           }
           value.release=release;

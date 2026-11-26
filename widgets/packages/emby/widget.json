@@ -3,12 +3,12 @@
   "id": "emby",
   "title": "Emby",
   "description": "Active streams, playback controls and your media library.",
-  "version": "2.4.1",
+  "version": "2.5.0",
   "category": "Music & media",
   "icon": "view/icon.svg",
   "view": {
     "entry": "view/index.html",
-    "viewport": "reference"
+    "viewport": "native"
   },
   "sources": {
     "min": 1,
@@ -28,5 +28,8 @@
       "snapshot.js",
       "art/*.jpg"
     ]
+  },
+  "displayName": {
+    "serverField": "info.ServerName"
   }
 }
