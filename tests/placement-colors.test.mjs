@@ -27,8 +27,8 @@ test('only real changes are saved as an override', () => {
 });
 
 test('widgets that follow General colours are the ones that can override them', () => {
-  for (const kind of ['cpu', 'clock', 'world', 'focus', 'googledesk']) assert.ok(followsColors(kind), kind);
-  for (const kind of ['spotify', 'applemusic', 'photos', 'markets', 'rundmd', 'empty']) assert.ok(!followsColors(kind), kind);
+  for (const kind of ['cpu', 'gpu', 'memory', 'disk', 'network', 'machine', 'power', 'interfaces', 'volumes', 'clock', 'world', 'focus', 'notes']) assert.ok(followsColors(kind), kind);
+  for (const kind of ['spotify', 'applemusic', 'photos', 'markets', 'rundmd', 'googledesk', 'empty']) assert.ok(!followsColors(kind), kind);
   assert.ok(!followsColors('slackmentions', {slack: true}));
   assert.ok(followsColors('omlx', {bundled: packageInfo.get('omlx')}));
   assert.ok(followsColors('proxmox', {bundled: packageInfo.get('proxmox')}));

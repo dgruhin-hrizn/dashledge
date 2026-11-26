@@ -238,7 +238,9 @@
   }
   window.addEventListener("resize",render);render();
   window.Dashledge?.subscribe(({theme}) => {
+    // Dashledge's highlight (General, or this placement's own) is the CPU colour; its text colour is the ink.
     if (theme?.accent && CSS.supports("color", theme.accent)) document.documentElement.style.setProperty("--cpu",theme.accent);
+    if (theme?.primary && CSS.supports("color", theme.primary)) document.documentElement.style.setProperty("--ink",theme.primary);
     render();
   });
   if (window.proxmoxDemo) window.proxmoxSample(window.proxmoxDemo);
