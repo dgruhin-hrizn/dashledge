@@ -99,7 +99,7 @@ fn assets(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf), String> {
 fn launch(kind: &str, sources: &[Source], assets: &Path, node: &Path) -> Result<Feed, String> {
     let entry = match kind {
         "comfy" | "emby" | "unraid" => "capture.mjs",
-        "omlx" | "proxmox" | "markets" => "collect.mjs",
+        "omlx" | "proxmox" | "markets" | "plans" => "collect.mjs",
         "ember" => "collector.mjs",
         _ => return Err("Unknown widget".into()),
     };
@@ -165,7 +165,7 @@ pub async fn widget_open(
     viewer: String,
 ) -> Result<String, String> {
     let count = match kind.as_str() {
-        "ember" | "markets" => 0..=0,
+        "ember" | "markets" | "plans" => 0..=0,
         "comfy" => 1..=2,
         "omlx" => 1..=20,
         "emby" | "unraid" | "proxmox" => 1..=1,
@@ -240,6 +240,15 @@ pub fn widget_close(id: String, viewer: String) {
     }
 }
 #[tauri::command]
+pub fn plans_refresh(id: String, viewer: String) -> Result<(), String> {
+    let mut feeds = FEEDS.lock().unwrap();
+    let feed = feeds.get_mut(&id)
+        .filter(|f| f.kind == "plans" && f.viewers.contains_key(&viewer))
+        .ok_or("Plan monitor disconnected")?;
+    writeln!(feed.child.stdin.as_mut().ok_or("Collector disconnected")?, "{}", json!({"refresh": true}))
+        .map_err(|_| "Collector disconnected".into())
+}
+#[tauri::command]
 pub fn widget_model_action(id: String, viewer: String, command: Value) -> Result<(), String> {
     let mut feeds = FEEDS.lock().unwrap();
     let feed = feeds
@@ -269,6 +278,7 @@ fn resource(id: &str, path: &str) -> Option<(Vec<u8>, &'static str)> {
     let feed = feeds.get(id)?;
     let root = match parts.as_slice() {
         ["logos", file] if feed.kind == "markets" && file.ends_with(".png") => feed.directory.path(),
+        ["plans.json"] if feed.kind == "plans" => feed.directory.path(),
         ["market.json"] if feed.kind == "markets" => feed.directory.path(),
         ["snapshot.js"] | ["revision.js"] => feed.directory.path(),
         ["art" | "previews", file] if file.ends_with(".jpg") => feed.directory.path(),

@@ -1,3 +1,4 @@
+import {editPlans} from './plan-monitor.js';
 import {slackSettings,takeSlackSetup} from './slack.js';
 import {slackWidgets,slackTarget} from './slack-catalog.js';
 import {googleSettings,takeGoogleSetup} from './google-desk.js';
@@ -62,7 +63,8 @@ function pageControls(p){
   return row(options,undoButton);
 }
 function configureWidget(kind,slot,save,title){
-  if(kind==='photos')editPhotos(slot.photoDisplay,photoDisplay=>save({photoDisplay}),{title});
+  if(kind==='plans')editPlans(slot,planDisplay=>save({planDisplay}),{title});
+  else if(kind==='photos')editPhotos(slot.photoDisplay,photoDisplay=>save({photoDisplay}),{title});
   else editShortcuts(slot.kind==='shortcuts'?shortcutPins(slot):[],shortcutPins=>save({shortcutPins}),{title});
 }
 function configureSection(p,i,kind='shortcuts'){
@@ -91,7 +93,7 @@ function layouts(){
   strip.append(pages,add);
   const canvas=el('div','canvas');
   const assign=(i,kind)=>{
-    if(!['photos','shortcuts'].includes(kind))return change(()=>{p.slots[i]=assignWidget(config,kind,p.slots[i]);index=i});
+    if(!['photos','shortcuts','plans'].includes(kind))return change(()=>{p.slots[i]=assignWidget(config,kind,p.slots[i]);index=i});
     configureSection(p,i,kind);
   };
   p.slots.forEach((s,i)=>{
@@ -142,6 +144,7 @@ function layouts(){
       change(()=>s.slackTarget=control.value.trim());
     }));
   }
+  if(s.kind==='plans')inspector.append(button('Configure accounts',()=>configureSection(p,index,'plans')));
   if(s.kind==='markets')inspector.append(field('Featured symbol',marketPicker(s,marketSymbol=>change(()=>s.marketSymbol=marketSymbol))),button('Edit watchlist',()=>editWatchlist(s,props=>change(()=>Object.assign(s,props)))));
   if(s.kind==='photos')inspector.append(button('Configure photos',()=>configureSection(p,index,'photos')));
   if(s.kind==='shortcuts'){
@@ -271,12 +274,13 @@ function widgetDetail(kind){
       value=>localStorage.setItem('edge.'+kind+'.spectrum',value));
     main.append(panel('Appearance',field('Disc behind the album cover',disc),field('Playback bar spectrum',spectrum)));
   }
+  if(kind==='plans')main.append(panel('Widget defaults',button('Configure default accounts',()=>editPlans({},value=>{config=state();change(()=>config.planDefaults=value,false)},{title:'AI Plan Monitor · Widget defaults'}))));
   if(kind==='markets')main.append(panel('Alpaca market data',marketConnection()));
   if(slackWidgets[kind])main.append(panel('Slack workspace',slackSettings()));
-  if(['photos','shortcuts'].includes(kind)){
+  if(['photos','shortcuts','plans'].includes(kind)){
     const spaces=config.pages.flatMap(p=>p.slots.flatMap((s,i)=>s.kind==='empty'?[[s.id,p.name+' · Section '+(i+1)]]:[]));
     const dest=select([['new','New full-screen page'],...spaces],'new',()=>{});
-    main.append(panel('Add to a layout',field('Destination',dest),button(kind==='photos'?'Configure photos…':'Choose shortcuts…',()=>{
+    main.append(panel('Add to a layout',field('Destination',dest),button(kind==='plans'?'Configure accounts…':kind==='photos'?'Configure photos…':'Choose shortcuts…',()=>{
       if(dest.value!=='new'){
         const target=config.pages.find(p=>p.slots.some(s=>s.id===dest.value));
         if(target)configureSection(target,target.slots.findIndex(s=>s.id===dest.value),kind);

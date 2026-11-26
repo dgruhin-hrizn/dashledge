@@ -9,7 +9,7 @@ export const categories = {
   'Slack': Object.keys(slackWidgets),
   'Mac system': ['cpu','gpu','memory','disk','network','power','interfaces','volumes','machine'],
   'Servers & storage': ['proxmox','unraid'],
-  'AI & development': ['ember','omlx','comfy'],
+  'AI & development': ['plans','ember','omlx','comfy'],
 };
 export function catalogGroups(config){
   return [...Object.entries(categories),['Installed packages',config.plugins.map(p=>p.id)]]
@@ -17,6 +17,7 @@ export function catalogGroups(config){
     .filter(([,kinds])=>kinds.length);
 }
 const descriptions = {
+  plans:'Claude and Codex subscription limits, remaining allowance and local reset times.',
   markets:'Live US stock and ETF trades, watchlists and intraday charts via Alpaca IEX.',
   photos:'A moving gallery from your Mac Photos library and albums.',
   shortcuts:"Run your pinned Mac shortcuts from the touch display.",
