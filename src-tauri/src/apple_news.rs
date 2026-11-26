@@ -72,17 +72,25 @@ pub fn news_open(link: Option<String>) -> Result<(), String> {
     }
 }
 
-// Invoked only by the explicit Paste link button. Return only Apple News links.
 #[tauri::command]
-pub fn news_clipboard_link() -> Result<String, String> {
-    let output = Command::new("/usr/bin/pbpaste")
-        .output()
-        .map_err(|e| e.to_string())?;
-    let input = String::from_utf8_lossy(&output.stdout);
-    if let Ok((url, true)) = news_destination(input.trim()) {
-        return Ok(url.to_string());
+pub async fn news_clipboard_link() -> Result<serde_json::Value, String> {
+    use std::ffi::{c_char, c_void, CStr};
+    extern "C" {
+        fn dash_news_clipboard() -> *mut c_char;
+        fn free(ptr: *mut c_void);
     }
-    Err("Copy an Apple News link first.".into())
+    tauri::async_runtime::spawn_blocking(|| unsafe {
+        let ptr = dash_news_clipboard();
+        if ptr.is_null() {
+            return Err("In Apple News, copy a story, channel, or topic link first.".into());
+        }
+        let result =
+            serde_json::from_slice(CStr::from_ptr(ptr).to_bytes()).map_err(|e| e.to_string());
+        free(ptr.cast());
+        result
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[cfg(test)]

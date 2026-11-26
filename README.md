@@ -40,7 +40,7 @@ For Spotify playlists, search, and queue access, register `http://127.0.0.1:4848
 
 ### Add an Apple News source
 
-In Apple News on Mac, search for the channel or topic, Control-click the result, and choose **Copy Link**. In the widget, select **Edit edition → My Apple News links**, enter a name, and choose **Paste link → Add link → Save edition**. Tap **Open in News** to read the source’s latest coverage in Apple News. The publisher editions display live RSS headlines directly on the dashboard.
+Add the widget for immediate BBC headlines. For a personal source, Control-click a channel, topic, or story in Apple News search results and choose **Copy Link**. Tap **Add from clipboard** on the widget. Dashledge uses the shared name or looks up the title, pins the link, and switches that placement to your list. Tap **Open in News** for the source’s latest coverage. Use **Edit edition** to switch back to publisher headlines.
 
 ### Choose your Slack view
 

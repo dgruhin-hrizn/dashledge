@@ -9,12 +9,14 @@ fn main() {
     cc::Build::new()
         .include(&out)
         .file("photos.m")
+        .file("news_link.m")
         .file("desk_calendar.m")
         .file("apple_music.m")
         .file("native.m")
         .file("spotify_spectrum.m")
         .flag("-fobjc-arc")
         .compile("edge_native");
+    println!("cargo:rerun-if-changed=news_link.m");
     println!("cargo:rerun-if-changed=photos.m");
     println!("cargo:rerun-if-changed=desk_calendar.m");
     println!("cargo:rerun-if-changed=native.m");

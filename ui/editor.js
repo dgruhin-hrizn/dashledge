@@ -91,7 +91,7 @@ function layouts(){
   strip.append(pages,add);
   const canvas=el('div','canvas');
   const assign=(i,kind)=>{
-    if(!['photos','shortcuts','applenews'].includes(kind))return change(()=>{p.slots[i]=assignWidget(config,kind,p.slots[i]);index=i});
+    if(!['photos','shortcuts'].includes(kind))return change(()=>{p.slots[i]=assignWidget(config,kind,p.slots[i]);index=i});
     configureSection(p,i,kind);
   };
   p.slots.forEach((s,i)=>{

@@ -70,7 +70,7 @@ export function editNews(settings,save,{title='Edit news edition',touch=false}={
       list.append(row);
     }
     list.append(el('p','','In Apple News, Control-click a channel, topic, or story in search results and choose Copy Link.'),titleInput,urlInput,button('Paste link',async()=>{
-      try{urlInput.value=await invoke('news_clipboard_link');error.textContent=''}catch(e){error.textContent=String(e)}
+      try{const pin=await invoke('news_clipboard_link');urlInput.value=pin.url;if(!titleInput.value)titleInput.value=pin.title;error.textContent=''}catch(e){error.textContent=String(e)}
     }),button('Add link',()=>{
       const url=storyLink(urlInput.value.trim(),true), name=titleInput.value.trim();
       if (!url || !name) {error.textContent='Enter a name and an Apple News story, channel, or topic link.';return}
@@ -98,7 +98,17 @@ export function mountNews(box,settings,save) {
   status.setAttribute('role','status');
   const edit=()=>editNews(settings,save,{touch:true});
   async function open(link=null){try{await invoke('news_open',{link})}catch(e){status.textContent=String(e)}}
-  actions.append(button('Apple News ↗',()=>open()),button('Edit edition',edit));
+  const paste=button('Add from clipboard',async()=>{
+    paste.disabled=true;paste.textContent='Adding…';
+    try{
+      const pin=await invoke('news_clipboard_link');
+      if(disposed)return;
+      const pins=settings?.pins || [];
+      save({source:'pinned',pins:[pin,...pins.filter(existing=>existing.url!==pin.url)]});
+    }catch(e){if(!disposed)status.textContent=String(e)}
+    finally{paste.disabled=false;paste.textContent='Add from clipboard'}
+  });
+  actions.append(paste,button('Apple News ↗',()=>open()),button('Edit edition',edit));
   mast.append(brand,actions);body.append(lead,rail);
   const prev=button('‹',()=>choose(index-1)),next=button('›',()=>choose(index+1)),position=el('span');
   prev.setAttribute('aria-label','Previous headline');next.setAttribute('aria-label','Next headline');
