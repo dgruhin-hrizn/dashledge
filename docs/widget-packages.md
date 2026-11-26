@@ -78,10 +78,10 @@ A **placement** is one slot on one page. Keep its choices with it, never in the 
 | What | Stored on the slot | Edited from | Reaches the widget |
 | --- | --- | --- | --- |
 | Connection | `source` | Pages & layouts | Collector or connector setup |
-| Package settings | `packageSettings` | Pages & layouts, or the view's gear (`Dashledge.settings.open()`) | `subscribe` state, live |
-| Colours | `colors: {primary?, accent?}` | Pages & layouts → **Colours · This placement** | Tile CSS variables, or the view's theme, live |
+| Package settings | `packageSettings` | The placement panel in Pages & layouts, or the view's gear (`Dashledge.settings.open()`) | `subscribe` state, live |
+| Colours | `colors: {primary?, accent?}` | The placement panel in Pages & layouts (Highlight and Text) | Tile CSS variables, or the view's theme, live |
 
-Settings and colours are left out of the dashboard's page signature, so changing them updates the live view without rebuilding the page. Every editor keeps a draft with Save and Cancel, and refuses to save when the section changed underneath it ("This section changed"). Settings reach only the view: a connector serves every placement on the same connection.
+Settings and colours are left out of the dashboard's page signature, so changing them updates the live view without rebuilding the page. The placement panel (`placementPanel` in `ui/editor.js`) keeps colours and settings in one draft. While it differs from the saved slot, the panel writes it to `localStorage['edge.placementPreview']` (`writePreview` in `ui/placement-colors.js`), and the dashboard shows it on that one placement (`shown()` in `ui/dashboard.js`) until Save or Discard. Selecting another placement or leaving the tab discards the draft. The panel and the gear draw settings with the same `settingsForm` (`ui/package-settings.js`). Saving refuses when the section no longer holds the widget ("This section changed"). Settings reach only the view: a connector serves every placement on the same connection.
 
 ## Manifest fields that change app behaviour
 
@@ -133,7 +133,7 @@ Nothing else in the app changes: `list_packages` registers it in the catalog, th
 
 **A third-party package:** start from `widgets/example/`. Prefer declarative data. Use a connector only for joins, WebSockets or state, and declare every extra host. Load the folder with **Load unpacked package** while developing; files reload on save, and **Connector log** shows `console` output.
 
-**A new per-placement option for all widgets** (like colours): store it on the slot, leave it out of the page signature, apply it in `renderTile`, and pass it to `mountOriginal`/`mountPackage` and `registerFrame` with a live update method. Add an editor with a draft and the stale-section guard, and offer it only where the widget honours it.
+**A new per-placement option for all widgets** (like colours): store it on the slot, leave it out of the page signature, apply it in `renderTile`, and pass it to `mountOriginal`/`mountPackage` and `registerFrame` with a live update method. Add its control to the draft part of the placement panel, carry it in the preview so the Edge shows it before Save, and offer it only where the widget honours it.
 
 ## Verifying a change
 

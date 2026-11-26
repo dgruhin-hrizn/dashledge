@@ -9,8 +9,8 @@ import {editPhotos} from './photos.js';
 import {editShortcuts,shortcutPins} from './mac-shortcuts.js';
 import {catalogGroups,widgetInfo,installed,connectionsFor,defaultSource,useDefault,placements,removeWidget,recordPackage} from './widget-catalog.js';
 import {permissionSummary} from './package-manifest.js';
-import {editPackageSettings,settingValues} from './package-settings.js';
-import {editPlacementColors,followsColors,placementColors,writePreview,clearPreview} from './placement-colors.js';
+import {settingsForm,settingValues} from './package-settings.js';
+import {HIGHLIGHTS,TEXTS,followsColors,placementOverride,writePreview,clearPreview} from './placement-colors.js';
 import {connectionLabel} from './display-name.js';
 import {guestRows,parseGuests} from './proxmox-guests.js';
 import {general,loadGeneral,updateGeneral,fitDashboard} from './general.js';
@@ -87,34 +87,142 @@ function configureSection(p,i,kind='shortcuts'){
     });
   },titles[kind]+' · '+p.name+' · Section '+(i+1));
 }
-// A package's settings for one placement, with the same stale-section guard as the
-// other placement editors.
-function configurePackage(p,i,pkg){
-  const previous=p.slots[i],before=JSON.stringify(previous);
-  editPackageSettings({title:pkg.title+' · '+p.name+' · Section '+(i+1),brand:pkg.title,icon:'/widget-icon/'+encodeURIComponent(pkg.id),
-    schema:pkg.settings,values:settingValues(pkg.settings,previous.packageSettings),save:values=>{
-      config=state();
-      const target=config.pages.find(v=>v.id===p.id),position=target?.slots.findIndex(v=>v.id===previous.id)??-1;
-      if(position<0||JSON.stringify(target.slots[position])!==before)throw Error('This section changed. Close and select it again.');
-      change(()=>{target.slots[position]={...target.slots[position],packageSettings:values};chosen=p.id;index=position;activate(target)});
-    }});
-}
-// This placement's own text and highlight colours, with the same stale-section guard.
-function configureColors(p,i){
-  const previous=p.slots[i],before=JSON.stringify(previous),kind=previous.kind;
-  const name=widgetInfo(config,kind)?.title||titles[kind]||'Widget';
-  // The live widget shows the draft while the editor is open; only Save keeps it.
-  const preview=colors=>colors===undefined?clearPreview():writePreview(previous.id,colors);
-  editPlacementColors({title:name+' · '+p.name+' · Section '+(i+1),value:previous.colors,general:general(),preview,save:colors=>{
-    config=state();
-    const target=config.pages.find(v=>v.id===p.id),position=target?.slots.findIndex(v=>v.id===previous.id)??-1;
-    if(position<0||JSON.stringify(target.slots[position])!==before)throw Error('This section changed. Close and select it again.');
-    change(()=>{
-      const next={...target.slots[position]};
-      if(colors)next.colors=colors;else delete next.colors;
-      target.slots[position]=next;chosen=p.id;index=position;activate(target);
+// The selected placement's panel. Connection, layout and widget-specific actions apply
+// at once. Colours and package settings are a draft that previews on the Edge until
+// Save or Discard; selecting another placement or leaving the tab discards it.
+let placementDraft=null;
+function discardDraft(){if(placementDraft){placementDraft=null;clearPreview()}}
+const HEX=/^#[0-9a-f]{6}$/i;
+function placementPanel(p,i,s,assign,vertical){
+  const custom=config.plugins.find(v=>v.id===s.kind),feed=custom?.feed||s.kind;
+  const name=s.kind==='empty'?'Empty section':widgetInfo(config,s.kind)?.title||titles[s.kind]||custom?.title||'Missing widget';
+  const box=el('section','panel placement-panel');box.setAttribute('aria-label','Placement: '+name);
+  const head=el('header','placement-head'),label=el('div','placement-name');
+  label.append(el('strong','',name),el('small','sub',p.name+' · Section '+(i+1)));
+  head.append(tag(s.kind),label,button(s.kind==='empty'?'Add widget':'Change',()=>pickWidget(config,kind=>assign(i,kind))));
+  box.append(head);
+  const group=(title,...children)=>{const g=el('section','placement-group');g.setAttribute('aria-label',title);g.append(el('h3','',title),...children);return g};
+
+  // Applies at once.
+  if(Object.hasOwn(sourceNames,feed)){
+    const chips=el('div','placement-chips');chips.setAttribute('role','radiogroup');chips.setAttribute('aria-label','Connection');
+    for(const c of connectionsFor(config,s.kind)){
+      const chip=button('',()=>change(()=>s.source=c.id),'chip');
+      chip.setAttribute('role','radio');chip.setAttribute('aria-checked',String(s.source===c.id));
+      chip.append(el('i','chip-dot'),el('span','',connectionLabel(c)));chips.append(chip);
+    }
+    const sources=el('div','placement-chips-row');sources.append(chips,decorated('Add',()=>sourceForm(s.kind),'plus','chip add-chip'));
+    box.append(group('Connection',sources,button('Connections & defaults',()=>widgetSettings(s.kind),'quiet')));
+  }
+  const options=[];
+  if(slackWidgets[s.kind]?.field){
+    const spec=slackWidgets[s.kind],control=input(s.slackTarget||'');control.placeholder=spec.hint;control.maxLength=512;
+    options.push(field(spec.field,control),button('Apply',()=>{
+      if(!slackTarget(s.kind,control.value))return notice('Enter a valid '+spec.field.toLowerCase()+'.');
+      change(()=>s.slackTarget=control.value.trim());
+    }));
+  }
+  if(s.kind==='plans')options.push(button('Configure accounts',()=>configureSection(p,i,'plans')));
+  if(s.kind==='markets')options.push(field('Featured symbol',marketPicker(s,marketSymbol=>change(()=>s.marketSymbol=marketSymbol))),button('Edit watchlist',()=>editWatchlist(s,props=>change(()=>Object.assign(s,props)))));
+  if(s.kind==='photos')options.push(button('Configure photos',()=>configureSection(p,i,'photos')));
+  if(s.kind==='shortcuts'){
+    const items=shortcutPins(s);
+    options.push(el('p','sub',items.length?items.map(v=>v.name).join(' · '):'No shortcuts selected.'),button('Choose shortcuts',()=>configureSection(p,i)));
+  }
+  if(slackWidgets[s.kind]||['spotify','applemusic','googledesk'].includes(s.kind))options.push(button('Widget settings',()=>widgetSettings(s.kind)));
+  if(s.kind==='disk'){
+    const choice=select([['','Startup volume']],s.volume,x=>change(()=>s.volume=x));options.push(field('Volume',choice));
+    invoke('read_metrics').then(m=>{for(const d of m?.disks||[])choice.add(new Option(d.mount,d.mount));choice.value=s.volume}).catch(()=>{});
+  }
+  if(options.length)box.append(group('Options',...options));
+  const edits=row(decorated('Split',()=>change(()=>split(p,i,vertical?'row':'column')),'split'),decorated('Stack',()=>change(()=>split(p,i,vertical?'column':'row')),'stack'));
+  box.append(group('Section',edits));
+
+  // A draft that previews on the Edge.
+  const colors=followsColors(s.kind,{slack:!!slackWidgets[s.kind],custom,bundled:packageInfo.get(s.kind)});
+  const pkg=custom?.apiVersion===2&&custom.settings?.length?custom:null;
+  if(!colors&&!pkg){discardDraft();return box}
+  if(placementDraft?.slot!==s.id||placementDraft.kind!==s.kind){
+    discardDraft();
+    placementDraft={slot:s.id,kind:s.kind,colors:{primary:s.colors?.primary||null,accent:s.colors?.accent||null},
+      packageSettings:pkg?settingValues(pkg.settings,s.packageSettings):null};
+  }
+  const draft=placementDraft,gen=general(),pickers={},last={};
+  const values=v=>JSON.stringify([placementOverride(v.colors,gen),pkg?settingValues(pkg.settings,v.packageSettings):null]);
+  const dirty=()=>values(draft)!==values(s);
+  const drafted=el('div','placement-draft'),bar=el('div','placement-bar'),paints=[];
+  bar.setAttribute('role','status');
+  const update=()=>{
+    for(const paint of paints)paint();
+    if(dirty())writePreview(s.id,{colors:draft.colors,packageSettings:pkg?settingValues(pkg.settings,draft.packageSettings):undefined});
+    else clearPreview();
+    drawBar();
+  };
+  // Save to the latest stored layout, as long as this section still holds this widget.
+  const persist=next=>{
+    const fresh=state(),target=fresh.pages.find(v=>v.id===p.id),position=target?.slots.findIndex(v=>v.id===s.id)??-1;
+    if(position<0||target.slots[position].kind!==s.kind){notice('This section changed. Select it again.');discardDraft();syncEditor();return}
+    // Write the layout before dropping the preview, so the Edge never flashes the old
+    // values: the panel that change() redraws finds no difference and clears it.
+    config=fresh;placementDraft=null;
+    const saved=change(()=>{
+      const slot={...target.slots[position]};
+      if('colors' in next){if(next.colors)slot.colors=next.colors;else delete slot.colors}
+      if('packageSettings' in next)slot.packageSettings=next.packageSettings;
+      target.slots[position]=slot;chosen=p.id;index=position;activate(target);
     });
-  }});
+    if(!saved){clearPreview();render()}
+  };
+  const save=()=>{
+    // The Mac's colour panel may not have reported the last choice yet.
+    for(const [key,picker] of Object.entries(pickers))if(last[key]==='custom'&&HEX.test(picker.value))draft.colors[key]=picker.value.toLowerCase();
+    const next={};
+    if(colors)next.colors=placementOverride(draft.colors,gen);
+    if(pkg)next.packageSettings=settingValues(pkg.settings,draft.packageSettings);
+    persist(next);
+  };
+  function drawBar(){
+    const changed=dirty();bar.classList.toggle('dirty',changed);bar.replaceChildren();
+    if(changed)bar.append(el('span','bar-note','Previewing on the Edge · not saved'),button('Discard',()=>{discardDraft();render()}),button('Save',save,'primary'));
+    else if(colors&&placementOverride(s.colors,gen))bar.append(el('span','bar-note','This placement has its own colours.'),button('Reset to General',()=>persist({colors:null})));
+    else bar.append(el('span','bar-note',colors?'Follows the General colours. Changes preview on the Edge.':'Changes preview on the Edge.'));
+  }
+  if(colors){
+    const swatches=(title,key,choices)=>{
+      const list=el('div','swatches '+(key==='accent'?'highlight':'text'));
+      list.setAttribute('role','radiogroup');list.setAttribute('aria-label',title+' colour');
+      const pick=value=>{draft.colors[key]=value;update()};
+      for(const [choice,value] of [['General',null],...choices]){
+        const b=button('',()=>{last[key]='swatch';pick(value)},'swatch-choice');
+        b.setAttribute('role','radio');b.style.setProperty('--swatch',value||gen[key]);
+        b.setAttribute('aria-label',value?choice+' '+value:'General '+gen[key]);b.title=b.getAttribute('aria-label');
+        if(key==='accent'){if(!value)b.append(el('span','auto','AUTO'))}
+        else b.append(el('span','aa','Aa'),el('span','',choice));
+        paints.push(()=>b.setAttribute('aria-checked',String((draft.colors[key]||null)===value)));
+        list.append(b);
+      }
+      const own=el('label','swatch-choice custom'),picker=el('input');
+      picker.type='color';picker.setAttribute('aria-label','Custom '+title.toLowerCase()+' colour');
+      // The Mac's colour panel may report a choice with input or only with change.
+      picker.onclick=()=>{last[key]='custom'};
+      picker.oninput=picker.onchange=()=>{last[key]='custom';if(HEX.test(picker.value))pick(picker.value.toLowerCase())};
+      pickers[key]=picker;
+      own.append(picker,el('span','',key==='accent'?'+':'Custom'));
+      paints.push(()=>{
+        const value=draft.colors[key],mine=!!value&&!choices.some(([,c])=>c===value);
+        own.classList.toggle('checked',mine);
+        if(mine)own.style.setProperty('--swatch',value);else own.style.removeProperty('--swatch');
+        if(document.activeElement!==picker)picker.value=value||gen[key];
+      });
+      list.append(own);
+      return list;
+    };
+    drafted.append(group('Colour',el('span','placement-label','Highlight'),swatches('Highlight','accent',HIGHLIGHTS),el('span','placement-label','Text'),swatches('Text','primary',TEXTS)));
+  }
+  if(pkg)drafted.append(group('Widget settings',settingsForm({schema:pkg.settings,draft:draft.packageSettings,brand:pkg.title,icon:'/widget-icon/'+encodeURIComponent(pkg.id),onChange:update})));
+  drafted.append(bar);box.append(drafted);
+  update();
+  return box;
 }
 function layouts(){
   const p=page();index=Math.min(index,p.slots.length-1);
@@ -167,45 +275,8 @@ function layouts(){
   const bar=row(el('h2','',p.name),pageControls(p));bar.classList.add('layout-tools');
   const footer=row(el('small','','XENEON EDGE'),el('small','',p.slots.length+' '+(p.slots.length===1?'section':'sections')));
   footer.classList.add('stage-caption');screen.append(bar,canvas,footer);
-  const s=p.slots[index],feed=config.plugins.find(x=>x.id===s.kind)?.feed||s.kind;
-  const inspector=panel('Section '+(index+1)),inspectorTitle=row(tag(s.kind),el('strong','',titles[s.kind]||config.plugins.find(v=>v.id===s.kind)?.title||'Missing widget'));
-  inspectorTitle.classList.add('inspector-title');inspector.append(inspectorTitle);
-  if(Object.hasOwn(sourceNames,feed)){
-    const matching=connectionsFor(config,s.kind);
-    inspector.append(field('Connection',select([['','Choose connection'],...matching.map(x=>[x.id,connectionLabel(x)])],s.source,x=>change(()=>s.source=x))),button('Widget settings',()=>widgetSettings(s.kind)));
-  }
-  if(slackWidgets[s.kind]?.field){
-    const spec=slackWidgets[s.kind],control=input(s.slackTarget||'');control.placeholder=spec.hint;control.maxLength=512;
-    inspector.append(field(spec.field,control),button('Apply',()=>{
-      if(!slackTarget(s.kind,control.value))return notice('Enter a valid '+spec.field.toLowerCase()+'.');
-      change(()=>s.slackTarget=control.value.trim());
-    }));
-  }
-  if(s.kind==='plans')inspector.append(button('Configure accounts',()=>configureSection(p,index,'plans')));
-  if(followsColors(s.kind,{slack:!!slackWidgets[s.kind],custom:config.plugins.find(v=>v.id===s.kind),bundled:packageInfo.get(s.kind)})){
-    const colors=placementColors(s,general()),swatches=el('span','inspector-colors');
-    for(const [key,label] of [['primary','Text'],['accent','Highlight']]){
-      const swatch=el('i','swatch');swatch.style.background=colors[key];swatch.title=label+' '+colors[key];swatches.append(swatch);
-    }
-    swatches.append(el('small','sub',s.colors?'This placement':'General colours'));
-    inspector.append(field('Colours',swatches),button('Colours · This placement',()=>configureColors(p,index)));
-  }
-  const pkg=config.plugins.find(v=>v.id===s.kind&&v.apiVersion===2&&v.settings?.length);
-  if(pkg)inspector.append(button('Widget settings · This placement',()=>configurePackage(p,index,pkg)));
-  if(s.kind==='markets')inspector.append(field('Featured symbol',marketPicker(s,marketSymbol=>change(()=>s.marketSymbol=marketSymbol))),button('Edit watchlist',()=>editWatchlist(s,props=>change(()=>Object.assign(s,props)))));
-  if(s.kind==='photos')inspector.append(button('Configure photos',()=>configureSection(p,index,'photos')));
-  if(s.kind==='shortcuts'){
-    const items=shortcutPins(s);
-    inspector.append(el('p','sub',items.length?items.map(v=>v.name).join(' · '):'No shortcuts selected.'),button('Choose shortcuts',()=>configureSection(p,index)));
-  }
-  if(slackWidgets[s.kind]||['spotify','applemusic','googledesk'].includes(s.kind))inspector.append(button('Widget settings',()=>widgetSettings(s.kind)));
-  if(s.kind==='disk'){
-    const choice=select([['','Startup volume']],s.volume,x=>change(()=>s.volume=x));inspector.append(field('Volume',choice));
-    invoke('read_metrics').then(m=>{for(const d of m?.disks||[])choice.add(new Option(d.mount,d.mount));choice.value=s.volume}).catch(()=>{});
-  }
-  const edits=row(decorated('Split',()=>change(()=>split(p,index,vertical?'row':'column')),'split'),decorated('Stack',()=>change(()=>split(p,index,vertical?'column':'row')),'stack'));
-  inspector.append(edits);
-  left.append(screen,panel('Layout preset',presetGrid),inspector);
+  const s=p.slots[index],inspector=placementPanel(p,index,s,assign,vertical);
+  left.append(screen,inspector,panel('Layout preset',presetGrid));
   const lib=el('div','library-list'),search=input();search.type='search';search.placeholder='Find a widget';search.setAttribute('aria-label','Find a widget');
   const searchBox=el('div','search-box');searchBox.append(icon('find'),search);
   const groups=catalogGroups(config);
@@ -663,7 +734,7 @@ function render(){
       });
     }
   }
-  if(tab==='Layouts'){main.append(heading('Pages & layouts'));layouts()}
+  if(tab==='Layouts'){main.append(heading('Pages & layouts'));layouts()}else discardDraft();
   if(tab==='Widget Studio'){if(detail&&installed(config,detail))widgetDetail(detail);else plugins()}
   if(tab==='General')generalTab();
   if(tab==='Preview'){

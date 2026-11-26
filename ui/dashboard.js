@@ -80,20 +80,27 @@ function saveSection(tile,kind,properties){
   target.slots[i]={...assignWidget(latest,kind,tile.slot),...properties};
   save(latest);mount();
 }
-// A colour draft from the settings window, shown on one placement until it's saved
-// or cancelled. `shown(slot)` is the slot as the tile should draw it.
-let colorPreview=readPreview();
-const shown=s=>colorPreview?.slot===s.id?{...s,colors:colorPreview.colors}:s;
-function previewColors(next){
-  const before=colorPreview;colorPreview=next;
+// A placement draft from the settings window (colours and package settings), shown on
+// one placement until it's saved or discarded. `shown(slot)` is the slot as the tile
+// should draw it.
+let placementPreview=readPreview();
+const shown=s=>{
+  if(placementPreview?.slot!==s.id)return s;
+  const out={...s,colors:placementPreview.colors};
+  if(placementPreview.packageSettings)out.packageSettings=placementPreview.packageSettings;
+  return out;
+};
+function previewPlacement(next){
+  const before=placementPreview;placementPreview=next;
   for(const view of mountedPages.values())for(const tile of view.tiles){
     if(tile.slot.id!==before?.slot&&tile.slot.id!==next?.slot)continue;
     const slot=shown(tile.slot);
     applyTileColors(tile.box,slot);tile.box.style.setProperty('--accent',slot.colors?.accent||config.plugins.find(p=>p.id===slot.kind)?.accent||'var(--highlight)');
     tile.dispose?.colors?.(slot.colors);
+    if(before?.packageSettings||next?.packageSettings)tile.dispose?.settings?.(slot.packageSettings);
   }
 }
-window.addEventListener('storage',e=>{if(e.key===PREVIEW_KEY)previewColors(readPreview(e.newValue))});
+window.addEventListener('storage',e=>{if(e.key===PREVIEW_KEY)previewPlacement(readPreview(e.newValue))});
 
 // Replace a section's stored properties without resetting its widget or connection.
 function saveSlot(tile,properties){
@@ -127,7 +134,7 @@ function renderTile(t){
   // A widget alone on its page renders at the display's real size if its manifest asks.
   const solo=config.pages.find(p=>p.id===t.pageId)?.slots.length===1;
   if(originalKinds.includes(kind)){t.dispose??=mountOriginal(box,s,config.sources,{native:solo&&nativeViewport(kind),colors});return}
-  if(custom?.apiVersion===2){t.dispose??=mountPackage(box,s,custom,config.sources,{native:solo&&custom.viewport==='native',colors,openSettings:()=>openPackageSettings(t,custom)});return}
+  if(custom?.apiVersion===2){t.dispose??=mountPackage(box,shown(s),custom,config.sources,{native:solo&&custom.viewport==='native',colors,openSettings:()=>openPackageSettings(t,custom)});return}
   if(kind==='notes'&&box.querySelector('textarea'))return;
   let nodes=[];
   if(instrumentKinds.includes(kind)){box.classList.add('instrument');box.dataset.kind=kind;nodes=renderInstrument(kind,metrics,t)}
@@ -205,7 +212,7 @@ function mount(){
     if(view&&view.signature!==signature){removePage(view);view=null}
     if(view)view.tiles.forEach((tile,i)=>{
       const next=p.slots[i];
-      if(JSON.stringify(next.packageSettings)!==JSON.stringify(tile.slot.packageSettings))tile.dispose?.settings?.(next.packageSettings);
+      if(JSON.stringify(next.packageSettings)!==JSON.stringify(tile.slot.packageSettings))tile.dispose?.settings?.(shown(next).packageSettings);
       if(JSON.stringify(next.colors)!==JSON.stringify(tile.slot.colors)){tile.dispose?.colors?.(shown(next).colors);applyTileColors(tile.box,shown(next))}
       tile.slot=next;
     });
