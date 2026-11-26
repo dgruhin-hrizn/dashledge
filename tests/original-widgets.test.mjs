@@ -42,3 +42,13 @@ test('model action uses the selected server, acknowledges the viewer and consume
     assert.equal(controls.receipts()[viewer].status,'success');
   }finally{await rm(dir,{recursive:true,force:true});}
 });
+
+test('ComfyUI reuses only GPU SSH mappings for the exact worker hostname',()=>{
+  const guests={a:{target:'user@compute.test',identityFile:'/fixture/key'},b:'other.test'};
+  const sources=[{id:'a',kind:'comfy',name:'Worker',address:'https://compute.test:8188'},
+    {id:'b',kind:'comfy',name:'Other',address:'http://notcompute.test:8188'},
+    {kind:'proxmox',gpuGuests:guests}];
+  const [mapped,plain]=widgetSources('comfy','a',sources);
+  assert.deepEqual(mapped.gpuGuests,{worker:guests.a});
+  assert.equal(plain.gpuGuests,undefined);
+});

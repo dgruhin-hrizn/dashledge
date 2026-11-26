@@ -8,6 +8,8 @@ export function widgetSources(kind, selected, sources) {
   // The original render wall pairs workers. The oMLX switcher lists all saved servers.
   const limit = kind === 'comfy' ? 2 : kind === 'omlx' ? 20 : 1;
   const endpoints = new Set();
+  const guestTargets = kind === 'comfy' ? sources.filter(s => s.kind === 'proxmox')
+    .flatMap(s => Object.values(s.gpuGuests || {})) : [];
   return [primary, ...sources.filter(source => source.kind === kind)]
     .filter(source => {
       const address = source.address.replace(/\/+$/, '');
@@ -16,7 +18,17 @@ export function widgetSources(kind, selected, sources) {
       return true;
     })
     .slice(0, limit)
-    .map(({name, address, gpuGuests}) => ({name, address, gpuGuests}));
+    .map(({name, address, gpuGuests}) => {
+      if (kind === 'comfy' && guestTargets.length) {
+        const host = new URL(address).hostname.toLowerCase();
+        const guest = guestTargets.find(mapping => {
+          const target = typeof mapping === 'string' ? mapping : mapping?.target;
+          return typeof target === 'string' && target.split('@').pop().toLowerCase() === host;
+        });
+        if (guest) return {name, address, gpuGuests:{worker:guest}};
+      }
+      return {name, address, gpuGuests};
+    });
 }
 
 export function mountOriginal(box, slot, connections) {
