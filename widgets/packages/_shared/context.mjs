@@ -6,12 +6,13 @@ const input = createInterface({ input: process.stdin });
 const commands = new Map();
 let firstLine=true, latestSymbols;
 const listeners=new Set();
-let refreshListener;
-export function onRefresh(fn){refreshListener=fn;}
+// Commands a view sends through Dashledge.command(), as the manifest declares them.
+const commandListeners=new Map();
+export function onCommand(name,fn){commandListeners.set(name,fn);}
 input.on("line",line=>{
   if(firstLine){firstLine=false;return}
-  const {symbols,refresh}=JSON.parse(line);
-  if(refresh===true)refreshListener?.();
+  const {symbols,command,args,instance}=JSON.parse(line);
+  if(typeof command==='string'&&!instance)commandListeners.get(command)?.(args);
   if(Array.isArray(symbols)){latestSymbols=symbols;for(const fn of listeners)fn(symbols)}
 });
 export function onWatchlist(fn){listeners.add(fn);if(latestSymbols)fn(latestSymbols)}

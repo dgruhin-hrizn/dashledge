@@ -1,6 +1,7 @@
 /* Account instruments use the actual Edge viewport and collapse independently in a tile. */
-.dashboard .tile.pm-widget{
-  container-type:size;display:flex;flex-direction:column;align-items:stretch;gap:clamp(6px,2cqh,16px);
+html,body{height:100%;margin:0;background:#0b1019}
+.pm-widget{
+  box-sizing:border-box;height:100%;container-type:size;display:flex;flex-direction:column;align-items:stretch;gap:clamp(6px,2cqh,16px);
   padding:clamp(8px,2.5cqh,22px) clamp(12px,2cqw,48px);overflow:hidden;
   border:0;border-radius:0;box-shadow:none;background:#0b1019;color:#f5f7fc;font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-variant-numeric:tabular-nums
 }
@@ -65,28 +66,6 @@
 
 .pm-empty{display:grid;place-content:center;gap:8px;text-align:center;color:#c4ccd8;font-size:clamp(14px,3cqh,22px)}
 .pm-empty strong{color:#fff;font-size:clamp(17px,4cqh,30px)}
-
-/* Settings dialog (Mac only; the Edge tile has no controls) */
-.pm-dialog{box-sizing:border-box;width:min(640px,94vw);max-height:91vh;overflow:auto;padding:24px;background:#191e25;color:#f1f3ee;border:1px solid #50595f;border-radius:16px}
-.pm-dialog::backdrop{background:#080b10b8}.pm-dialog h2{margin:0 0 18px;font-size:22px}
-.pm-dialog footer,.pm-choice,.pm-choice label{display:flex;align-items:center;justify-content:space-between;gap:12px}
-.pm-dialog button{min-width:44px;min-height:44px;padding:5px 16px;color:#f2f6ff;background:#222c3a;border:1px solid #465365;border-radius:12px}
-.pm-dialog button:active{filter:brightness(1.13)}
-.pm-dialog button:disabled{opacity:.55}
-.pm-dialog :focus-visible{outline:3px solid #c6e7ff;outline-offset:-4px}
-.pm-form,.pm-choices{display:grid;gap:10px}
-.pm-dialog .pm-identity{--ink:#ffae86}.pm-dialog .pm-identity[data-provider=Codex]{--ink:#8ecfff}
-.pm-dialog .pm-mark{width:44px}
-.pm-dialog .pm-idtext strong{font-size:18px}.pm-dialog .pm-alias{font-size:15px}.pm-dialog .pm-plan{font-size:12px}
-.pm-dialog input,.pm-dialog select{min-height:44px}.pm-dialog [hidden]{display:none}
-.pm-choice{border-bottom:1px solid #384048;padding-block:6px}
-.pm-choice label{justify-content:flex-start;min-height:44px;min-width:0;flex:1}
-.pm-choice-who{display:grid;gap:4px;min-width:0}
-.pm-choice-status{color:#aeb8c6;font-size:14px;line-height:1.3}
-.pm-choice-status[data-tone=warn]{color:#e9c46a}.pm-choice-status[data-tone=alert]{color:#ff9f9f}
-.pm-dialog footer{justify-content:flex-end}.pm-spacer{flex:1}
-.pm-dialog footer button:last-child{background:#b4e6d5;color:#152523}
-.pm-dialog .pm-error:empty{display:none}.pm-rename{display:flex;gap:8px}.pm-dialog input[type=text]{min-width:0;flex:1}
 
 /* One account on a wide tile: the dial on the left, its detail on the right. */
 @container(min-width:850px) and (min-height:300px){

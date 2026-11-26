@@ -4,7 +4,7 @@ from pathlib import Path
 
 from openai_codex.generated.v2_all import GetAccountRateLimitsResponse
 
-reader = runpy.run_path(str(Path(__file__).resolve().parents[1] / "widgets/collectors/plans/codex-sdk.py"))
+reader = runpy.run_path(str(Path(__file__).resolve().parents[1] / "widgets/packages/plans/collector/codex-sdk.py"))
 quota_groups, summary = reader["quota_groups"], reader["summary"]
 legacy = {"primary": {"usedPercent": 9}}
 response = GetAccountRateLimitsResponse.model_validate({

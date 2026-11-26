@@ -13,6 +13,7 @@ export function packageTier(manifest) {
 
 const capabilityLines = {
   settings: 'Has settings you choose for each placement.',
+  'settings.choices': 'Lists what it finds, such as accounts, as choices in its settings.',
   keyboard: 'Can open the on-screen keyboard to ask you for text.',
   'mac.metrics': 'Reads this Mac’s CPU, GPU, memory and network activity.',
 };

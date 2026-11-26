@@ -57,7 +57,7 @@ Every view runs isolated. It can't reach the network, other widgets, Dashledge's
 - **`actions`** are `POST`, `PUT` or `DELETE` routes. `{name}` placeholders, in the route or as whole string values in `body`, take 1–128 letters, digits, `.`, `_`, `:` or `-` from the view.
 - **`connector.hosts`** are bare origins such as `https://api.example.com`. `storage` is up to 1 MiB of key-value storage.
 - **`permissions`** asks for Dashledge capabilities; see below. Install lists them, and an update marks new ones.
-- **`settings`** (with the `settings` permission) declares up to 16 per-placement settings: `text` (`maxLength` up to 1024), `number` (`min`, `max`, `step`), `toggle`, or `choice` (2–24 `options`). Each has an `id`, a `label`, an optional `help` line and an optional `default`; Dashledge fills in a default when you leave it out.
+- **`settings`** (with the `settings` permission) declares up to 16 per-placement settings: `text` (`maxLength` up to 1024), `number` (`min`, `max`, `step`), `toggle`, `choice` (2–24 `options`), `multi` (several of 2–24 `options`; the value is a list, and `["*"]` means all), or `names` (`"for": "<a choice or multi setting>"`: the user's own name for each of its options, `maxLength` up to 128). Each has an `id`, a `label`, an optional `help` line and an optional `default`; Dashledge fills in a default when you leave it out. With the `settings.choices` permission, a `choice` or `multi` setting may be `"dynamic": true` instead of listing `options`: your view offers them at run time (see below).
 - Unknown fields are refused, so a typo can't silently change what a widget may do.
 
 ## The view API: `window.Dashledge`
@@ -95,11 +95,17 @@ await Dashledge.settings.open();   // the same editor as Pages & layouts; your g
 // keyboard: Dashledge's touch keyboard, which also accepts typing. Resolves with the text or null.
 const city = await Dashledge.keyboard.open({title: 'Choose a city', value: 'Lisbon', actionLabel: 'Search'});
 
+// settings.choices: offer what you found for a dynamic setting, such as accounts,
+// and look again when the user taps Check now in the placement's settings.
+await Dashledge.settings.offer('accounts', [{value: 'work', label: 'Work account', detail: '72% left'}]);
+Dashledge.settings.onRefresh(() => lookAgain());
+
 // mac.metrics: this Mac's readings, about once a second.
 Dashledge.mac.onMetrics(({cpu, gpu, memory, network, chip}) => { /* … */ });
 ```
 
 - **settings** are per placement and reach only the view. A connector serves every placement on the same connection, so it doesn't see them.
+- **settings.choices** offers up to 64 options per dynamic setting, each a `value` of 1–128 letters, digits or `._:@/-`, a `label` and an optional `detail`. Dashledge keeps the latest offer for each widget and connection, so the settings editor lists it even when no view is on screen. A saved value that isn't offered right now is kept and shown as not available, never dropped. Offer again only when the list changes.
 - **keyboard** opens only while your widget is on screen, one sheet at a time, and always shows your widget's title.
 - **ui** links Dashledge's `package-ui.css` before your styles. It provides `--dl-*` tokens and the classes `dl-surface`, `dl-panel`, `dl-caption`, `dl-reading` with `dl-unit`, `dl-list` with `dl-row`, `dl-button`, `dl-loading`, `dl-empty` and `dl-error`. Sizes follow `--px-scale`, so they keep their physical size at the native viewport.
 - **mac.metrics** reports CPU, per-core load, GPU, memory, network throughput, uptime and the chip name. It never includes the Mac's name, volumes or network interfaces.

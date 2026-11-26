@@ -1,4 +1,3 @@
-import {mountPlans} from './plan-monitor.js';
 import {mountMarkets} from './markets.js';
 import {mountPhotos,editPhotos} from './photos.js';
 import {mountShortcuts,editShortcuts} from './mac-shortcuts.js';
@@ -14,7 +13,7 @@ import {instrumentKinds,renderInstrument} from './instruments.js';
 import {mountOriginal,mountPackage,widgetSources} from './original-widgets.js';
 import {titles,layout,readPath,originalKinds} from './model.js';
 import {addBundledDmdPage,ensure,state,current,activate,save,invoke,el,button,num} from './common.js';
-import {loadPackages,nativeViewport} from './packages.js';
+import {loadPackages,nativeViewport,packageInfo} from './packages.js';
 import {blurFrames,deliverMetrics} from './package-bridge.js';
 import {editPackageSettings,settingValues} from './package-settings.js';
 import {applyTileColors,readPreview,PREVIEW_KEY} from './placement-colors.js';
@@ -113,7 +112,7 @@ function saveSlot(tile,properties){
 // The package's gear: the same editor as Pages & layouts, for this placement.
 function openPackageSettings(t,custom){
   return editPackageSettings({title:custom.title+' · This placement',brand:custom.title,icon:'/widget-icon/'+encodeURIComponent(custom.id),
-    schema:custom.settings||[],values:settingValues(custom.settings,t.slot.packageSettings),touch:true,
+    schema:custom.settings||[],values:settingValues(custom.settings,t.slot.packageSettings),touch:true,choices:{kind:custom.id,source:t.slot.source||''},
     save:values=>saveSlot(t,{packageSettings:values})});
 }
 function renderTile(t){
@@ -125,7 +124,6 @@ function renderTile(t){
   if(slackWidgets[kind]){renderSlack(box,s);return}
   if(kind==='applemusic'){renderAppleMusic(box);return}
   if(kind==='googledesk'){renderGoogle(box,s.id);return}
-  if(kind==='plans'){t.dispose??=mountPlans(box,s);return}
   if(kind==='markets'){t.dispose??=mountMarkets(box,s,props=>saveSection(t,kind,props));return}
   if(kind==='photos'){t.dispose??=mountPhotos(box,s,photoDisplay=>saveSection(t,'photos',{photoDisplay}));return}
   if(kind==='shortcuts'){t.dispose??=mountShortcuts(box,s,items=>saveSection(t,'shortcuts',{shortcutPins:items}));return}
@@ -133,7 +131,9 @@ function renderTile(t){
   if(kind==='rundmd'){t.dispose??=mountDmd(box);return}
   // A widget alone on its page renders at the display's real size if its manifest asks.
   const solo=config.pages.find(p=>p.id===t.pageId)?.slots.length===1;
-  if(originalKinds.includes(kind)){t.dispose??=mountOriginal(box,s,config.sources,{native:solo&&nativeViewport(kind),colors});return}
+  if(originalKinds.includes(kind)){
+    const bundled=packageInfo.get(kind);
+    t.dispose??=mountOriginal(box,shown(s),config.sources,{native:solo&&nativeViewport(kind),colors,openSettings:bundled?.settings?.length?()=>openPackageSettings(t,bundled):null});return}
   if(custom?.apiVersion===2){t.dispose??=mountPackage(box,shown(s),custom,config.sources,{native:solo&&custom.viewport==='native',colors,openSettings:()=>openPackageSettings(t,custom)});return}
   if(kind==='notes'&&box.querySelector('textarea'))return;
   let nodes=[];
@@ -188,10 +188,10 @@ function mount(){
   config=state();page=current(config);
   $('#tiles').setAttribute('aria-label',page.name);
   const soloKind=page.slots.length===1?page.slots[0].kind:null;
-  document.body.classList.toggle('full-widget',['spotify','applemusic','googledesk','shortcuts','photos','markets','plans'].includes(soloKind)||!!slackWidgets[soloKind]||soloKind==='rundmd'||originalKinds.includes(soloKind)||config.plugins.some(p=>p.id===soloKind&&p.apiVersion===2));
+  document.body.classList.toggle('full-widget',['spotify','applemusic','googledesk','shortcuts','photos','markets'].includes(soloKind)||!!slackWidgets[soloKind]||soloKind==='rundmd'||originalKinds.includes(soloKind)||config.plugins.some(p=>p.id===soloKind&&p.apiVersion===2));
   const frame=window.frameElement;
   if(frame){
-    const music=['spotify','applemusic'].includes(soloKind),native=['applemusic','googledesk','shortcuts','photos','markets','plans','clock','world','rundmd'].includes(soloKind)||instrumentKinds.includes(soloKind)||!!slackWidgets[soloKind]||nativeViewport(soloKind)||config.plugins.some(p=>p.id===soloKind&&p.viewport==='native');
+    const music=['spotify','applemusic'].includes(soloKind),native=['applemusic','googledesk','shortcuts','photos','markets','clock','world','rundmd'].includes(soloKind)||instrumentKinds.includes(soloKind)||!!slackWidgets[soloKind]||nativeViewport(soloKind)||config.plugins.some(p=>p.id===soloKind&&p.viewport==='native');
     if(frame.hasAttribute('data-full-spotify')!==music||frame.hasAttribute('data-native-viewport')!==native){
       frame.toggleAttribute('data-full-spotify',music);
       frame.toggleAttribute('data-native-viewport',native);
@@ -206,7 +206,7 @@ function mount(){
   for(const p of [page,...config.pages.filter(p=>p.id!==page.id)]){
     let view=mountedPages.get(p.id);
     // Package settings reach a live view by message, so they don't rebuild the page.
-    const signature=JSON.stringify([p.slots.map(({packageSettings,colors,...slot})=>slot),p.slots.some(s=>s.kind==='plans'&&!s.planDisplay)?config.planDefaults:null,p.slots.map(s=>originalKinds.includes(s.kind)
+    const signature=JSON.stringify([p.slots.map(({packageSettings,colors,...slot})=>slot),p.slots.map(s=>originalKinds.includes(s.kind)
       ?widgetSources(s.kind,s.source,config.sources)
       :[config.plugins.find(v=>v.id===s.kind),config.sources.find(v=>v.id===s.source)])]);
     if(view&&view.signature!==signature){removePage(view);view=null}
