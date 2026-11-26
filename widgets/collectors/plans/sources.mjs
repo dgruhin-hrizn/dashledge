@@ -10,6 +10,8 @@ const home = homedir();
 const sdkRoot = join(dirname(process.execPath), 'plan-sdks');
 const run = promisify(execFile);
 
+const FIVE_HOURS = 300, WEEK = 10080;
+
 function executable(name, extras = []) {
   const dirs = [...(process.env.PATH || '').split(delimiter), join(home,'.local/bin'), '/opt/homebrew/bin', '/usr/local/bin'];
   for (const file of [...dirs.filter(Boolean).map(dir => join(dir,name)), ...extras]) {
@@ -17,10 +19,28 @@ function executable(name, extras = []) {
   }
 }
 
-function limit(label, used, reset) {
+/** One allowance window. `minutes` is the window's length when the provider reports it, else null. */
+function limit(label, used, reset, minutes = null) {
   if (!Number.isFinite(used)) return null;
   const time = typeof reset === 'number' ? reset*1000 : Date.parse(reset);
-  return {label,used:Math.min(100,Math.max(0,used)),reset:Number.isFinite(time)?time:null};
+  return {label, used:Math.min(100,Math.max(0,used)), reset:Number.isFinite(time)?time:null,
+    minutes:Number.isFinite(minutes) && minutes > 0 ? minutes : null};
+}
+
+/** Plan names as the providers market them. Unknown values are title-cased, never guessed. */
+export function planName(value) {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  const key = value.trim().toLowerCase();
+  const known = {max:'Max', pro:'Pro', plus:'Plus', team:'Team', enterprise:'Enterprise', business:'Business', edu:'Edu', free:'Free'};
+  return known[key] || key.replace(/(^|[_\s-])(\w)/g, (_, sep, c) => (sep ? ' ' : '') + c.toUpperCase()).slice(0, 24);
+}
+
+function duration(minutes, slot) {
+  if (minutes === WEEK) return 'Weekly';
+  if (minutes === FIVE_HOURS) return '5-hour';
+  if (minutes >= 1440 && minutes % 1440 === 0) return minutes/1440 + '-day';
+  if (minutes >= 60 && minutes % 60 === 0) return minutes/60 + '-hour';
+  return minutes ? minutes + ' min' : slot;
 }
 
 export function codexWindows(groups) {
@@ -29,13 +49,21 @@ export function codexWindows(groups) {
     for(const [slot,w] of [['Primary',group?.primary],['Secondary',group?.secondary]]){
       if(!w)continue;
       const minutes=w.windowDurationMins??w.window_minutes;
-      const duration=minutes===10080?'Weekly':minutes===300?'5-hour':minutes>=1440&&minutes%1440===0?minutes/1440+'-day':minutes>=60&&minutes%60===0?minutes/60+'-hour':minutes?minutes+' min':slot;
-      const label=key==='codex'?duration:(group.limitName||key)+' · '+duration;
-      const value=limit(label,w.usedPercent??w.used_percent,w.resetsAt??w.resets_at);
+      const label=key==='codex'?duration(minutes,slot):(group.limitName||key)+' · '+duration(minutes,slot);
+      const value=limit(label,w.usedPercent??w.used_percent,w.resetsAt??w.resets_at,minutes);
       if(value)windows.push(value);
     }
   }
   return windows;
+}
+
+/** Plan, limit-reached flag and banked reset credits from the Codex reader's output. */
+export function codexDetails(result) {
+  const groups = Object.values(result?.groups || {});
+  const plan = planName(result?.planType ?? groups.find(g => g?.planType)?.planType);
+  const reached = groups.some(g => g?.rateLimitReachedType);
+  const resets = Number.isInteger(result?.resetCredits) && result.resetCredits > 0 ? result.resetCredits : 0;
+  return {plan, reached, resets};
 }
 
 export function profiles(root = home) {
@@ -57,34 +85,52 @@ export function profiles(root = home) {
   return accounts;
 }
 
+// Claude reports each band's group; only these lengths are known.
+const bandMinutes = {session:FIVE_HOURS, weekly:WEEK};
+
 export function claudeWindows(report) {
   const rates = report?.rate_limits;
   if (!rates || report.rate_limits_available === false) return [];
-  const pairs = [['5-hour',rates.five_hour], ['Weekly',rates.seven_day],
-    ['OAuth apps weekly',rates.seven_day_oauth_apps], ['Opus weekly',rates.seven_day_opus], ['Sonnet weekly',rates.seven_day_sonnet],
-    ...(rates.model_scoped || []).map(w=>[w.display_name,w])];
-  const windows = pairs.map(([name,w])=>limit(name,w?.utilization,w?.resets_at)).filter(Boolean);
+  const pairs = [['5-hour',rates.five_hour,FIVE_HOURS], ['Weekly',rates.seven_day,WEEK],
+    ['OAuth apps weekly',rates.seven_day_oauth_apps,WEEK], ['Opus weekly',rates.seven_day_opus,WEEK],
+    ['Sonnet weekly',rates.seven_day_sonnet,WEEK],
+    // The older model-scoped list doesn't report a window length.
+    ...(rates.model_scoped || []).map(w=>[w.display_name,w,null])];
+  const windows = pairs.map(([name,w,minutes])=>limit(name,w?.utilization,w?.resets_at,minutes)).filter(Boolean);
   for (const band of Array.isArray(rates.limits) ? rates.limits : []) {
+    const scoped = band?.scope?.model?.display_name || band?.scope?.surface?.display_name || band?.display_name;
+    const minutes = bandMinutes[band?.group] ?? null;
     const label = ({session:'5-hour',weekly_all:'Weekly'})[band?.kind] ||
-      band?.scope?.model?.display_name || band?.scope?.surface?.display_name || band?.display_name;
-    if (!label || windows.some(w=>w.label===label)) continue;
-    const item = limit(label,band.percent,band.resets_at ?? band.reset_at);
+      (scoped && band?.group === 'weekly' ? scoped + ' weekly' : scoped);
+    if (!label) continue;
+    // The same model may already be listed without a length; the band supplies it.
+    const known = windows.find(w=>w.label===label || (scoped && w.label===scoped));
+    if (known) {
+      if (!known.minutes && minutes) Object.assign(known, {label, minutes});
+      continue;
+    }
+    const item = limit(label,band.percent,band.resets_at ?? band.reset_at,minutes);
     if (item) windows.push(item);
   }
   return windows;
 }
 
-export async function readClaude(profile, query, binary) {
+function claudeEnv(profile) {
   const env = {...process.env, CLAUDE_CODE_SAFE_MODE:'1', DISABLE_AUTOUPDATER:'1'};
   for (const key of Object.keys(env)) {
     if (/^(ANTHROPIC_|CLAUDE_CODE_USE_)/.test(key)) delete env[key];
   }
+  delete env.CLAUDE_CONFIG_DIR;
   env.USER ||= userInfo().username;
   env.LOGNAME ||= env.USER;
   if (profile.directory) env.CLAUDE_CONFIG_DIR = profile.directory;
+  return env;
+}
+
+export async function readClaude(profile, query, binary) {
   const input = Promise.withResolvers();
   const prompt = {async *[Symbol.asyncIterator]() { await input.promise; }};
-  const session = query({prompt, options:{pathToClaudeCodeExecutable:binary, cwd:tmpdir(), env,
+  const session = query({prompt, options:{pathToClaudeCodeExecutable:binary, cwd:tmpdir(), env:claudeEnv(profile),
     persistSession:false, settingSources:[], tools:[], strictMcpConfig:true, mcpServers:{}}});
   let timeout;
   try {
@@ -92,11 +138,33 @@ export async function readClaude(profile, query, binary) {
       session.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({skipBehaviors:true}),
       new Promise((_,reject)=>{timeout=setTimeout(()=>reject(Error('timeout')),20000);})
     ]);
-    return claudeWindows(report);
+    return {windows:claudeWindows(report), plan:planName(report?.subscription_type)};
   } finally {
     clearTimeout(timeout);
     input.resolve();
     session.close();
+  }
+}
+
+/**
+ * How a Claude profile is signed in, from `claude auth status`. Only these fields are kept:
+ * the command also prints the email and organization, which never belong in the snapshot.
+ */
+export function claudeSignIn(stdout) {
+  let status;
+  try { status = JSON.parse(stdout); } catch { return null; }
+  if (typeof status?.loggedIn !== 'boolean') return null;
+  return {loggedIn:status.loggedIn, method:typeof status.authMethod === 'string' ? status.authMethod : null,
+    plan:planName(status.subscriptionType)};
+}
+
+async function claudeAuth(profile, binary) {
+  try {
+    const {stdout} = await run(binary, ['auth','status'], {env:claudeEnv(profile), cwd:tmpdir(), timeout:10000, maxBuffer:64*1024});
+    return claudeSignIn(stdout);
+  } catch (error) {
+    // Claude Code may exit non-zero when signed out but still print the status.
+    return typeof error?.stdout === 'string' ? claudeSignIn(error.stdout) : null;
   }
 }
 
@@ -125,45 +193,105 @@ async function subscriptionClient(authToken) {
     logLevel:'off', maxRetries:0, timeout:8000, fetchOptions:{redirect:'error'}});
 }
 
+/** The environment variable that selects a named profile, in the words a person types. */
+function profileHint(profile) {
+  if (!profile.directory || ['claude:main','codex:local'].includes(profile.id)) return '';
+  const dir = profile.directory.startsWith(home + '/') ? '~' + profile.directory.slice(home.length) : profile.directory;
+  return (profile.provider === 'Claude' ? 'CLAUDE_CONFIG_DIR=' : 'CODEX_HOME=') + dir + ' ';
+}
+
+/**
+ * Account states the view tells apart:
+ * - ok: windows were read.
+ * - signedOut: no subscription sign-in for this profile.
+ * - noPlan: signed in another way (API key or Console), which has no plan windows.
+ * - empty: signed in to a subscription, but no windows were reported.
+ * - missing: the provider's app isn't installed.
+ * - limited: the provider is throttling usage checks.
+ * - error: the read failed for another reason.
+ */
+export function classifyClaude(sdkError, auth) {
+  if (auth?.loggedIn === false) return 'signedOut';
+  if (auth?.loggedIn && auth.method && auth.method !== 'claude.ai') return 'noPlan';
+  if (sdkError?.status === 429) return 'limited';
+  if ([401,403].includes(sdkError?.status)) return 'signedOut';
+  if (sdkError) return 'error';
+  return auth?.loggedIn ? 'empty' : 'signedOut';
+}
+
+export function message(state, profile) {
+  const claude = profile.provider === 'Claude', hint = profileHint(profile);
+  switch (state) {
+    case 'signedOut': return claude
+      ? 'In Terminal, run ' + hint + 'claude and sign in with /login.'
+      : 'In Terminal, run ' + hint + 'codex login with your ChatGPT account.';
+    case 'noPlan': return 'Signed in with an API key or Console account. Plan limits apply only to subscriptions.';
+    case 'empty': return 'Signed in, but no plan limits were reported.';
+    case 'missing': return claude ? 'Install Claude Code on this Mac.' : 'Install Codex or the ChatGPT app on this Mac.';
+    case 'limited': return (claude ? 'Claude' : 'OpenAI') + ' is limiting usage checks. Dashledge will retry.';
+    default: return 'Could not reach ' + (claude ? 'Claude' : 'Codex') + '. Dashledge will retry.';
+  }
+}
+
+async function claudeReading(profile, account) {
+  const binary = executable('claude');
+  if (!binary) return {...account, state:'missing'};
+  const {query} = await import(pathToFileURL(join(sdkRoot,'claude/sdk.mjs')).href);
+  let sdkError, reading = {windows:[], plan:null};
+  try { reading = await readClaude(profile,query,binary); }
+  catch (error) { sdkError = error; }
+  let windows = reading.windows;
+  if (!windows.length) {
+    const fallback = await filePlan(profile, subscriptionClient).catch(() => null);
+    if (fallback?.length) windows = fallback;
+  }
+  if (windows.length) return {...account, plan:reading.plan, windows, state:'ok'};
+  // Only an empty read pays for a second process to learn why.
+  const auth = await claudeAuth(profile, binary);
+  return {...account, plan:auth?.plan ?? reading.plan, state:classifyClaude(sdkError, auth)};
+}
+
+async function codexReading(profile, account) {
+  const binary = executable('codex',['/Applications/Codex.app/Contents/Resources/codex','/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex']);
+  if (!binary) return {...account, state:'missing'};
+  const env = {...process.env};
+  delete env.OPENAI_API_KEY;
+  delete env.CODEX_HOME;
+  if (profile.directory) env.CODEX_HOME = profile.directory;
+  const {stdout} = await run(join(sdkRoot,'python/bin/python3'),['-I','-B',fileURLToPath(new URL('./codex-sdk.py',import.meta.url)),binary],
+    {env,cwd:tmpdir(),timeout:20000,maxBuffer:128*1024});
+  const result = JSON.parse(stdout);
+  if (result.signedOut) return {...account, state:'signedOut'};
+  const {plan, reached, resets} = codexDetails(result);
+  const windows = codexWindows(result.groups);
+  return {...account, plan, windows, reached, resets, state:windows.length ? 'ok' : 'empty'};
+}
+
 export async function readProfile(profile) {
   const {id, provider, name} = profile;
-  const source = provider==='Claude'?'Claude Agent SDK':'OpenAI Codex SDK';
-  const account = {id,provider,name,source,windows:[]};
+  const account = {id,provider,name,plan:null,windows:[]};
+  let next;
   try {
-    if (provider==='Claude') {
-      const binary = executable('claude');
-      if (!binary) return {...account,message:'Install Claude Code and sign in with your Claude subscription.'};
-      const {query} = await import(pathToFileURL(join(sdkRoot,'claude/sdk.mjs')).href);
-      let sdkError;
-      try { account.windows = await readClaude(profile,query,binary); }
-      catch (error) { sdkError = error; }
-      if (!account.windows.length) {
-        const fallback = await filePlan(profile, subscriptionClient);
-        if (fallback?.length) {
-          account.windows = fallback;
-          account.source = 'Anthropic SDK';
-        } else if (sdkError) throw sdkError;
-        else return {...account,message:'Open Claude Code with this profile, run /login, then tap Refresh.'};
-      }
-    } else {
-      const binary = executable('codex',['/Applications/Codex.app/Contents/Resources/codex','/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex']);
-      if (!binary) return {...account,message:'Install Codex and sign in with your ChatGPT account.'};
-      const env = {...process.env};
-      delete env.OPENAI_API_KEY;
-      if (profile.directory) env.CODEX_HOME = profile.directory;
-      const {stdout} = await run(join(sdkRoot,'python/bin/python3'),['-I','-B',fileURLToPath(new URL('./codex-sdk.py',import.meta.url)),binary],
-        {env,cwd:tmpdir(),timeout:20000,maxBuffer:128*1024});
-      const result = JSON.parse(stdout);
-      if (result.signedOut) return {...account,message:'Sign in to Codex with your ChatGPT account.'};
-      account.windows = codexWindows(result.groups);
-    }
-    if (account.windows.length) return {...account,at:Date.now()};
-    return {...account,message:'No plan limits reported. Check your subscription sign-in and refresh.'};
+    next = provider === 'Claude' ? await claudeReading(profile, account) : await codexReading(profile, account);
   } catch (error) {
-    if (provider==='Claude' && [401,403].includes(error.status))
-      return {...account,message:'Claude needs a renewed subscription sign-in. Run /login in this profile, then refresh.'};
-    if (error.status===429)
-      return {...account,unavailable:true,message:'The provider is limiting usage checks. Try again shortly.'};
-    return {...account,unavailable:true,message:'Could not refresh. Check your connection and update '+(provider==='Claude'?'Claude Code':'Codex')+', then retry.'};
+    next = {...account, state:error?.status === 429 ? 'limited' : 'error'};
   }
+  if (next.state === 'ok') return {...next, at:Date.now()};
+  return {...next, message:message(next.state, profile)};
+}
+
+/**
+ * Combine a fresh read with the previous one. A transient failure keeps the last windows and marks
+ * them stale with the reason, so the view can say how old they are. A sign-in problem never does.
+ */
+export function merge(last, next) {
+  if (next.state === 'ok' || !last?.at || !['limited','error'].includes(next.state)) return next;
+  return {...last, stale:true, state:next.state, message:next.message};
+}
+
+/** Seconds until an account is read again. Accounts that need a person to act are checked less often. */
+export function nextCheck(account, failures = 0) {
+  if (account.state === 'ok') return 60;
+  if (['signedOut','noPlan','missing','empty'].includes(account.state)) return 300;
+  return Math.min(900, 60 * 2 ** Math.min(failures, 4));
 }

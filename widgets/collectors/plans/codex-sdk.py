@@ -1,4 +1,4 @@
-"""Read only the signed-in ChatGPT account's subscription windows."""
+"""Read only the signed-in ChatGPT account's subscription windows, plan and banked resets."""
 import json
 import sys
 
@@ -14,7 +14,23 @@ def limits(binary):
         if account is None or account.root.type != "chatgpt":
             return {"signedOut": True}
         response = client.request("account/rateLimits/read", None, response_model=GetAccountRateLimitsResponse)
-        return {"groups": quota_groups(response)}
+        return summary(response)
+
+
+def summary(response):
+    plan = response.rate_limits.plan_type
+    return {
+        "groups": quota_groups(response),
+        "planType": getattr(plan, "value", plan),
+        "resetCredits": reset_credits(response),
+    }
+
+
+def reset_credits(response):
+    """How many free limit resets are waiting; never their IDs or descriptions."""
+    banked = response.rate_limit_reset_credits
+    count = getattr(banked, "available_count", None) if banked is not None else None
+    return count if isinstance(count, int) and count >= 0 else 0
 
 
 def quota_groups(response):
@@ -28,8 +44,11 @@ def quota_groups(response):
             snapshot = RateLimitSnapshot.model_validate(windows)
             groups[key] = snapshot.model_dump(mode="json", by_alias=True, include={"primary", "secondary"})
             groups[key]["limitName"] = raw.get("limitName")
+            groups[key]["planType"] = raw.get("planType")
+            groups[key]["rateLimitReachedType"] = raw.get("rateLimitReachedType")
     if "codex" not in groups and response.rate_limits.limit_id in (None, "codex"):
-        groups["codex"] = response.rate_limits.model_dump(mode="json", by_alias=True, include={"primary", "secondary", "limit_name"})
+        groups["codex"] = response.rate_limits.model_dump(
+            mode="json", by_alias=True, include={"primary", "secondary", "limit_name", "plan_type", "rate_limit_reached_type"})
     return groups
 
 
