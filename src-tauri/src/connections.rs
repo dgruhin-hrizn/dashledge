@@ -62,6 +62,56 @@ pub fn set_secret(
     crate::widget_host::invalidate(&kind, &base);
     Ok(())
 }
+/// Subject and expiry of the first certificate in a PEM bundle, read with the
+/// system's OpenSSL. Returns null fields when they can't be read.
+fn describe_certificate(pem: &str) -> Value {
+    use std::io::Write;
+    let child = std::process::Command::new("/usr/bin/openssl")
+        .args(["x509", "-noout", "-subject", "-enddate", "-nameopt", "oneline"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+    let output = child.ok().and_then(|mut child| {
+        child.stdin.take()?.write_all(pem.as_bytes()).ok()?;
+        child.wait_with_output().ok()
+    });
+    let text = output.filter(|o| o.status.success()).map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default();
+    let field = |prefix: &str| text.lines().find_map(|l| l.strip_prefix(prefix)).map(|v| v.trim().to_string());
+    json!({"subject": field("subject="), "expires": field("notAfter="), "count": validate_ca(pem.as_bytes()).map(|c| c.len()).unwrap_or(0)})
+}
+
+/// Save (or, with no PEM, remove) the CA certificate a connection trusts. The token is
+/// kept either way. Returns the certificate's subject and expiry.
+#[tauri::command]
+pub fn set_certificate(window: tauri::WebviewWindow, kind: String, address: String, pem: Option<String>) -> Result<Value, String> {
+    if window.label() != "settings" {
+        return Err("Open Settings to change credentials".into());
+    }
+    let base = endpoint(&address)?;
+    let pem = pem.map(|p| p.trim().to_string()).filter(|p| !p.is_empty());
+    if let Some(pem) = &pem {
+        if pem.len() > 64 * 1024 {
+            return Err("The certificate file is larger than 64 KiB.".into());
+        }
+        validate_ca(pem.as_bytes()).map_err(|_| "That isn’t a PEM certificate. Paste the text that begins with -----BEGIN CERTIFICATE-----.")?;
+    }
+    let info = pem.as_deref().map(describe_certificate).unwrap_or(Value::Null);
+    crate::vault::set_ca(&kind, &base, pem)?;
+    crate::widget_host::invalidate(&kind, &base);
+    Ok(info)
+}
+
+/// The saved CA certificate's subject and expiry, or null when there is none.
+#[tauri::command]
+pub fn certificate_info(window: tauri::WebviewWindow, kind: String, address: String) -> Result<Value, String> {
+    if window.label() != "settings" {
+        return Err("Open Settings to view credentials".into());
+    }
+    let base = endpoint(&address)?;
+    Ok(crate::vault::get(&kind, &base)?.ca.as_deref().map(describe_certificate).unwrap_or(Value::Null))
+}
+
 fn http() -> &'static Client {
     static CLIENT: OnceLock<Client> = OnceLock::new();
     CLIENT.get_or_init(|| {

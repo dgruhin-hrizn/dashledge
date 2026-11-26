@@ -219,18 +219,33 @@ pub fn get(kind: &str, base: &reqwest::Url) -> Result<Credential, String> {
         Ok(credential)
     })
 }
+/// Replace a connection's token. A new token keeps the saved CA certificate; an empty
+/// one forgets the whole credential, as when the connection is removed.
+fn apply_secret(value: &mut Credential, secret: String) {
+    if secret.is_empty() {
+        *value = Credential::default()
+    } else {
+        value.key = Some(secret)
+    }
+}
+/// Save or remove a connection's CA certificate, keeping its token.
+fn apply_ca(value: &mut Credential, ca: Option<String>) {
+    value.ca = ca;
+}
 pub fn set(kind: &str, base: &reqwest::Url, secret: String) -> Result<(), String> {
-    if !secret.is_empty() && kind == "proxmox" {
-        // Retain the CA when replacing a Proxmox token, including on upgrade.
+    if !secret.is_empty() {
+        // Migrate any legacy entry first, so a new token keeps its CA.
         get(kind, base)?;
     }
     transaction(|entries| {
-        let value = entries.entry(id(kind, base)).or_default();
-        if secret.is_empty() {
-            *value = Credential::default()
-        } else {
-            value.key = Some(secret)
-        }
+        apply_secret(entries.entry(id(kind, base)).or_default(), secret);
+        Ok(())
+    })
+}
+pub fn set_ca(kind: &str, base: &reqwest::Url, ca: Option<String>) -> Result<(), String> {
+    get(kind, base)?;
+    transaction(|entries| {
+        apply_ca(entries.entry(id(kind, base)).or_default(), ca);
         Ok(())
     })
 }
@@ -318,5 +333,17 @@ mod tests {
         assert!(decode(&key, &bytes).unwrap() == entries);
         *bytes.last_mut().unwrap() ^= 1;
         assert!(decode(&key, &bytes).is_err());
+    }
+    #[test]
+    fn a_new_token_keeps_the_certificate_and_only_remove_clears_it() {
+        let mut value = Credential { key: Some("old".into()), ca: Some("pem".into()) };
+        apply_secret(&mut value, "new".into());
+        assert!(value == Credential { key: Some("new".into()), ca: Some("pem".into()) });
+        apply_ca(&mut value, Some("pem-2".into()));
+        assert!(value == Credential { key: Some("new".into()), ca: Some("pem-2".into()) });
+        apply_ca(&mut value, None);
+        assert!(value == Credential { key: Some("new".into()), ca: None });
+        apply_secret(&mut value, String::new());
+        assert!(value == Credential::default());
     }
 }

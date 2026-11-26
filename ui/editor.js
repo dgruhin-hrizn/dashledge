@@ -11,6 +11,7 @@ import {catalogGroups,widgetInfo,installed,connectionsFor,defaultSource,useDefau
 import {permissionSummary} from './package-manifest.js';
 import {editPackageSettings,settingValues} from './package-settings.js';
 import {connectionLabel} from './display-name.js';
+import {guestRows,parseGuests} from './proxmox-guests.js';
 import {general,loadGeneral,updateGeneral,fitDashboard} from './general.js';
 import {icon} from './admin-icons.js';
 import {appendPage,assignWidget,pickWidget} from './page-actions.js';
@@ -226,12 +227,15 @@ function sourceForm(widget,existing){
   const sshTarget=input(existing?.gpuSsh?.target||''),sshKey=input(existing?.gpuSsh?.identityFile||'');
   sshTarget.placeholder='user@worker.local (optional)';sshKey.placeholder='~/.ssh/id_ed25519 (optional)';
   const extra=kind==='comfy'?[el('p','sub','GPU load comes from the Crystools node when it’s installed, or from this Mac when ComfyUI runs here. Otherwise add SSH access to the worker.'),field('GPU telemetry over SSH',sshTarget),field('SSH key file',sshKey)]:[];
+  const proxmox=kind==='proxmox'?proxmoxFields(existing):null;
+  if(proxmox)extra.push(...proxmox.nodes);
   formDialog(existing?'Edit connection':'Add connection',[field('Connection name',name),addressField,secretField,...extra],async()=>{
     const u=new URL(address.value);if(!['http:','https:'].includes(u.protocol)||u.username||u.password||u.search||u.hash)throw Error('Use an HTTP(S) URL without embedded credentials or query');
     const obj={id:existing?.id||id(),name:name.value.trim(),kind,address:u.href};
     if(existing?.widgets)obj.widgets=existing.widgets;
     if(existing?.owner||(!existing&&kind==='json'))obj.owner=existing?.owner||widget;
-    if(existing?.gpuGuests&&existing.kind===obj.kind&&existing.address===obj.address)obj.gpuGuests=existing.gpuGuests;
+    if(proxmox){const guests=proxmox.guests();if(Object.keys(guests).length)obj.gpuGuests=guests}
+    else if(existing?.gpuGuests&&existing.kind===obj.kind&&existing.address===obj.address)obj.gpuGuests=existing.gpuGuests;
     if(kind==='comfy'&&sshTarget.value.trim()){
       const target=sshTarget.value.trim(),identityFile=sshKey.value.trim();
       if(!/^(?:[a-z_][a-z0-9_.-]*@)?[a-z0-9][a-z0-9.-]*$/i.test(target))throw Error('Enter the SSH destination as user@host');
@@ -239,10 +243,54 @@ function sourceForm(widget,existing){
       obj.gpuSsh=identityFile?{target,identityFile}:{target};
     }
     if(secret.value)await invoke('set_secret',{kind:obj.kind,address:obj.address,secret:secret.value});
+    if(proxmox)await proxmox.saveCertificate(obj.address);
     change(()=>{if(existing)config.sources[config.sources.findIndex(item=>item.id===existing.id)]=obj;else config.sources.push(obj);
       if(connectionsFor(config,widget).length===1)useDefault(config,widget,obj.id);
     },false);
   })
+}
+// Proxmox connection extras: the GPU guests Dashledge reads over SSH, and the CA
+// certificate for a self-signed cluster. Both apply only when the form is saved.
+function proxmoxFields(existing){
+  const list=el('div','guest-rows'),rows=[];
+  function addRow(value={vmid:'',target:'',identityFile:''}){
+    const vmid=input(value.vmid),target=input(value.target),key=input(value.identityFile),line=el('div','guest-row');
+    vmid.inputMode='numeric';vmid.placeholder='VM ID';vmid.setAttribute('aria-label','VM ID');vmid.maxLength=9;
+    target.placeholder='user@guest.local';target.setAttribute('aria-label','SSH destination');
+    key.placeholder='~/.ssh/id_ed25519 (optional)';key.setAttribute('aria-label','SSH key file');
+    const row={get vmid(){return vmid.value},get target(){return target.value},get identityFile(){return key.value}};
+    const remove=button('Remove',()=>{rows.splice(rows.indexOf(row),1);line.remove();empty.hidden=rows.length>0});
+    remove.setAttribute('aria-label','Remove this GPU guest');
+    line.append(vmid,target,key,remove);rows.push(row);list.append(line);empty.hidden=true;
+  }
+  const empty=el('p','sub','No GPU guests. Add a VM to read its GPU load over SSH.');
+  list.append(empty);
+  for(const row of guestRows(existing?.gpuGuests))addRow(row);
+  const guests=el('div','field');
+  guests.append(el('span','','GPU guests'),el('small','sub','For each VM with a GPU, the SSH destination Dashledge uses to read nvidia-smi. ComfyUI workers on the same host pick these up too.'),list,button('Add GPU guest',()=>addRow()));
+
+  // CA certificate: paste PEM text or choose a file. Saving an empty field keeps the saved one.
+  const pem=el('textarea');pem.rows=4;pem.placeholder='-----BEGIN CERTIFICATE-----';pem.spellcheck=false;
+  const status=el('small','sub',existing?'Checking for a saved certificate…':'No certificate. Proxmox must use a publicly trusted one.');
+  const file=input('','file');file.accept='.pem,.crt,.cer';file.hidden=true;
+  file.onchange=async()=>{const f=file.files[0];if(f&&f.size<=65536){pem.value=await f.text();remove=false;status.textContent='Selected '+f.name+'. Save to use it.'}else if(f)notice('Certificate files must be 64 KiB or smaller.');file.value=''};
+  let remove=false,saved=null;
+  const expiry=text=>{const date=new Date(text);return Number.isNaN(date.getTime())?text:date.toLocaleDateString()};
+  const describe=info=>info?.subject?'Saved: '+info.subject+(info.expires?' · expires '+expiry(info.expires):''):'No certificate saved.';
+  const removeButton=button('Remove certificate',()=>{remove=true;pem.value='';status.textContent='The saved certificate will be removed when you save.';removeButton.hidden=true});
+  removeButton.hidden=true;
+  if(existing)invoke('certificate_info',{kind:existing.kind,address:existing.address}).then(info=>{saved=info;status.textContent=describe(info);removeButton.hidden=!info}).catch(e=>status.textContent=String(e));
+  const certificate=el('div','field');
+  certificate.append(el('span','','CA certificate'),status,pem,row(button('Choose file…',()=>file.click()),removeButton,file));
+  return {
+    nodes:[guests,certificate],
+    guests:()=>parseGuests(rows),
+    async saveCertificate(address){
+      if(pem.value.trim())await invoke('set_certificate',{kind:'proxmox',address,pem:pem.value});
+      else if(remove)await invoke('set_certificate',{kind:'proxmox',address,pem:null});
+      else if(existing&&saved&&address!==existing.address)notice('The CA certificate stays with the old address. Choose it again for the new one.');
+    },
+  };
 }
 function connections(widget){
   const matching=connectionsFor(config,widget);
