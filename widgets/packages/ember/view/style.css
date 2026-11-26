@@ -576,7 +576,7 @@ body { background: var(--page); }
 .ud-heat-key span:last-child { margin-left: calc(4px*var(--u)); }
 
 /* A narrower placement keeps the headroom and the chart, and drops the week and half the figures. */
-@media (max-width: 1300px) {
+@media (max-width: 1800px) {
   #cards[data-layout="overview"] { grid-template-columns: minmax(0,.8fr) minmax(0,1.4fr); grid-template-areas: "title title" "head tiles" "head daily"; }
   .ud-heat, .ud-daily .ud-note, .ud-stat:is(:nth-child(1),:nth-child(3),:nth-child(5),:nth-child(6),:nth-child(7)) { display: none; }
   .ud-primary strong { font-size: calc(78px*var(--u)); }
