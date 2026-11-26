@@ -26,7 +26,6 @@ mod photos;
 mod general;
 mod updater;
 mod touch;
-mod transcript;
 mod tray;
 mod widget_host;
 mod widget_package;
@@ -270,8 +269,6 @@ pub fn run() {
             widget_host::widget_model_action,
             focus_window,
             touch_status,
-            instruments::ember_chats,
-            transcript::ember_transcript,
             instruments::read_metrics,
             instruments::spotify,
             instruments::spotify_spectrum,
@@ -302,8 +299,6 @@ pub fn run() {
             connections::set_secret,
             connections::source_read,
             connections::widget_source_read,
-            connections::poster,
-            connections::comfy_preview,
             open_settings,
             display_info,
             set_edge_output,

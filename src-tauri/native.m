@@ -36,31 +36,6 @@ char *ew_spotify(int action) {
     }
 }
 
-#import <sqlite3.h>
-char *ew_ember(void) {
-    @autoreleasepool {
-        NSString *path=[NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support/Ember/User/globalStorage/ember.ember-agent/ember.db"];
-        sqlite3 *db=NULL;
-        if(sqlite3_open_v2(path.fileSystemRepresentation,&db,SQLITE_OPEN_READONLY,NULL)!=SQLITE_OK){if(db)sqlite3_close(db);return NULL;}
-        sqlite3_busy_timeout(db,300);
-        const char *query="SELECT json_extract(json,'$.title'),json_extract(json,'$.model'),json_extract(json,'$.detail.tool'),json_extract(json,'$.detail.todosDone'),json_extract(json,'$.detail.todosTotal'),id,workspace,json_extract(json,'$.cwd'),json_extract(json,'$.worktree.path') FROM chats WHERE hidden=0 AND archived=0 ORDER BY last_activity DESC LIMIT 20";
-        sqlite3_stmt *stmt=NULL;
-        if(sqlite3_prepare_v2(db,query,-1,&stmt,NULL)!=SQLITE_OK){sqlite3_close(db);return NULL;}
-        NSMutableArray *rows=[NSMutableArray new];
-        int rc;
-        while((rc=sqlite3_step(stmt))==SQLITE_ROW){
-            NSMutableDictionary *row=[NSMutableDictionary new];
-            NSArray *keys=@[@"title",@"model",@"operation",@"done",@"total",@"id",@"workspace",@"cwd",@"worktree"];
-            for(int i=0;i<9;i++){const unsigned char *v=sqlite3_column_text(stmt,i);if(v)row[keys[i]]=[NSString stringWithUTF8String:(const char*)v]?:@"";}
-            [rows addObject:row];
-        }
-        sqlite3_finalize(stmt);sqlite3_close(db);
-        if(rc!=SQLITE_DONE)return NULL;
-        NSData *data=[NSJSONSerialization dataWithJSONObject:rows options:0 error:nil];
-        return strdup([[NSString alloc]initWithData:data encoding:NSUTF8StringEncoding].UTF8String);
-    }
-}
-
 #import <IOKit/ps/IOPowerSources.h>
 #import <mach/mach.h>
 

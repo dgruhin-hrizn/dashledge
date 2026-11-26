@@ -6,7 +6,6 @@ use std::{
 use sysinfo::{CpuExt, DiskExt, NetworkExt, System, SystemExt};
 extern "C" {
     fn ew_apple_music(action: *const i8, value: *const i8, known: *const i8) -> *mut i8;
-    fn ew_ember() -> *mut std::ffi::c_char;
     fn ew_extra_metrics() -> *mut std::ffi::c_char;
     fn ew_gpu() -> f64;
     fn ew_music_spectrum(apple: bool, levels: *mut u8, wave: *mut u8) -> i32;
@@ -146,17 +145,6 @@ pub fn spotify(action: u8) -> Result<Value, String> {
     let value = unsafe { serde_json::from_slice(std::ffi::CStr::from_ptr(ptr).to_bytes()) };
     unsafe { free(ptr.cast()) };
     value.map_err(|_| "Invalid player response".into())
-}
-
-#[tauri::command]
-pub fn ember_chats() -> Result<Value, String> {
-    let ptr = unsafe { ew_ember() };
-    if ptr.is_null() {
-        return Err("Open Ember with a supported chat database".into());
-    }
-    let value = unsafe { serde_json::from_slice(std::ffi::CStr::from_ptr(ptr).to_bytes()) };
-    unsafe { free(ptr.cast()) };
-    value.map_err(|_| "Invalid chat data".into())
 }
 
 #[cfg(test)]

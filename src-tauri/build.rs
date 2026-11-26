@@ -23,6 +23,5 @@ fn main() {
     for name in ["Photos", "EventKit", "Foundation", "AppKit", "IOKit", "Metal", "CoreAudio", "Accelerate", "ScriptingBridge", "ImageIO", "LinkPresentation"] {
         println!("cargo:rustc-link-lib=framework={name}");
     }
-    println!("cargo:rustc-link-lib=sqlite3");
     tauri_build::build()
 }
