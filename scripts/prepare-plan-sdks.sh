@@ -18,8 +18,14 @@ tar -xzf "$archive" --strip-components=1 -C "$stage/claude"
 rm -f "$stage/claude.tgz"
 python_bin="${WIDGET_PLAN_PYTHON:-}"
 if [[ -z "$python_bin" ]]; then
-  uv python install 3.14.9
-  python_bin="$(uv python find --managed-python 3.14.9)"
+  # uv can find an installed patch release newer than its download catalog.
+  if ! python_bin="$(uv python find --no-project --managed-python --no-python-downloads 3.14.9 2>/dev/null)"; then
+    uv python install 3.14.9 || {
+      echo 'Install uv with support for Python 3.14.9 or set WIDGET_PLAN_PYTHON to a standalone CPython 3.14.9 executable.' >&2
+      exit 1
+    }
+    python_bin="$(uv python find --no-project --managed-python --no-python-downloads 3.14.9)"
+  fi
 fi
 prefix="$("$python_bin" -I -c 'import sys;assert sys.version_info[:3]==(3,14,9);print(sys.base_prefix)')"
 cp -L "$python_bin" "$stage/python/bin/python3"
