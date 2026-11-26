@@ -8,8 +8,10 @@ import {setTimeout as delay} from 'node:timers/promises';
 const run=promisify(execFile);
 import { context } from '../../_shared/context.mjs';
 const root = context.directory;
-import { sample as sampleGPUs } from '../../proxmox/collector/gpu.mjs';
-const configs = context.sources.map(s => ({ name: s.name, url: s.address, key: s.key, gpuGuest:s.gpuGuests?.worker }));
+import { remote, remoteSampler, sampleThisMac, isThisMac, validTarget } from '../../_shared/gpu-sampler.mjs';
+const sshDir=join(context.directory,'ssh');
+const sampleRemote=remoteSampler(remote(sshDir));
+const configs = context.sources.map(s => ({ name: s.name, url: s.address, key: s.key, gpuGuest:s.gpuGuests?.worker, gpuSsh:s.gpuGuests?.ssh }));
 const thumbs=join(root,'previews');mkdirSync(thumbs,{recursive:true,mode:0o700});
 const states=configs.map(({name,url})=>({name,host:new URL(url).host,status:'Connecting',active:null,pending:[],recent:[]}));
 let timer;
@@ -38,20 +40,36 @@ async function worker(config,index){
     state.gpuLoad={percent:Math.max(...loads),at:Date.now()};
     publish();return true;
   }
-  async function pollGuest(mapping){
-    const target=typeof mapping==='string'?mapping:mapping?.target;
-    if(typeof target!=='string'||target.split('@').pop().toLowerCase()!==base.hostname.toLowerCase())return;
-    while(true){
-      if(Date.now()-streamAt>15000 && state.status!=='Offline'){
-        try{
-          const devices=await sampleGPUs(target,mapping.identityFile);
-          if(Date.now()-streamAt>15000 && state.status!=='Offline')recordGPU(devices.map(d=>d.load));
-        }catch{/* Optional telemetry expires independently of the queue. */}
-      }
-      await delay(5000);
+  // GPU load, in order: Crystools' stream (handled in socket()), this Mac, SSH to the
+  // worker (tool detected per host), then a Proxmox guest mapping. Each source is
+  // used only while the one before it is silent.
+  function pollTelemetry(){
+    const ssh=config.gpuSsh?.target?config.gpuSsh:null;
+    const guest=config.gpuGuest;
+    const guestTarget=typeof guest==='string'?guest:guest?.target;
+    const local=isThisMac(base.hostname);
+    if(!local&&!validTarget(ssh?.target)&&!(validTarget(guestTarget)&&guestTarget.split('@').pop().toLowerCase()===base.hostname.toLowerCase())){
+      state.gpuHint='Install Crystools or add SSH access';return;
     }
+    (async()=>{
+      try{mkdirSync(sshDir,{recursive:true,mode:0o700})}catch{}
+      while(true){
+        if(Date.now()-streamAt>15000 && state.status!=='Offline'){
+          let reading=null;
+          try{
+            if(local)reading={...await sampleThisMac(),source:'This Mac'};
+            else if(validTarget(ssh?.target))reading={...await sampleRemote(ssh.target,ssh.identityFile),source:'SSH'};
+            else reading={...await sampleRemote(guestTarget,guest?.identityFile),source:'Proxmox guest'};
+          }catch{/* Optional telemetry expires independently of the queue. */}
+          if(reading&&Date.now()-streamAt>15000&&state.status!=='Offline'&&recordGPU(reading.devices.map(d=>d.load))){
+            state.gpuSource=reading.source+' · '+reading.tool;delete state.gpuHint;
+          }else if(!reading&&!state.gpuSource){state.gpuHint='GPU telemetry unreachable · check SSH access';}
+        }
+        await delay(5000);
+      }
+    })();
   }
-  if(config.gpuGuest)void pollGuest(config.gpuGuest);
+  pollTelemetry();
   function socket(){
     if(ws)return;
     const u=new URL('ws',base);u.protocol=base.protocol==='https:'?'wss:':'ws:';
@@ -63,7 +81,7 @@ async function worker(config,index){
       let msg;try{msg=JSON.parse(e.data);}catch{return;}
       const d=msg.data;
       if(msg.type==='crystools.monitor' && Array.isArray(d?.gpus)){
-        if(state.status!=='Offline' && recordGPU(d.gpus.map(g=>g?.gpu_utilization)))streamAt=Date.now();
+        if(state.status!=='Offline' && recordGPU(d.gpus.map(g=>g?.gpu_utilization))){streamAt=Date.now();state.gpuSource='Crystools';delete state.gpuHint;}
         return;
       }
       if(!d||!state.active||state.active.id!==String(d.prompt_id))return;

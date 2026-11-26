@@ -1,37 +1,18 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+// Proxmox guest GPU telemetry over SSH, using the shared sampler.
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-
-const run = promisify(execFile);
 import { context } from '../../_shared/context.mjs';
+import { validTarget, parseNvidia, nvidiaQuery, remote } from '../../_shared/gpu-sampler.mjs';
+
 const socketDir = join(context.directory, 'ssh');
-export const query = "nvidia-smi --query-gpu=uuid,name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw --format=csv,noheader,nounits";
-export const validTarget = value => typeof value === "string" && /^(?:[a-z_][a-z0-9_.-]*@)?[a-z0-9][a-z0-9.-]*$/i.test(value);
-function numeric(value) {
-  const parsed = value.trim() === "" ? NaN : Number(value);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
-}
-export function parseGPUs(output) {
-  const devices = [];
-  for (const line of output.trim().split(/\r?\n/)) {
-    const fields = line.split(",").map(s => s.trim());
-    if (fields.length !== 7 || !fields[0].startsWith("GPU-")) continue;
-    const [uuid,name] = fields;
-    const [load,used,total,temp,watts] = fields.slice(2).map(numeric);
-    devices.push({uuid,name,load,used,total,temp,watts});
-  }
-  if (!devices.length) throw Error("No NVIDIA readings");
-  return devices;
-}
-export async function sample(target,identityFile) {
+const runRemote = remote(socketDir);
+export { validTarget };
+export const query = nvidiaQuery;
+export const parseGPUs = parseNvidia;
+export async function sample(target, identityFile) {
   if (!validTarget(target)) throw Error("Invalid SSH destination");
-  await mkdir(socketDir,{recursive:true,mode:0o700});
-  const {stdout} = await run("/usr/bin/ssh",["-T","-o","BatchMode=yes","-o","StrictHostKeyChecking=yes",
-    "-o","ClearAllForwardings=yes","-o","ForwardAgent=no","-o","ConnectTimeout=3","-o","ControlMaster=auto",
-    "-o","ControlPersist=30","-o","ControlPath="+join(socketDir,"%C"),...(identityFile ? ["-o","IdentitiesOnly=yes","-i",identityFile] : []),target,query],
-    {timeout:4500,maxBuffer:65536});
-  return parseGPUs(stdout);
+  await mkdir(socketDir, {recursive: true, mode: 0o700});
+  return parseNvidia(await runRemote(target, identityFile, nvidiaQuery));
 }
 
 export function monitorGPUs(read=sample) {
