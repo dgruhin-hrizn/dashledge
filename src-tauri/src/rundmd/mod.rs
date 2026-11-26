@@ -26,7 +26,9 @@ fn location(app: &AppHandle) -> Result<PathBuf, String> {
 }
 fn seed(app: &AppHandle) -> Option<PathBuf> {
     let path = app.path().resource_dir().ok()?.join("rundmd-default.imgc");
-    path.is_file().then_some(path)
+    if path.is_file() { return Some(path); }
+    let saved = app.path().app_data_dir().ok()?.join("rundmd-default.imgc");
+    saved.is_file().then_some(saved)
 }
 #[tauri::command]
 pub fn rundmd_has_default(app: AppHandle) -> bool {

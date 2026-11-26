@@ -13,7 +13,8 @@ version=$(node -p "require('./package.json').version")
 build_number=$(git rev-list --count HEAD)
 bundle="$output_dir/Dashledge.app"
 contents="$bundle/Contents"
-mkdir -p "$contents/MacOS" "$contents/Resources"
+mkdir -p "$contents/MacOS" "$contents/Resources" "$contents/Helpers"
+xcrun swiftc -O -target "$(uname -m)-apple-macos11.0" scripts/install-mac.swift -o "$contents/Helpers/DashledgeUpdater"
 cp "${CARGO_TARGET_DIR:-$project/src-tauri/target}/release/edge-starter" "$contents/MacOS/Dashledge"
 # Personal builds can carry a user-supplied default card. Regular releases have no card artwork.
 if [[ -n "${RUNDMD_IMAGE:-}" ]]; then

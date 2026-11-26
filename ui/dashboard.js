@@ -9,7 +9,7 @@ import {renderAppleMusic} from './apple-music.js';
 import {renderSpotify} from './spotify.js';
 import {mountDmd} from './rundmd/player.js';
 import {appendPage,assignWidget,pickWidget} from './page-actions.js';
-import {general,loadGeneral,onGeneral,automaticUpdates} from './general.js';
+import {general,loadGeneral,onGeneral} from './general.js';
 import {instrumentKinds,renderInstrument} from './instruments.js';
 import {mountOriginal,widgetSources} from './original-widgets.js';
 import {titles,layout,readPath,originalKinds} from './model.js';
@@ -194,7 +194,7 @@ function applyPreferences(settings){
   mount();
 }
 onGeneral(applyPreferences);applyPreferences(prefs);
-loadGeneral().then(()=>{if(window.parent===window)automaticUpdates()}).catch(()=>{});
+loadGeneral().catch(()=>{});
 let nextMetrics=0;
 async function tick(){
   if(!document.hidden){

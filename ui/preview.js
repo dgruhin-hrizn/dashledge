@@ -1,5 +1,5 @@
 import {invoke} from './common.js';
-import {fitDashboard,displayTouch,loadGeneral,automaticUpdates} from './general.js';
+import {fitDashboard,displayTouch,loadGeneral} from './general.js';
 const screen=document.querySelector('.preview-screen');
 const frame=screen.firstElementChild;
 const stop=fitDashboard(screen,frame,true);
@@ -12,7 +12,7 @@ if(document.body.classList.contains('edge-output')){
       child?.dispatchEvent(new child.CustomEvent('edgepagepicker'));
     }
   });
-  loadGeneral().then(automaticUpdates).catch(()=>{});
+  loadGeneral().catch(()=>{});
 }else{
   loadGeneral().catch(()=>{});
   document.querySelector('#move').onpointerdown=e=>{if(e.button===0)invoke('preview_control',{action:'move'})};

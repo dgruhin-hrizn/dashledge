@@ -165,7 +165,6 @@ pub fn preview_control(window: WebviewWindow, action: String) -> Result<(), Stri
     }
     .map_err(|e| e.to_string())
 }
-#[tauri::command]
 pub async fn check_release() -> Result<Value, String> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(8))

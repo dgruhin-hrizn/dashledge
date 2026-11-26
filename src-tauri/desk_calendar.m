@@ -8,21 +8,31 @@ static NSDictionary *snapshot(BOOL request) {
     if (request && status == EKAuthorizationStatusNotDetermined) {
         dispatch_semaphore_t done = dispatch_semaphore_create(0);
         __block NSError *failure = nil;
+        __block BOOL accessGranted = NO;
         void (^finish)(BOOL,NSError *) = ^(BOOL granted, NSError *error) {
+            accessGranted = granted;
             failure = error;
             dispatch_semaphore_signal(done);
         };
         dispatch_async(dispatch_get_main_queue(), ^{
             [NSApp activateIgnoringOtherApps:YES];
             if (@available(macOS 14.0, *)) [store requestFullAccessToEventsWithCompletion:finish];
+#if __MAC_OS_X_VERSION_MIN_REQUIRED < 140000
             else [store requestAccessToEntityType:EKEntityTypeEvent completion:finish];
+#endif
         });
         if (dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, 60 * NSEC_PER_SEC)))
             return @{@"permission":@"request", @"detail":@"No response from macOS. Check Calendar permissions in System Settings."};
         if (failure) return @{@"permission":@"denied", @"detail":failure.localizedDescription};
+        if (!accessGranted) return @{@"permission":@"denied"};
         status = [EKEventStore authorizationStatusForEntityType:EKEntityTypeEvent];
     }
-    if (status != EKAuthorizationStatusFullAccess)
+    BOOL canRead = NO;
+    if (@available(macOS 14.0, *)) canRead = status == EKAuthorizationStatusFullAccess;
+#if __MAC_OS_X_VERSION_MIN_REQUIRED < 140000
+    else canRead = status == EKAuthorizationStatusAuthorized;
+#endif
+    if (!canRead)
         return @{@"permission":status==EKAuthorizationStatusNotDetermined?@"request":@"denied"};
     NSDate *now = NSDate.date;
     NSDate *end = [NSCalendar.currentCalendar dateByAddingUnit:NSCalendarUnitDay value:7 toDate:now options:0];

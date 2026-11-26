@@ -22,6 +22,9 @@ if [[ -d "$contents/Resources/runtime/plan-sdks/python" ]]; then
   done < <(find "$contents/Resources/runtime/plan-sdks/python" -type f \( -name '*.so' -o -name '*.dylib' -o -name python3 \) -print0)
 fi
 /usr/bin/codesign --force --options runtime "$timestamp" --entitlements "$project/src-tauri/WidgetRuntime.entitlements" --sign "$identity" "$contents/Resources/runtime/node"
+if [[ -x "$contents/Helpers/DashledgeUpdater" ]]; then
+  /usr/bin/codesign --force --options runtime "$timestamp" --sign "$identity" "$contents/Helpers/DashledgeUpdater"
+fi
 /usr/bin/codesign --force --options runtime "$timestamp" --entitlements "$project/src-tauri/Entitlements.plist" --sign "$identity" "$bundle"
 /usr/bin/codesign --verify --strict --deep "$bundle"
 # Check the embedded entitlement by its literal key (the dots are part of its name).

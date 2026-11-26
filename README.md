@@ -95,7 +95,7 @@ Run `node scripts/release-version.mjs 0.6.0` with the intended version, then mer
 
 The authenticated GitHub CLI account needs permission to publish releases. Set `DASHLEDGE_NOTARY_PROFILE` to use a different notary profile. Public builds omit personal Run-DMD artwork.
 
-**General → Updates** checks the latest published GitHub release daily or on demand. **View release** opens the detected version for download.
+**General → Updates → Automatically install updates** checks GitHub at launch and every 24 hours while Dashledge is running. A newer release downloads, verifies its checksum and HORIZN INC signature, replaces the app, and reopens it. Use **Check and install update** to run the same process manually. Install version 0.6.1 once to receive future updates this way.
 
 ## Upstream credit
 

@@ -24,6 +24,7 @@ mod mac_shortcuts;
 mod markets;
 mod photos;
 mod general;
+mod updater;
 mod touch;
 mod transcript;
 mod tray;
@@ -195,18 +196,6 @@ fn open_project_link(url: String) -> Result<(), String> {
         _ => Err("Unknown project link".into()),
     }
 }
-#[tauri::command]
-fn release_page(tag: Option<String>)->Result<(),String>{
-    let url = match tag {
-        Some(tag) => {
-            semver::Version::parse(tag.strip_prefix('v').unwrap_or(&tag)).map_err(|_| "Invalid release tag")?;
-            format!("https://github.com/dgruhin-hrizn/dashledge/releases/tag/{tag}")
-        }
-        None => "https://github.com/dgruhin-hrizn/dashledge/releases/latest".to_owned(),
-    };
-    std::process::Command::new("/usr/bin/open").arg(url)
-        .spawn().map(|_|()).map_err(|e|e.to_string())
-}
 fn ensure_main(app:&tauri::AppHandle)->Result<(),String>{
     if app.get_webview_window("main").is_none(){
         WebviewWindowBuilder::new(app,"main",WebviewUrl::App("edge.html".into()))
@@ -269,8 +258,8 @@ pub fn run() {
             None,
         ))
         .invoke_handler(tauri::generate_handler![
-            general::preview_control, general::open_preview, general::general_settings, general::save_general, general::check_release,
-            open_project_link, release_page, retry_touch, move_to_display,
+            general::preview_control, general::open_preview, general::general_settings, general::save_general, updater::check_and_install, updater::update_status,
+            open_project_link, retry_touch, move_to_display,
             rundmd::rundmd_catalog, rundmd::rundmd_import, rundmd::rundmd_clip, rundmd::rundmd_has_default,
             widget_package::read_widget_package, widget_package::save_widget_example,
             vault::unlock_connections,
@@ -334,6 +323,7 @@ pub fn run() {
                 tray::default_open_at_login(app.handle());
             }
             tray::build(app.handle())?;
+            updater::start();
 
             sync_touch(app.handle());
             // Touches go straight into the page. The mouse never moves.

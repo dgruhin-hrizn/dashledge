@@ -8,7 +8,7 @@ import {marketConnection,marketPicker} from './markets.js';
 import {editPhotos} from './photos.js';
 import {editShortcuts,shortcutPins} from './mac-shortcuts.js';
 import {catalogGroups,widgetInfo,installed,connectionsFor,defaultSource,useDefault,placements,removeWidget} from './widget-catalog.js';
-import {general,loadGeneral,updateGeneral,fitDashboard,checkUpdate,automaticUpdates} from './general.js';
+import {general,loadGeneral,updateGeneral,fitDashboard} from './general.js';
 import {icon} from './admin-icons.js';
 import {appendPage,assignWidget,pickWidget} from './page-actions.js';
 import {presets,titles,id,resize,split,removeSection,layout,plugin} from './model.js';
@@ -451,16 +451,20 @@ function generalTab(){
     document.querySelector('.hardware-status').classList.toggle('online',!!d.connected);
   };
   const refresh=()=>invoke('display_info').then(draw).catch(e=>{status.textContent=String(e)});
-  const updateText=el('small','sub'),release=button('View release',()=>invoke('release_page',{tag:release.dataset.tag||null}).catch(e=>notice(String(e))));release.hidden=true;
-  function showUpdate(r){if(r){updateText.textContent=r.message;release.hidden=!r.available;release.dataset.tag=r.tag||''}}
-  const check=button('Check for Updates…',async()=>{check.disabled=true;updateText.textContent='Checking…';try{showUpdate(await checkUpdate(true))}finally{check.disabled=false}});
-  const updates=panel('Updates',settingRow('Automatically check for updates',preference('autoUpdates','checkbox')),row(check,release,updateText));
-  updates.append(el('small','sub','Checks daily. You choose when to download an update.'));
+  const updateText=el('small','sub');
+  updateText.setAttribute('role','status');
+  const restoreUpdate=()=>invoke('update_status').then(message=>{updateText.textContent=message}).catch(e=>notice(String(e)));
+  const check=button('Check and install update',async()=>{
+    check.disabled=true;
+    updateText.textContent='Checking for updates…';
+    try{await invoke('check_and_install');await restoreUpdate()}catch(e){notice(String(e))}finally{check.disabled=false}
+  });
+  const updates=panel('Updates',settingRow('Automatically install updates',preference('autoUpdates','checkbox')),row(check,updateText));
+  updates.append(el('small','sub','Checks at launch and daily. Dashledge reopens after installing an update.'));
   const grid=el('div','general-grid'),hardware=el('div','general-column'),preferences=el('div','general-column');
   hardware.append(display,touch);
   preferences.append(appearance,updates);
   grid.append(hardware,preferences);main.append(grid);
-  const restoreUpdate=()=>{try{showUpdate(JSON.parse(localStorage.getItem('edge.release.check')))}catch{}};
   restoreUpdate();refresh();
   const poll=setInterval(()=>{if(!display.isConnected){clearInterval(poll);return}refresh();restoreUpdate()},3000);
   cleanupTab=()=>clearInterval(poll);
@@ -504,7 +508,7 @@ function openSlackSetup(){if(localStorage.getItem("edge.market.setup")){localSto
 window.addEventListener('storage',e=>{if(['edge.market.setup','edge.slack.setup'].includes(e.key))openSlackSetup()});
 if(!openSlackSetup()){if(takeGoogleSetup())widgetSettings('googledesk');else render()}
 invoke('plugin:app|version').then(version=>{document.querySelector('#app-version').textContent='Version '+version}).catch(()=>{});
-loadGeneral().then(()=>{if(tab==='General'||tab==='Layouts')render();automaticUpdates()}).catch(e=>notice(String(e)));
+loadGeneral().then(()=>{if(tab==='General'||tab==='Layouts')render()}).catch(e=>notice(String(e)));
 invoke('display_info').then(d=>{
   document.querySelector('#device-status').textContent=d.enabled?(d.connected?'Display connected':'Awaiting display'):'Preview mode';
   document.querySelector('.hardware-status').classList.toggle('online',!!d.connected);
