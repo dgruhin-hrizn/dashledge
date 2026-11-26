@@ -2,7 +2,8 @@
   const $ = (id) => document.getElementById(id);
   const views = [...document.querySelectorAll("[data-view]")];
   const filters = [...document.querySelectorAll("[data-filter]")];
-  const host = window.Zurface ?? window.Zeon;
+  // Dashledge's package SDK: theme, instance details and the manifest's `model` command.
+  const host = window.Dashledge;
   const history = new Map();
   const compact = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
   const number = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
@@ -488,11 +489,11 @@
     actionMessage = { address: selected, text: operation === "load" ? "Loading " + model.name + "…" : "Unloading " + model.name + "…" };
     render();
     try {
-      await host.command("storage.set", { key: "omlx.modelAction", value: JSON.stringify(command) });
+      await host.command("model", command);
     } catch {
       if (action?.id !== id) return;
       action = null;
-      actionMessage = { address: command.address, text: "Zurface could not send the model action." };
+      actionMessage = { address: command.address, text: "Dashledge could not send the model action." };
       render();
     }
   }
@@ -635,7 +636,7 @@
     else renderUsage(data);
   }
 
-  // Zurface serves the collector snapshot as a local asset.
+  // Dashledge serves the collector snapshot as a declared output of this package.
   window.omlxWidgetSnapshot = (value) => {
     if (value?.schema !== 1 || !Array.isArray(value.servers) || snapshot?.at === value.at) return;
     const previousSnapshot = snapshot;
