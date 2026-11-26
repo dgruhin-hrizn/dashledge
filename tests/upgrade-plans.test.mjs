@@ -1,7 +1,8 @@
 import './helpers/bundled-packages.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {migratePlanSettings, titles, originalKinds} from '../ui/model.js';
+import {titles, originalKinds} from '../ui/model.js';
+import {migratePlanSettings} from '../ui/upgrade-plans.js';
 import {installed, widgetInfo} from '../ui/widget-catalog.js';
 import {packageInfo} from '../ui/packages.js';
 import {settingValues} from '../ui/package-settings.js';
@@ -20,6 +21,8 @@ const saved = () => ({
       {id: 's3', kind: 'plans', source: '', volume: '', planDisplay: {mode: 'overview', ids: null, pin: 'claude:main', aliases: {}}},
       // One account full size, renamed.
       {id: 's4', kind: 'plans', source: '', volume: '', planDisplay: {mode: 'account', ids: null, pin: 'codex:personal', aliases: {'codex:personal': ' Side project ', 'bad key': 'x'}}},
+      // Its own choices, plus settings a previous widget left on the slot.
+      {id: 's6', kind: 'plans', source: '', volume: '', packageSettings: {metric: 'cpu'}, planDisplay: {mode: 'overview', ids: ['codex:local'], aliases: {}}},
     ]},
     {id: 'p2', name: 'Mac', preset: 'One', slots: [{id: 's5', kind: 'cpu', source: '', volume: ''}]},
   ],
@@ -35,6 +38,7 @@ test('saved plan choices become the package settings of each placement', () => {
   assert.deepEqual(slots.s2.packageSettings, {accounts: ['claude:main'], names: {'claude:main': 'Home'}}, 'inherits the old defaults');
   assert.deepEqual(slots.s3.packageSettings, {accounts: ['*'], names: {}});
   assert.deepEqual(slots.s4.packageSettings, {accounts: ['codex:personal'], names: {'codex:personal': 'Side project'}});
+  assert.deepEqual(slots.s6.packageSettings, {accounts: ['codex:local'], names: {}}, 'its own choices replace stale settings');
   for (const slot of config.pages.flatMap(p => p.slots)) assert.equal('planDisplay' in slot, false);
   assert.equal('planDefaults' in config, false);
   assert.equal('packageSettings' in config.pages[1].slots[0], false, 'other widgets are untouched');

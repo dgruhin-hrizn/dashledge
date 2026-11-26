@@ -139,7 +139,9 @@
     box.dataset.count = String(visible.length);
     if (!visible.length) {
       const empty = el('div', 'pm-empty');
-      empty.append(el('strong', '', 'Account not on this Mac'), el('span', '', 'Choose accounts for this placement in Pages & layouts.'));
+      const none = !prefs.accounts.length;
+      empty.append(el('strong', '', none ? 'No accounts chosen' : 'Account not on this Mac'),
+        el('span', '', 'Choose accounts for this placement in Pages & layouts.'));
       view.append(empty);
     }
     for (const a of visible) view.append(accountCard(a, prefs.names?.[a.id], now));

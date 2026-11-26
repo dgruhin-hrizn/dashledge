@@ -1,4 +1,5 @@
-import {initial,addOriginalPages,makePage,migratePlanSettings} from './model.js';
+import {initial,addOriginalPages,makePage} from './model.js';
+import {migratePlanSettings} from './upgrade-plans.js';
 const KEY='edge-workbench.layout.v1';
 export function state(){
   try {const raw=JSON.parse(localStorage.getItem(KEY));if(raw?.version===1&&Array.isArray(raw.pages)&&raw.pages.length&&Array.isArray(raw.sources)&&Array.isArray(raw.plugins)){if(migratePlanSettings(raw))save(raw);return raw}} catch {}

@@ -8,35 +8,6 @@ export const count=p=>presets[p].reduce((x,y)=>x+y,0);
 export function initial(){return {version:1,pages:[makePage('System','Five',['cpu','gpu','memory','disk','network']),makePage('Studio','Featured',['comfy','omlx','spotify']),makePage('Media','One',['emby']),makePage('Everyday','Four',['clock','focus','notes','machine'])],sources:[],plugins:[]}}
 // Bundled package widgets, filled from their manifests by ui/packages.js.
 export const originalKinds = [];
-// Layouts before AI Plan Monitor became a package kept its choices on the slot as
-// `planDisplay: {mode, ids, pin, aliases}`, and Widget Studio's defaults for placements
-// without their own as `config.planDefaults`. The package keeps them in the placement's
-// `packageSettings: {accounts, names}`: `accounts: ["*"]` is every account, including
-// ones found later, and one chosen account is shown full size. Returns whether it changed.
-const PLAN_ACCOUNT=/^[A-Za-z0-9._:@/-]{1,128}$/;
-export function planSettings(old){
-  const ids=old?.mode==='account'?(old.pin?[old.pin]:null):Array.isArray(old?.ids)?old.ids:null;
-  const accounts=ids?[...new Set(ids.filter(id=>typeof id==='string'&&PLAN_ACCOUNT.test(id)))].slice(0,64):['*'];
-  const names={};
-  for(const [id,name] of Object.entries(old?.aliases||{})){
-    const text=typeof name==='string'?name.replace(/[\u0000-\u001f\u007f]/g,'').trim().slice(0,48):'';
-    if(PLAN_ACCOUNT.test(id)&&text&&Object.keys(names).length<64)names[id]=text;
-  }
-  return {accounts,names};
-}
-export function migratePlanSettings(config){
-  let changed=false;
-  const defaults=config.planDefaults&&typeof config.planDefaults==='object'?config.planDefaults:null;
-  for(const page of config.pages||[])for(const slot of page.slots||[]){
-    const own=slot.planDisplay&&typeof slot.planDisplay==='object'?slot.planDisplay:null;
-    if('planDisplay' in slot){delete slot.planDisplay;changed=true}
-    if(slot.kind!=='plans'||slot.packageSettings)continue;
-    const old=own||defaults;
-    if(old){slot.packageSettings=planSettings(old);changed=true}
-  }
-  if('planDefaults' in config){delete config.planDefaults;changed=true}
-  return changed;
-}
 export function addOriginalPages(config) {
   // Wait until the bundled packages are known, so an unreadable list can't mark this done.
   if (config.originalDashboards || !originalKinds.length) return false;
