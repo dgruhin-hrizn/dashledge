@@ -1,126 +1,43 @@
-# Edge Starter
+# Edge Workbench
 
-A starting point for building your own app on the **Corsair XENEON Edge** on macOS, with the touchscreen working properly.
+Edge Workbench is a macOS menu-bar application for the Corsair XENEON Edge. One Rust/Tauri host runs the touch dashboard, layout editor and collectors. The interface uses the system WebKit renderer. The installed app runs without Node, npm, Homebrew, a terminal or per-widget launch agents.
 
-**Tested on macOS 27.2 (Apple silicon), with the Edge connected to the Mac over USB-C** (one cable carries both the display and touch).
+## Try the preview
 
-This came out of [Edge Deck](https://joshsorenson.com/apps/edge-deck), the dashboard I built for my own Edge.
+Open **Edge Workbench.app**. The first launch opens Settings on your main display. Choose **Preview** for a live Mac dashboard. Under **Layouts**, add pages, choose a preset and tap or drag a widget into a section. The menu-bar icon reopens Settings.
 
-## The problem this solves
+To use the touchscreen, quit any other app controlling Edge touch. Open **Display → Enable Edge output** and save to restart. Grant Input Monitoring if macOS requests it. Choose **Return to preview** to release the device. The physical dashboard can switch pages using its page picker. Open at Login is available in the menu bar.
 
-On a Mac, the Edge's touch panel shows up as a regular USB touchscreen, and macOS maps every touch onto your **main** display. Tap the Edge and you click whatever is in the same spot on your other monitor.
+## Widgets and connections
 
-This starter takes over the Edge's touch panel while it's running, reads the touches itself, and delivers them straight into its own window. Taps, drags and text fields work on the Edge, and your mouse never moves.
+CPU, GPU, memory, disk capacity, network throughput and Mac information read local system metrics. The GPU tile reports unavailable on hardware that does not expose the counter. Spotify connects to the running desktop player and may request Automation access. Clock, focus timer and scratchpad work locally.
 
-## What you get
+Use **Connections → Add connection → Test** for your own servers, then select the connection in the layout inspector. Add separate connections for multiple workers. Tokens live in the macOS Keychain. The layout and widget definitions live in local app storage.
 
-- **Touch on the Edge.** Taps become normal clicks, drags scroll, tapping a text field focuses it so you can type. Raw touches are available too.
-- **Covers the Edge edge to edge**, even with a Retina main display at 2x and the Edge at 1x (window placement with physical pixels gets this wrong). It pins a borderless window over the Edge, above its menu bar, instead of using macOS native fullscreen, which a menu bar app can't hold reliably.
-- **Stays there.** If the window gets moved off the Edge, or you unplug and replug it, it moves back. Touch also picks back up after a replug, and works even if you plug the Edge in after starting the app.
-- **Lives in the menu bar.** No Dock icon. It waits for the Edge, opens fullscreen on it when you plug it in, and hides when you unplug. The menu has a status line, Show on Edge, Open at login and Quit. Open at login turns on the first time it runs (set `OPEN_AT_LOGIN_BY_DEFAULT` in `src-tauri/src/tray.rs` to change that).
-- **A demo page** in `ui/` (buttons, a text field, a scrolling list, a live touch readout) to replace with your own UI.
-- **Examples** you can keep or delete: now playing with a Spotify like button, weather, Apple Reminders, Apple Photos and system stats (see Examples below).
-- **A log** at `~/Library/Logs/edge-starter.log` that says exactly what happened with touch.
-
-Built with [Tauri 2](https://tauri.app) (Rust) and a plain HTML/CSS/JS page. No web framework required, but you can drop one in.
-
-## Quick start
-
-You need Rust, Node.js, and the Xcode Command Line Tools.
-
-```bash
-npm install
-```
-
-**1. Sign it with your own certificate.** macOS ties the Input Monitoring permission to the app's signature. Unsigned (ad-hoc) builds get a new signature every build, so you'd have to re-allow touch after every rebuild. Find your identity:
-
-```bash
-security find-identity -v -p codesigning
-```
-
-Then build with it (a free "Apple Development" certificate from Xcode works):
-
-```bash
-APPLE_SIGNING_IDENTITY="Apple Development: Your Name (XXXXXXXXXX)" npm run build
-```
-
-Or set `bundle.macOS.signingIdentity` in `src-tauri/tauri.conf.json` so you don't have to pass it each time.
-
-**2. Run it.** The app is in `src-tauri/target/release/bundle/macos/Edge Starter.app`. Drag it to Applications and open it. Look for its icon in the menu bar; there's no Dock icon.
-
-**3. Allow Input Monitoring.** macOS asks the first time. If it doesn't, go to System Settings > Privacy & Security > Input Monitoring and turn on Edge Starter. Touch turns on within a few seconds, no restart needed.
-
-Before you ship your own app, change `identifier` in `src-tauri/tauri.conf.json` from `com.example.edgestarter` to your own.
-
-## Building your app
-
-Your UI lives in `ui/`. It's an ordinary web page:
-
-- Touches arrive as normal `click` events, so regular buttons and links work.
-- For raw touches, listen for `edgetouch` on `window`:
-
-  ```js
-  window.addEventListener("edgetouch", (e) => {
-    const { kind, x, y } = e.detail; // kind: "down" | "move" | "up"
-  });
-  ```
-
-- While a finger is down, the pressed element gets the `edge-pressed` class for feedback.
-- Call Rust from the page with `window.__TAURI__.core.invoke("command_name")`. Add commands in `src-tauri/src/lib.rs`.
-
-Tips for the Edge's 2560 x 720 screen: keep touch targets at least 44 px, skip hover-only controls (fingers can't hover), and test at exactly 2560 x 720.
-
-## Examples
-
-Open **ui/examples.html** (there's a link on the demo page) for five working examples, each a card in `ui/examples/` and a Rust module in `src-tauri/src/examples/`. Keep the ones you want, delete the rest (see the top of `src-tauri/src/examples/mod.rs`).
-
-| Example | What it shows | Setup |
-| --- | --- | --- |
-| Now playing | Spotify or Apple Music: track, artwork, play/pause, next, previous. Spotify songs get a like button. | macOS asks once per player (Automation). For the like button, see Spotify below. |
-| Weather | Now, feels like, high and low, the next hours. From [Open-Meteo](https://open-meteo.com) (free, no key). | Set `LAT` / `LON` in `src-tauri/src/examples/weather.rs`. |
-| Reminders | Open reminders from every list, check off, add to your default list (EventKit). | Tap "Show my Reminders"; macOS asks once. |
-| Photos | A random Favorite from Apple Photos every 30 seconds with a fade. Tap for the date and a heart to (un)favorite it (PhotoKit). Photos never opens. | Tap "Show my photos"; macOS asks once. |
-| This Mac | CPU, memory and network, sampled every 2 seconds. | None. |
-
-The permission prompts need matching keys in `src-tauri/Info.plist` and `src-tauri/Entitlements.plist` (hardened runtime). Remove the keys for examples you delete.
-
-**Spotify likes.** Spotify's Mac app can't like songs from AppleScript, so this uses the Spotify Web API with PKCE sign-in (no client secret).
-
-1. Create an app at [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard) with the Web API.
-2. Add the redirect URI `http://127.0.0.1:4848/callback`.
-3. Build with its Client ID: `SPOTIFY_CLIENT_ID=your-client-id npm run build`.
-4. Tap "Connect Spotify" on the card and sign in. The app listens on port 4848 only while a sign-in is in progress. Your sign-in is saved in `~/Library/Application Support/edge-starter/spotify-token`, readable only by you.
-
-## How the touch takeover works (and what bit us)
-
-All of it is in `src-tauri/src/touch.rs`.
-
-- **The touch panel is three devices, not one.** It shows up as a touch digitizer, a mouse-emulation interface, and a vendor interface (USB `0x27c0:0x0859`). The mouse-emulation one is what moves your main pointer, so the app opens each interface separately with exclusive ("seize") access and logs the result for each.
-- **Only the mouse-emulation interface needs Input Monitoring.** The other two can be seized without it, which makes it look like touch "half works" when the permission is missing.
-- **macOS's permission check can say "denied" when access is granted.** `IOHIDCheckAccess` returned denied while the seize worked fine. So the app doesn't trust the check: it tries the seize and retries every 3 seconds until it works.
-- **Old permission records stick around.** If you allowed an earlier unsigned build, macOS keeps a record pinned to that exact build, and newer builds count as not allowed even though the switch looks on. Remove it and allow again:
-
-  ```bash
-  tccutil reset ListenEvent com.example.edgestarter
-  ```
-
-- **Touch only works while the app is running.** When it quits, the panel goes back to macOS, which sends touches to the main display again.
-
-## Troubleshooting
-
-Check the log first:
-
-```bash
-tail -20 ~/Library/Logs/edge-starter.log
-```
-
-| Log says | What to do |
+| Service | Source and current coverage |
 | --- | --- |
-| `seize interface 0x1/0x2 -> IOReturn 0xe00002e2` | Input Monitoring isn't in effect. Allow it (and reset the old record, above). |
-| `Edge touchscreen not found ... still looking` | The Edge isn't connected (or the USB-C cable only carries power). Touch turns on by itself once it's plugged in. |
-| `took over every Edge touch interface` | Touch is working. |
-| `Edge not connected; waiting in the menu bar` | The Edge isn't connected as a display. The window appears on its own once it is. |
+| Emby | Emby API base. Active playback, posters, viewer/device, play method, progress and carousel details. |
+| ComfyUI | Worker URL. Queue and GPU/VRAM statistics. An explicit reveal loads the latest image and the viewer closes after 15 seconds. |
+| Unraid | Unraid monitoring-agent REST base ending in /api/v1/. Array, disk inventory and running Docker containers. |
+| Proxmox | HTTPS origin and read-only PVE API token. Cluster nodes, guests and status. The server certificate must be trusted by macOS. |
+| oMLX | HTTP API origin and optional bearer key. Generation statistics. |
+| Ember | Recent chats from the local desktop chat database, opened read-only. |
+| JSON | Choose a JSON endpoint and a field path in Widget Studio. |
 
-## License
+## Create a plugin
 
-MIT. Build whatever you want on it.
+Open **Widget Studio → Create widget**, choose the Mac or JSON feed, and choose a field, label, unit and color. Test the field, save the widget, then place it in Layouts. Export shares its package as a JSON file. Another user can install the package in Widget Studio and select their own connection. Updating an existing package ID preserves layout references.
+
+A minimal package is:
+
+```json
+{"apiVersion":1,"id":"plugin.free-memory","title":"Free memory","feed":"mac","field":"freeGiB","unit":"GiB","accent":"#c4f38f"}
+```
+
+## Development
+
+On macOS with Rust and Xcode Command Line Tools, run `./scripts/package-mac.sh` to build an application and ZIP under `dist/`. Set `SIGN_IDENTITY` to use your Developer ID identity. The default is ad-hoc signing for local builds. For frontend development with the Tauri CLI, use `npm ci` and `npm run dev`. Run `npm test` for model and native tests.
+
+This release is an early preview. The detailed [product plan](docs/PLAN.md) tracks the intended catalog, service parity and package runtime. The initial package format supports declarative widgets. The service tiles implement subsets of the six original dashboards. Validate touch calibration, permissions, service credentials and reconnection on your own hardware before moving a daily setup.
+
+Based on [Edge Starter](https://github.com/joshsorenson/edge-starter), distributed under the MIT license.

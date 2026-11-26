@@ -13,12 +13,15 @@
 //!
 //! Your UI lives in `ui/`. Start there.
 
-mod examples;
+mod connections;
+mod instruments;
 mod touch;
 mod tray;
 
 use std::{path::PathBuf, sync::OnceLock, time::Duration};
-use tauri::{LogicalPosition, LogicalSize, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{
+    LogicalPosition, LogicalSize, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+};
 
 /// The Edge is 2560x720 (32:9). Any display at least this wide-to-tall counts.
 pub const EDGE_MIN_ASPECT: f64 = 3.0;
@@ -26,16 +29,26 @@ pub const EDGE_MIN_ASPECT: f64 = 3.0;
 static APP: OnceLock<tauri::AppHandle> = OnceLock::new();
 
 fn log_path() -> PathBuf {
-    dirs::home_dir().unwrap_or_default().join("Library/Logs/edge-starter.log")
+    dirs::home_dir()
+        .unwrap_or_default()
+        .join("Library/Logs/edge-workbench.log")
 }
 
-/// Append a line to ~/Library/Logs/edge-starter.log (and stderr). Handy for
+/// Append a line to ~/Library/Logs/edge-workbench.log (and stderr). Handy for
 /// checking touch permissions on a built app, where stderr isn't visible.
 pub(crate) fn log(msg: &str) {
     use std::io::Write;
-    eprintln!("edge-starter: {msg}");
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(log_path()) {
-        let _ = writeln!(f, "{} {msg}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"));
+    eprintln!("edge-workbench: {msg}");
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_path())
+    {
+        let _ = writeln!(
+            f,
+            "{} {msg}",
+            chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
+        );
     }
 }
 
@@ -57,7 +70,10 @@ fn place(win: &WebviewWindow, edge: Option<touch::Rect>) {
             let _ = win.set_position(LogicalPosition::new(r.x, r.y));
             let _ = win.set_size(LogicalSize::new(r.w, r.h));
             let _ = win.show();
-            log(&format!("window: pinned over the Edge at {},{} {}x{}", r.x, r.y, r.w, r.h));
+            log(&format!(
+                "window: pinned over the Edge at {},{} {}x{}",
+                r.x, r.y, r.w, r.h
+            ));
         }
         None => {
             let _ = win.hide();
@@ -68,7 +84,9 @@ fn place(win: &WebviewWindow, edge: Option<touch::Rect>) {
 /// Is the window visible and covering exactly the Edge's bounds?
 fn on_edge(win: &WebviewWindow, r: touch::Rect) -> bool {
     let sf = win.scale_factor().unwrap_or(1.0);
-    let (Ok(p), Ok(sz)) = (win.outer_position(), win.outer_size()) else { return false };
+    let (Ok(p), Ok(sz)) = (win.outer_position(), win.outer_size()) else {
+        return false;
+    };
     let near = |a: f64, b: f64| (a - b).abs() < 2.0;
     win.is_visible().unwrap_or(false)
         && near(p.x as f64 / sf, r.x)
@@ -97,8 +115,36 @@ fn pin_above_menu_bar(win: &WebviewWindow) {
     }
 }
 
+fn output_file(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(app.path().app_data_dir().map_err(|e| e.to_string())?.join("edge-output.enabled"))
+}
+
+#[tauri::command]
+fn display_info(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    let rect = touch::edge_rect();
+    Ok(serde_json::json!({
+        "enabled": output_file(&app)?.exists(),
+        "connected": rect.is_some(),
+        "size": rect.map(|r| format!("{} × {}", r.w, r.h)),
+        "touch": touch::status()
+    }))
+}
+
+#[tauri::command]
+fn set_edge_output(window: WebviewWindow, app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    if window.label() != "settings" { return Err("Open Settings to change displays".into()); }
+    let path = output_file(&app)?;
+    if enabled {
+        std::fs::create_dir_all(path.parent().ok_or("Settings directory unavailable")?).map_err(|e|e.to_string())?;
+        std::fs::write(path, b"enabled").map_err(|e| e.to_string())?;
+    } else if path.exists() { std::fs::remove_file(path).map_err(|e| e.to_string())?; }
+    app.request_restart();
+    Ok(())
+}
+
 /// "Show on Edge" in the menu bar: put the window back on the Edge.
 pub(crate) fn show_on_edge(app: &tauri::AppHandle) {
+    if !output_file(app).is_ok_and(|file| file.exists()) { let _ = open_settings(app.clone()); return; }
     if let Some(win) = app.get_webview_window("main") {
         place(&win, touch::edge_rect());
     }
@@ -119,35 +165,45 @@ fn touch_status() -> touch::TouchStatus {
     touch::status()
 }
 
+#[tauri::command]
+fn open_settings(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(win) = app.get_webview_window("settings") {
+        win.show().map_err(|e| e.to_string())?;
+        return win.set_focus().map_err(|e| e.to_string());
+    }
+    WebviewWindowBuilder::new(&app, "settings", WebviewUrl::App("settings.html".into()))
+        .title("Edge Workbench Settings")
+        .inner_size(1060., 680.)
+        .build()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .invoke_handler(tauri::generate_handler![
             focus_window,
             touch_status,
-            // Examples (src/examples): delete the ones you don't want.
-            examples::now_playing,
-            examples::media_control,
-            examples::spotify_status,
-            examples::spotify_login,
-            examples::spotify_liked,
-            examples::spotify_set_liked,
-            examples::reminders_list,
-            examples::reminders_request_access,
-            examples::reminder_set_completed,
-            examples::reminder_add,
-            examples::photos_random,
-            examples::photos_request_access,
-            examples::photo_set_favorite,
-            examples::weather,
-            examples::system_snapshot,
+            instruments::ember_chats,
+            instruments::read_metrics,
+            instruments::spotify,
+            connections::set_secret,
+            connections::source_read,
+            connections::poster,
+            connections::comfy_preview,
+            open_settings,
+            display_info,
+            set_edge_output,
         ])
         .setup(|app| {
             let _ = APP.set(app.handle().clone());
 
             // Example: start sampling CPU / memory / network for system_snapshot.
-            examples::system::start();
 
             // Menu bar app: no Dock icon, waits for the Edge. Remove these
             // lines if you'd rather have a regular Dock app.
@@ -158,20 +214,30 @@ pub fn run() {
             }
             tray::build(app.handle())?;
 
+            if !output_file(app.handle()).is_ok_and(|file| file.exists()) {
+                tray::set_status("Preview mode");
+                let _ = open_settings(app.handle().clone());
+                return Ok(());
+            }
+
             // Touches go straight into the page. The mouse never moves.
             let handle = app.handle().clone();
             touch::start(move |ev| {
-                let Some(win) = handle.get_webview_window("main") else { return };
+                let Some(win) = handle.get_webview_window("main") else {
+                    return;
+                };
                 let (kind, x, y) = match ev {
                     touch::TouchEvent::Down(x, y) => ("down", x, y),
                     touch::TouchEvent::Move(x, y) => ("move", x, y),
                     touch::TouchEvent::Up(x, y) => ("up", x, y),
                 };
-                let _ = win.eval(format!("window.__edgeTouch&&window.__edgeTouch('{kind}',{x:.1},{y:.1})"));
+                let _ = win.eval(format!(
+                    "window.__edgeTouch&&window.__edgeTouch('{kind}',{x:.1},{y:.1})"
+                ));
             });
 
             let win = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                .title("Edge Starter")
+                .title("Edge Workbench")
                 .decorations(false)
                 .background_color(tauri::window::Color(0, 0, 0, 255))
                 .visible(false)
@@ -181,7 +247,14 @@ pub fn run() {
                 log("window: Edge not connected; waiting in the menu bar");
             }
             place(&win, edge);
-            tray::set_status(if edge.is_some() { "On the Edge" } else { "Waiting for the Edge" });
+            if edge.is_none() {
+                let _ = open_settings(app.handle().clone());
+            }
+            tray::set_status(if edge.is_some() {
+                "On the Edge"
+            } else {
+                "Waiting for the Edge"
+            });
 
             // Follow the Edge when it's plugged in, unplugged or rearranged, and
             // put the window back fullscreen if something knocked it out.
@@ -190,13 +263,23 @@ pub fn run() {
                 let mut last = edge;
                 loop {
                     std::thread::sleep(Duration::from_secs(3));
-                    let Some(win) = handle.get_webview_window("main") else { break };
+                    let Some(win) = handle.get_webview_window("main") else {
+                        break;
+                    };
                     let now = touch::edge_rect();
                     let knocked_out = now.is_some_and(|r| !on_edge(&win, r));
                     if now != last || knocked_out {
                         if now != last {
-                            log(if now.is_some() { "window: Edge connected; showing" } else { "window: Edge unplugged; hiding" });
-                            tray::set_status(if now.is_some() { "On the Edge" } else { "Waiting for the Edge" });
+                            log(if now.is_some() {
+                                "window: Edge connected; showing"
+                            } else {
+                                "window: Edge unplugged; hiding"
+                            });
+                            tray::set_status(if now.is_some() {
+                                "On the Edge"
+                            } else {
+                                "Waiting for the Edge"
+                            });
                         }
                         let _ = handle.run_on_main_thread(move || place(&win, now));
                         last = now;
@@ -206,5 +289,5 @@ pub fn run() {
             Ok(())
         })
         .run(tauri::generate_context!())
-        .expect("error while running Edge Starter");
+        .expect("error while running Edge Workbench");
 }

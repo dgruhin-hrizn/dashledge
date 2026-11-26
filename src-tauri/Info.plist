@@ -4,12 +4,15 @@
 <dict>
   <!-- Permission prompts for the examples in src/examples. Remove the ones you don't use. -->
   <key>NSAppleEventsUsageDescription</key>
-  <string>Edge Starter shows and controls what's playing in Spotify or Music.</string>
+  <string>Edge Workbench shows and controls what's playing in Spotify or Music.</string>
   <key>NSRemindersFullAccessUsageDescription</key>
-  <string>Edge Starter shows and checks off your reminders.</string>
+  <string>Edge Workbench shows and checks off your reminders.</string>
   <key>NSRemindersUsageDescription</key>
-  <string>Edge Starter shows and checks off your reminders.</string>
+  <string>Edge Workbench shows and checks off your reminders.</string>
   <key>NSPhotoLibraryUsageDescription</key>
-  <string>Edge Starter shows photos from your library.</string>
+  <string>Edge Workbench shows photos from your library.</string>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>Connect to the dashboard servers you add in Settings.</string>
+  <key>LSUIElement</key><true/>
 </dict>
 </plist>

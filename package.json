@@ -1,13 +1,14 @@
 {
-  "name": "edge-starter",
+  "name": "edge-workbench",
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "tauri dev",
     "build": "tauri build",
-    "test": "cargo test --manifest-path src-tauri/Cargo.toml"
+    "test": "node --test tests/*.test.mjs && cargo test --manifest-path src-tauri/Cargo.toml"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2"
-  }
+  },
+  "type": "module"
 }

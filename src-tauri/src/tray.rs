@@ -1,4 +1,4 @@
-//! Menu bar icon. Edge Starter lives here instead of the Dock: it waits for the
+//! Menu bar icon. Edge Workbench lives here instead of the Dock: it waits for the
 //! Edge, shows itself on it, and hides when the Edge is unplugged.
 //!
 //! The icon is `icons/tray.png`, a black-on-transparent "template" image that
@@ -24,11 +24,21 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     let status = MenuItem::with_id(app, "status", "Waiting for the Edge", false, None::<&str>)?;
     let show = MenuItem::with_id(app, "show", "Show on Edge", true, None::<&str>)?;
     let at_login = app.autolaunch().is_enabled().unwrap_or(false);
-    let login = CheckMenuItem::with_id(app, "login", "Open at login", true, at_login, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit Edge Starter", true, None::<&str>)?;
+    let login =
+        CheckMenuItem::with_id(app, "login", "Open at login", true, at_login, None::<&str>)?;
+    let settings = MenuItem::with_id(app, "settings", "Settings and Preview…", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit Edge Workbench", true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
-        &[&status, &PredefinedMenuItem::separator(app)?, &show, &login, &PredefinedMenuItem::separator(app)?, &quit],
+        &[
+            &status,
+            &PredefinedMenuItem::separator(app)?,
+            &show,
+            &settings,
+            &login,
+            &PredefinedMenuItem::separator(app)?,
+            &quit,
+        ],
     )?;
     let _ = STATUS.set(status);
 
@@ -36,7 +46,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     TrayIconBuilder::with_id("edge-starter")
         .icon(Image::from_bytes(include_bytes!("../icons/tray.png"))?)
         .icon_as_template(true)
-        .tooltip("Edge Starter")
+        .tooltip("Edge Workbench")
         .menu(&menu)
         .show_menu_on_left_click(true)
         .on_menu_event(move |app, event| match event.id().as_ref() {
@@ -46,7 +56,13 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
                 let on = !auto.is_enabled().unwrap_or(false);
                 let _ = if on { auto.enable() } else { auto.disable() };
                 let _ = login_item.set_checked(auto.is_enabled().unwrap_or(on));
-                crate::log(&format!("tray: open at login {}", if on { "on" } else { "off" }));
+                crate::log(&format!(
+                    "tray: open at login {}",
+                    if on { "on" } else { "off" }
+                ));
+            }
+            "settings" => {
+                let _ = crate::open_settings(app.clone());
             }
             "quit" => app.exit(0),
             _ => {}
@@ -57,12 +73,14 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
 
 /// Turn "Open at login" on the first time the app runs. Set to false if you'd
 /// rather leave it off until the user ticks it in the menu.
-pub const OPEN_AT_LOGIN_BY_DEFAULT: bool = true;
+pub const OPEN_AT_LOGIN_BY_DEFAULT: bool = false;
 
-/// Turn on "Open at login" the first time Edge Starter runs, so it's always
+/// Turn on "Open at login" the first time Edge Workbench runs, so it's always
 /// waiting for the Edge. After that, the menu checkbox is the user's call.
 pub fn default_open_at_login(app: &AppHandle) {
-    let Ok(dir) = app.path().app_data_dir() else { return };
+    let Ok(dir) = app.path().app_data_dir() else {
+        return;
+    };
     let flag = dir.join("open-at-login-set");
     if flag.exists() {
         return;
