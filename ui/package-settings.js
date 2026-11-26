@@ -190,7 +190,7 @@ export function settingsForm({schema = [], draft, touch = false, brand = '', ico
         input.oninput = () => apply(input.value);
         if (touch) keyboardFor(input, option.label, setting, apply);
         const row = el('label', 'package-settings-row');
-        row.append(optionText(option), input);
+        row.append(optionText({label: option.label, detail: option.missing ? option.detail : '', missing: option.missing}), input);
         list.append(row);
       }
     };
