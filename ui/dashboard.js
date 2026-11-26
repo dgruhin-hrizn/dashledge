@@ -15,7 +15,8 @@ import {mountOriginal,mountPackage,widgetSources} from './original-widgets.js';
 import {titles,layout,readPath,originalKinds} from './model.js';
 import {addBundledDmdPage,ensure,state,current,activate,save,invoke,el,button,num} from './common.js';
 import {loadPackages,nativeViewport} from './packages.js';
-import {blurFrames} from './package-bridge.js';
+import {blurFrames,deliverMetrics} from './package-bridge.js';
+import {editPackageSettings,settingValues} from './package-settings.js';
 const $=s=>document.querySelector(s);
 await loadPackages();
 let config=ensure(),page,tiles=[],timer,metrics={},sample=0;
@@ -78,6 +79,20 @@ function saveSection(tile,kind,properties){
   target.slots[i]={...assignWidget(latest,kind,tile.slot),...properties};
   save(latest);mount();
 }
+// Replace a section's stored properties without resetting its widget or connection.
+function saveSlot(tile,properties){
+  const latest=state(),target=latest.pages.find(p=>p.id===tile.pageId);
+  const i=target?.slots.findIndex(s=>s.id===tile.slot.id)??-1;
+  if(i<0||JSON.stringify(target.slots[i])!==JSON.stringify(tile.slot))throw Error('This section changed. Close and select it again.');
+  target.slots[i]={...target.slots[i],...properties};
+  save(latest);mount();
+}
+// The package's gear: the same editor as Pages & layouts, for this placement.
+function openPackageSettings(t,custom){
+  return editPackageSettings({title:custom.title+' · This placement',brand:custom.title,icon:'/widget-icon/'+encodeURIComponent(custom.id),
+    schema:custom.settings||[],values:settingValues(custom.settings,t.slot.packageSettings),touch:true,
+    save:values=>saveSlot(t,{packageSettings:values})});
+}
 function renderTile(t){
   const {slot:s,box}=t,kind=s.kind,custom=config.plugins.find(p=>p.id===kind);
   const title=titles[kind]||custom?.title||'Missing plugin';box.style.setProperty('--accent',custom?.accent||'var(--highlight)');
@@ -93,7 +108,7 @@ function renderTile(t){
   // A widget alone on its page renders at the display's real size if its manifest asks.
   const solo=config.pages.find(p=>p.id===t.pageId)?.slots.length===1;
   if(originalKinds.includes(kind)){t.dispose??=mountOriginal(box,s,config.sources,{native:solo&&nativeViewport(kind)});return}
-  if(custom?.apiVersion===2){t.dispose??=mountPackage(box,s,custom,config.sources,{native:solo&&custom.viewport==='native'});return}
+  if(custom?.apiVersion===2){t.dispose??=mountPackage(box,s,custom,config.sources,{native:solo&&custom.viewport==='native',openSettings:()=>openPackageSettings(t,custom)});return}
   if(kind==='notes'&&box.querySelector('textarea'))return;
   let nodes=[];
   if(instrumentKinds.includes(kind)){box.classList.add('instrument');box.dataset.kind=kind;nodes=renderInstrument(kind,metrics,t)}
@@ -164,10 +179,16 @@ function mount(){
   // Start the displayed page first, then warm the other configured dashboards.
   for(const p of [page,...config.pages.filter(p=>p.id!==page.id)]){
     let view=mountedPages.get(p.id);
-    const signature=JSON.stringify([p.slots,p.slots.some(s=>s.kind==='plans'&&!s.planDisplay)?config.planDefaults:null,p.slots.map(s=>originalKinds.includes(s.kind)
+    // Package settings reach a live view by message, so they don't rebuild the page.
+    const signature=JSON.stringify([p.slots.map(({packageSettings,...slot})=>slot),p.slots.some(s=>s.kind==='plans'&&!s.planDisplay)?config.planDefaults:null,p.slots.map(s=>originalKinds.includes(s.kind)
       ?widgetSources(s.kind,s.source,config.sources)
       :[config.plugins.find(v=>v.id===s.kind),config.sources.find(v=>v.id===s.source)])]);
     if(view&&view.signature!==signature){removePage(view);view=null}
+    if(view)view.tiles.forEach((tile,i)=>{
+      const next=p.slots[i];
+      if(JSON.stringify(next.packageSettings)!==JSON.stringify(tile.slot.packageSettings))tile.dispose?.settings?.(next.packageSettings);
+      tile.slot=next;
+    });
     if(!view){
       const grid=el('div','tile-grid');
       const instances=p.slots.map(slot=>({slot,pageId:p.id,box:el('article','tile')}));
@@ -213,7 +234,7 @@ async function tick(){
       try{
         const next=await invoke('read_metrics');
         if(next&&(!sample||next.history?.at(-1)?.at!==metrics.history?.at(-1)?.at)){
-          metrics=next;sample++;fresh=true;
+          metrics=next;sample++;fresh=true;deliverMetrics(metrics);
         }
       }catch{}
     }

@@ -101,8 +101,9 @@ export function mountOriginal(box, slot, connections, {native = false} = {}) {
 
 // An installed API version 2 package: its view runs sandboxed, and the app
 // polls the package's declarative routes or connector and passes the data in.
-export function mountPackage(box, slot, entry, connections, {native = false} = {}) {
+export function mountPackage(box, slot, entry, connections, {native = false, openSettings = null} = {}) {
   const viewer = crypto.randomUUID();
+  let saved = slot.packageSettings;
   let feed, timer, rev = 0, closed = false, unregister = () => {};
   box.classList.add('original-widget');
   const status = el('div', 'widget-status');
@@ -127,7 +128,9 @@ export function mountPackage(box, slot, entry, connections, {native = false} = {
       frame.setAttribute('sandbox', 'allow-scripts');
       frame.dataset.packageFrame = slot.kind;
       unregister();
-      unregister = registerFrame(frame, {viewer, feed, actions: entry.actions || [],
+      // Permissions come from the package on disk, as the host validated it.
+      unregister = registerFrame(frame, {viewer, feed, kind: slot.kind, title: entry.title, actions: entry.actions || [],
+        permissions: opened.permissions || [], schema: entry.settings || [], saved, openSettings,
         displayName: source?.name?.trim() || '', host: hostOf(source?.address), serverField: entry.serverField, native});
       frame.src = '/widget-view/' + encodeURIComponent(feed) + '/' + encodeURIComponent(opened.entry);
       box.replaceChildren(frame);
@@ -153,10 +156,13 @@ export function mountPackage(box, slot, entry, connections, {native = false} = {
     }
   }
   connect();
-  return () => {
+  const dispose = () => {
     closed = true;
     clearTimeout(timer);
     unregister();
     if (feed) invoke('package_close', {id: feed, viewer}).catch(() => {});
   };
+  // This placement's settings changed: update the live view without reloading it.
+  dispose.settings = next => { saved = next; unregister.settings?.(next); };
+  return dispose;
 }

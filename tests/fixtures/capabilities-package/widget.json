@@ -1,0 +1,19 @@
+{
+  "apiVersion": 2,
+  "id": "plugin.capabilities-demo",
+  "title": "Capabilities demo",
+  "description": "Exercises settings, the touch keyboard, the UI kit and Mac metrics.",
+  "version": "1.0.0",
+  "category": "Developer",
+  "icon": "icon.svg",
+  "view": {"entry": "index.html"},
+  "permissions": ["settings", "keyboard", "ui", "mac.metrics"],
+  "settings": [
+    {"id": "label", "label": "Label", "type": "text", "default": "This Mac", "maxLength": 40},
+    {"id": "metric", "label": "Reading", "type": "choice", "options": [
+      {"value": "cpu", "label": "CPU"}, {"value": "memory", "label": "Memory"}, {"value": "network", "label": "Network"}
+    ]},
+    {"id": "precision", "label": "Decimal places", "type": "number", "min": 0, "max": 2, "step": 1, "default": 1},
+    {"id": "trace", "label": "Show history", "type": "toggle", "default": true}
+  ]
+}

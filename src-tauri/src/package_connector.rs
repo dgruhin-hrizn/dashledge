@@ -54,6 +54,8 @@ struct Feed {
     kind: String,
     connection: Option<Connection>,
     view: PathBuf,
+    /// The manifest declares `ui`: views get `/package-ui.css`.
+    ui: bool,
     viewers: HashMap<String, String>,
     last_attached: Instant,
     output: Arc<Mutex<Output>>,
@@ -575,8 +577,14 @@ pub fn shutdown() {
 }
 
 /// The view folder of a running package feed, for the widget host to serve.
-pub fn view_root(id: &str) -> Option<PathBuf> {
-    FEEDS.lock().unwrap().get(id).map(|f| f.view.clone())
+/// An installed package feed's view folder, and whether its views get the UI kit.
+pub fn view_root(id: &str) -> Option<(PathBuf, bool)> {
+    FEEDS.lock().unwrap().get(id).map(|f| (f.view.clone(), f.ui))
+}
+
+/// The capabilities a package's view may use, as the dashboard's bridge enforces them.
+fn permission_names(manifest: &crate::package_manifest::Manifest) -> Value {
+    serde_json::to_value(&manifest.permissions).unwrap_or_else(|_| json!([]))
 }
 
 #[tauri::command]
@@ -594,7 +602,7 @@ pub fn package_open(window: tauri::WebviewWindow, app: tauri::AppHandle, kind: S
     if let Some((id, feed)) = feeds.iter_mut().find(|(_, f)| f.kind == kind && f.connection == connection) {
         feed.viewers.insert(viewer, window.label().into());
         feed.last_attached = Instant::now();
-        return Ok(json!({"id": id, "entry": entry}));
+        return Ok(json!({"id": id, "entry": entry, "permissions": permission_names(&manifest)}));
     }
     let base = connection.as_ref().map(|c| crate::connections::endpoint(&c.address)).transpose()?;
     let output = Arc::new(Mutex::new(Output::default()));
@@ -617,8 +625,9 @@ pub fn package_open(window: tauri::WebviewWindow, app: tauri::AppHandle, kind: S
     let id = format!("pkg-{}", NEXT_FEED.fetch_add(1, Ordering::SeqCst));
     let mut viewers = HashMap::new();
     viewers.insert(viewer, window.label().to_string());
-    feeds.insert(id.clone(), Feed { kind, connection, view, viewers, last_attached: Instant::now(), output, stop });
-    Ok(json!({"id": id, "entry": entry}))
+    let ui = manifest.permissions.contains(&crate::package_manifest::Permission::Ui);
+    feeds.insert(id.clone(), Feed { kind, connection, view, ui, viewers, last_attached: Instant::now(), output, stop });
+    Ok(json!({"id": id, "entry": entry, "permissions": permission_names(&manifest)}))
 }
 
 #[tauri::command]

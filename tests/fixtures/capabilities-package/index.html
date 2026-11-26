@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Capabilities demo</title>
+<style>
+  body{margin:0;height:100vh;display:flex;flex-direction:column;gap:var(--dl-gap);padding:var(--dl-gap);box-sizing:border-box}
+  header{display:flex;align-items:center;justify-content:space-between;gap:var(--dl-gap)}
+  main{flex:1;display:grid;align-content:center}
+</style>
+</head>
+<body class="dl-surface">
+<header>
+  <h1 class="dl-caption" id="label">This Mac</h1>
+  <span>
+    <button class="dl-button" id="rename">Rename</button>
+    <button class="dl-button dl-icon-button" id="gear" aria-label="Settings">⚙</button>
+  </span>
+</header>
+<main>
+  <p class="dl-reading"><strong id="value">–</strong><span class="dl-unit" id="unit"></span></p>
+  <p class="dl-loading" id="status">Waiting for readings…</p>
+</main>
+<script>
+  // A fixture for the capability layer: every Dashledge capability in one view.
+  let settings = {}, latest = null;
+  const $ = id => document.getElementById(id);
+  function draw() {
+    $('label').textContent = settings.label || 'This Mac';
+    if (!latest) return;
+    const digits = Number(settings.precision ?? 1);
+    const reading = {
+      cpu: [latest.cpu, '%'],
+      memory: [latest.memory.total ? 100 * latest.memory.used / latest.memory.total : null, '%'],
+      network: [((latest.network.rx || 0) + (latest.network.tx || 0)) / 1e6, 'MB/s'],
+    }[settings.metric || 'cpu'];
+    $('value').textContent = reading[0] == null ? '–' : reading[0].toFixed(digits);
+    $('unit').textContent = reading[1];
+    $('status').hidden = true;
+  }
+  Dashledge.subscribe(state => { settings = state.settings || {}; draw(); });
+  Dashledge.mac.onMetrics(metrics => { latest = metrics; draw(); });
+  $('gear').onclick = () => Dashledge.settings.open();
+  $('rename').onclick = async () => {
+    const text = await Dashledge.keyboard.open({title: 'Rename this reading', value: settings.label, actionLabel: 'Rename', maxLength: 40});
+    if (text != null) { settings = {...settings, label: text}; draw(); }
+  };
+</script>
+</body>
+</html>

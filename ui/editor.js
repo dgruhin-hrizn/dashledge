@@ -9,6 +9,7 @@ import {editPhotos} from './photos.js';
 import {editShortcuts,shortcutPins} from './mac-shortcuts.js';
 import {catalogGroups,widgetInfo,installed,connectionsFor,defaultSource,useDefault,placements,removeWidget,recordPackage} from './widget-catalog.js';
 import {permissionSummary} from './package-manifest.js';
+import {editPackageSettings,settingValues} from './package-settings.js';
 import {connectionLabel} from './display-name.js';
 import {general,loadGeneral,updateGeneral,fitDashboard} from './general.js';
 import {icon} from './admin-icons.js';
@@ -83,6 +84,18 @@ function configureSection(p,i,kind='shortcuts'){
     });
   },titles[kind]+' · '+p.name+' · Section '+(i+1));
 }
+// A package's settings for one placement, with the same stale-section guard as the
+// other placement editors.
+function configurePackage(p,i,pkg){
+  const previous=p.slots[i],before=JSON.stringify(previous);
+  editPackageSettings({title:pkg.title+' · '+p.name+' · Section '+(i+1),brand:pkg.title,icon:'/widget-icon/'+encodeURIComponent(pkg.id),
+    schema:pkg.settings,values:settingValues(pkg.settings,previous.packageSettings),save:values=>{
+      config=state();
+      const target=config.pages.find(v=>v.id===p.id),position=target?.slots.findIndex(v=>v.id===previous.id)??-1;
+      if(position<0||JSON.stringify(target.slots[position])!==before)throw Error('This section changed. Close and select it again.');
+      change(()=>{target.slots[position]={...target.slots[position],packageSettings:values};chosen=p.id;index=position;activate(target)});
+    }});
+}
 function layouts(){
   const p=page();index=Math.min(index,p.slots.length-1);
   const pages=el('div','page-tabs'),strip=el('div','page-strip');
@@ -149,6 +162,8 @@ function layouts(){
     }));
   }
   if(s.kind==='plans')inspector.append(button('Configure accounts',()=>configureSection(p,index,'plans')));
+  const pkg=config.plugins.find(v=>v.id===s.kind&&v.apiVersion===2&&v.settings?.length);
+  if(pkg)inspector.append(button('Widget settings · This placement',()=>configurePackage(p,index,pkg)));
   if(s.kind==='markets')inspector.append(field('Featured symbol',marketPicker(s,marketSymbol=>change(()=>s.marketSymbol=marketSymbol))),button('Edit watchlist',()=>editWatchlist(s,props=>change(()=>Object.assign(s,props)))));
   if(s.kind==='photos')inspector.append(button('Configure photos',()=>configureSection(p,index,'photos')));
   if(s.kind==='shortcuts'){
@@ -346,7 +361,7 @@ function installV2(info,bytes){
   const old=config.plugins.find(p=>p.id===info.id);
   if(info.origin==='bundled'||Object.hasOwn(titles,info.id))throw Error('A built-in widget already uses this ID.');
   const permissions=el('ul','package-permissions');
-  for(const line of permissionSummary(info))permissions.append(el('li','',line));
+  for(const line of permissionSummary(info,old))permissions.append(el('li','',line));
   const fields=[el('p','',info.description||''),el('h3','','This widget')];
   fields.push(permissions);
   formDialog((old?'Update ':'Install ')+info.title,fields,async()=>{
