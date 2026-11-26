@@ -19,6 +19,9 @@ export function packageState(entry) {
     displayName: entry.displayName || '',
     serverName: entry.serverName || '',
     host: entry.host || '',
+    // 'native' when the widget fills the display at its real size; 'reference' in a
+    // split page's 1920 × 540 canvas.
+    viewport: entry.native ? 'native' : 'reference',
     theme: {mode: 'dark', primary: prefs.primary || '#edf0e6', accent: prefs.accent || '#f88d4f'},
   };
 }
@@ -29,8 +32,8 @@ function post(entry, message) {
 
 // Track a package frame. `commands` lists the commands its manifest declares.
 // Returns unregister(); `deliver(data)` sends a package feed's data, now or once ready.
-export function registerFrame(frame, {viewer, feed, commands = [], actions = [], displayName = '', host = '', serverField = ''}) {
-  const entry = {frame, viewer, feed, commands, actions, displayName, host, serverField, serverName: '', window: null, data: null, ready: false};
+export function registerFrame(frame, {viewer, feed, commands = [], actions = [], displayName = '', host = '', serverField = '', native = false}) {
+  const entry = {frame, viewer, feed, commands, actions, displayName, host, serverField, native, serverName: '', window: null, data: null, ready: false};
   frame.addEventListener('load', () => {
     for (const [win, other] of frames) if (other === entry) frames.delete(win);
     entry.window = frame.contentWindow;

@@ -15,7 +15,7 @@
   }
   const severity=d=>problem(d)?2:missing(d)?1:0;
   const groups=['Array data','Array parity','Pool devices','Other devices'];
-  const group=d=>globalThis.goliathAssignment(d);
+  const group=d=>globalThis.unraidAssignment(d);
   const speed=v=>Number.isFinite(v)?fmt(v/1e6,2)+' MB/s':'—';
   const order=(a,b)=>severity(b)-severity(a)||a.name.localeCompare(b.name,undefined,{numeric:true});
   let sample,page='',last,loading=false;
@@ -72,7 +72,7 @@
     const slug=apps.find(a=>c.name.toLowerCase().replace(/[-_]/g,'').includes(a))||apps.find(a=>c.image?.toLowerCase().includes(a))||'docker';
     const img=document.createElement('img');img.alt='';img.className='appicon';img.title=c.name;
     const repo=c.image?.split('@')[0].replace(/:[^/:]+$/,'');
-    const fallback='icons/'+(globalThis.goliathCatalogIcons[repo]||slug+'.svg');
+    const fallback='icons/'+(globalThis.unraidCatalogIcons[repo]||slug+'.svg');
     img.src=c.icon==='container-icons/'+c.name+'-icon.png'&&/^[a-z0-9_.-]+$/i.test(c.name)?c.icon:fallback;
     img.onerror=()=>{img.onerror=null;img.src=fallback;};return img;
   }
@@ -97,7 +97,7 @@
     document.body.dataset.live=String(!!sample&&!stale&&!errors.length);
     txt('live',!sample?'Connecting':stale?'Last reading':errors.length?'Partial':'Live');
     txt('notice',errors.map(([name,v])=>name+' · '+v.error).join('   /   '));
-    txt('host',s.hostname||'Goliath');txt('version','Unraid '+(s.version||''));txt('uptime',Number.isFinite(s.uptime_seconds)?fmt(Math.floor(s.uptime_seconds/86400))+'d uptime':'');
+    const name=window.Dashledge?.displayName(s.hostname)||s.hostname||'Unraid';txt('host',name);document.title=name+' · Unraid';txt('version','Unraid '+(s.version||''));txt('uptime',Number.isFinite(s.uptime_seconds)?fmt(Math.floor(s.uptime_seconds/86400))+'d uptime':'');
     if(page){inspect(disks,containers);return}
     txt('state',a.state||'Unknown');txt('free',tb(a.free_bytes));
     $('fill').style.width=Math.max(0,Math.min(100,a.used_percent||0))+'%';
@@ -151,7 +151,9 @@
     const sick=containers?.filter(c=>/unhealthy/i.test(c.status)).length;
     txt('hot',sick?sick+' unhealthy':busiest.length?'Highest CPU usage':'');$('docker-open').classList.toggle('alarm',!!sick);
   }
-  window.serverSnapshot=s=>{if(s?.kind==='goliath'){sample=s;draw()}};
+  window.serverSnapshot=s=>{if(s?.kind==='unraid'){sample=s;draw()}};
+  // The connection's name, else the server's hostname, else the address's host.
+  window.Dashledge?.subscribe(()=>{if(sample)draw()});
   function refresh(){if(document.hidden||loading)return;draw();loading=true;const script=document.createElement('script');const done=()=>{clearTimeout(timer);script.remove();loading=false};const timer=setTimeout(done,4500);script.onload=script.onerror=done;script.src='snapshot.js?t='+Date.now();document.head.append(script)}
   refresh();setInterval(refresh,5000);document.addEventListener('visibilitychange',refresh);
 })();

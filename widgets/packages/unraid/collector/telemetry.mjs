@@ -4,7 +4,7 @@ export function diskSampler(){
   return disks=>{
     const devices=new Map();
     for(const d of disks){
-      const group=globalThis.goliathAssignment(d);
+      const group=globalThis.unraidAssignment(d);
       if(group==='Other devices'||!d.device||devices.has(d.device)||!Number.isFinite(d.read_bytes)||!Number.isFinite(d.write_bytes))continue;
       const at=Date.parse(d.timestamp);
       if(Number.isFinite(at))devices.set(d.device,{at,r:d.read_bytes,w:d.write_bytes,id:d.id??d.name,group,name:d.name});
