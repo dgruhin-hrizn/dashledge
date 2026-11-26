@@ -1,5 +1,4 @@
 import {button,el,field,invoke,select,state} from './common.js';
-import {openTouchKeyboard} from './search-keyboard.js';
 
 const fallbackAccounts=[
   {id:'claude:main',provider:'Claude',name:'Default',windows:[]},
@@ -45,7 +44,6 @@ function settings(slot){return slot.planDisplay || state().planDefaults || {};}
 function windowLabel(w){return ({five_hour:'5-hour',seven_day:'Weekly'})[w.label]||w.label;}
 function valid(w,now){return Number.isFinite(w.used) && (!w.reset || w.reset>now);}
 function remaining(w){return Math.round((100-w.used)*10)/10;}
-const dateFormat=new Intl.DateTimeFormat(undefined,{weekday:'short',hour:'numeric',minute:'2-digit'});
 function until(ts,now){
   const mins=Math.max(1,Math.ceil((ts-now)/60000));
   if(mins<60)return mins+'m';
@@ -82,7 +80,6 @@ function readingTime(a,now){
   const mins=Math.max(0,Math.floor((now-a.at)/60000));
   return mins<1?'Updated just now':mins<60?'Updated '+mins+'m ago':mins<1440?'Updated '+Math.floor(mins/60)+'h ago':'Updated '+Math.floor(mins/1440)+'d ago';
 }
-function guidance(a){return a.message || (a.provider==='Claude'?'Sign in to Claude Code with your Claude subscription.':'Sign in to Codex with your ChatGPT account on this Mac.');}
 function metric(w,now){
   const row=el('div','pm-window'),labels=el('div','pm-window-label');
   const live=valid(w,now),bar=el('div','pm-track');
@@ -90,36 +87,7 @@ function metric(w,now){
   const fill=el('i');fill.style.width=(live?remaining(w):0)+'%';bar.append(fill);
   row.append(labels,bar);return row;
 }
-function details(a,alias,onConfigure){
-  const dialog=el('dialog','pm-dialog');
-  dialog.setAttribute('aria-label',a.provider+' account details');
-  const top=el('header');top.append(identity(a,alias),button('Close',()=>dialog.close()));
-  const body=el('div','pm-detail-body');
-  const draw=()=>{
-    const item=accounts().find(row=>row.id===a.id)||a,now=Date.now();
-    body.replaceChildren(el('p','',(item.source||item.provider)+' · '+readingTime(item,now)));
-    if(item.message && item.windows.length)body.append(el('p','',item.message));
-    for(const w of item.windows){
-      body.append(metric(w,now));
-      if(w.reset)body.append(el('small','', 'Reset · '+new Date(w.reset).toLocaleString()));
-    }
-    if(!item.windows.length)body.append(el('p','',guidance(item)));
-  };
-  const actions=el('footer'),refresh=button('Refresh',async()=>{
-    refresh.disabled=true;
-    try{
-      if(!feed)await poll();
-      if(!feed)throw Error('Open the monitor in Dashledge to reconnect.');
-      await invoke('plans_refresh',{id:feed,viewer});message.textContent='Refresh requested.';
-    }catch(e){message.textContent=String(e);}finally{refresh.disabled=false;}
-  }),message=el('p');message.setAttribute('role','status');
-  actions.append(refresh,button('Configure placement',()=>{dialog.close();onConfigure();}));
-  dialog.append(top,body,message,actions);
-  document.body.append(dialog);dialog.showModal();
-  const stop=subscribe(draw);dialog.onclose=()=>{stop();dialog.remove();};
-}
-
-export function editPlans(slot,save,{title='AI Plan Monitor · This placement',touch=false}={}){
+export function editPlans(slot,save,{title='AI Plan Monitor · This placement'}={}){
   const initial=settings(slot),aliases={...initial.aliases};
   let mode=initial.mode||'overview',ids=initial.ids ? [...initial.ids]:null,pin=initial.pin||'';
   const dialog=el('dialog','pm-dialog'),form=el('div','pm-form'),list=el('div','pm-choices'),status=el('p','pm-error');
@@ -130,10 +98,6 @@ export function editPlans(slot,save,{title='AI Plan Monitor · This placement',t
   all.onchange=()=>{ids=all.checked?null:accounts().map(a=>a.id);draw();};
   function rename(a,row){
     const apply=value=>{aliases[a.id]=value.trim().slice(0,48);draw();};
-    if(touch){
-      const sheet=openTouchKeyboard({title:'Name this account',brand:'AI Plan Monitor',icon:'widget-icons/plans.svg',placeholder:a.name,actionLabel:'Apply',maxLength:48,onSubmit:()=>{apply(sheet.input.value);sheet.dialog.close();}});
-      sheet.input.value=aliases[a.id]||'';return;
-    }
     const input=el('input');input.value=aliases[a.id]||'';input.placeholder=a.name;input.maxLength=48;input.setAttribute('aria-label','Account name');
     const renameForm=el('form','pm-rename');const done=el('button','','Apply');renameForm.append(input,done);
     renameForm.onsubmit=e=>{e.preventDefault();apply(input.value);};list.querySelector('.pm-rename')?.remove();row.after(renameForm);input.focus();
@@ -162,26 +126,24 @@ export function editPlans(slot,save,{title='AI Plan Monitor · This placement',t
   dialog.onclose=()=>{stop();dialog.remove();};
 }
 
-export function mountPlans(box,slot,save){
+export function mountPlans(box,slot){
   const prefs=settings(slot);
   box.classList.add('pm-widget');
-  const head=el('header','pm-head'),heading=el('h2','','AI Plan Monitor');
-  const configure=()=>editPlans(slot,save,{touch:true});
-  head.append(heading,button('Accounts',configure));
-  const cards=el('div','pm-cards');box.append(head,cards);
+  box.setAttribute('aria-label','AI Plan Monitor');
+  const accountsView=el('div','pm-accounts');box.append(accountsView);
   let key='';
   function draw(){
     const now=Date.now(),all=accounts();
     const visible=prefs.mode==='account'?all.filter(a=>a.id===(prefs.pin||all[0]?.id)):all.filter(a=>!prefs.ids||prefs.ids.includes(a.id));
     const version=JSON.stringify([visible,!!snapshot,feedError,Math.floor(now/60000)]);
     if(version===key)return;key=version;
-    const focused=cards.contains(document.activeElement)?document.activeElement?.dataset.account:null;
-    const scroll=cards.scrollLeft,top=cards.scrollTop;
-    cards.replaceChildren();box.dataset.single=String(visible.length===1);
-    if(!visible.length)cards.append(el('p','pm-empty','Saved account unavailable on this Mac.'),button('Choose accounts',configure));
+    const scroll=accountsView.scrollLeft;
+    accountsView.replaceChildren();box.dataset.single=String(visible.length===1);
+    if(!visible.length)accountsView.append(el('p','pm-empty','Saved account unavailable on this Mac.'));
     for(const a of visible){
-      const card=button('',()=>details(a,prefs.aliases?.[a.id],configure),'pm-card');card.dataset.account=a.id;card.dataset.provider=a.provider;
-      card.append(identity(a,prefs.aliases?.[a.id]));
+      const account=el('section','pm-account');account.dataset.provider=a.provider;
+      account.setAttribute('aria-label',a.provider+' · '+(prefs.aliases?.[a.id]||a.name));
+      account.append(identity(a,prefs.aliases?.[a.id]));
       const live=a.windows.filter(w=>valid(w,now)).sort((a,b)=>b.used-a.used),primary=live[0];
       const main=el('div','pm-instrument');
       main.append(dial(primary));
@@ -192,21 +154,19 @@ export function mountPlans(box,slot,save){
       }else{
         const pending=!snapshot&&!feedError;
         caption.append(el('strong','pm-caption',pending?'Checking…':a.windows.length?'Awaiting refresh':'Usage unavailable'),
-          el('span','pm-reset',pending?'Reading local accounts':feedError?'Open Dashledge and retry.':a.windows.length?'The last reported window has reset.':guidance(a)));
+          el('span','pm-reset',pending?'Reading local accounts':feedError?'Connection unavailable':a.windows.length?'The last reported window has reset.':'No current reading'));
       }
       main.append(caption);
-      card.append(main);
+      account.append(main);
       const other=a.windows.filter(w=>w!==primary);
       if(other.length && primary){
         const meters=el('div','pm-meters');for(const w of other.slice(0,2))meters.append(metric(w,now));
-        card.append(meters);
+        account.append(meters);
       }
-      const footer=el('span','pm-card-foot');
-      footer.append(el('span','pm-stamp',readingTime(a,now)),el('span','pm-arrow','↗'));
-      card.append(footer);cards.append(card);
-      if(focused===a.id)card.focus({preventScroll:true});
+      account.append(el('span','pm-stamp',readingTime(a,now)));
+      accountsView.append(account);
     }
-    cards.scrollLeft=scroll;cards.scrollTop=top;
+    accountsView.scrollLeft=scroll;
   }
   return subscribe(draw);
 }

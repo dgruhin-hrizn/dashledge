@@ -1,4 +1,4 @@
-import {mountPlans,editPlans} from './plan-monitor.js';
+import {mountPlans} from './plan-monitor.js';
 import {mountMarkets} from './markets.js';
 import {mountPhotos,editPhotos} from './photos.js';
 import {mountShortcuts,editShortcuts} from './mac-shortcuts.js';
@@ -81,7 +81,7 @@ function renderTile(t){
   if(slackWidgets[kind]){renderSlack(box,s);return}
   if(kind==='applemusic'){renderAppleMusic(box);return}
   if(kind==='googledesk'){renderGoogle(box,s.id);return}
-  if(kind==='plans'){t.dispose??=mountPlans(box,s,planDisplay=>saveSection(t,kind,{planDisplay}));return}
+  if(kind==='plans'){t.dispose??=mountPlans(box,s);return}
   if(kind==='markets'){t.dispose??=mountMarkets(box,s,props=>saveSection(t,kind,props));return}
   if(kind==='photos'){t.dispose??=mountPhotos(box,s,photoDisplay=>saveSection(t,'photos',{photoDisplay}));return}
   if(kind==='shortcuts'){t.dispose??=mountShortcuts(box,s,items=>saveSection(t,'shortcuts',{shortcutPins:items}));return}
@@ -100,7 +100,6 @@ function renderTile(t){
     if(box.querySelector('.add-widget'))return;
     const pageId=t.pageId;
     nodes=[button('+ Add widget',()=>pickWidget(state(),kind=>{
-      if(kind==='plans'){editPlans({},planDisplay=>saveSection(t,kind,{planDisplay}),{touch:true});return}
       if(kind==='photos'){editPhotos(null,photoDisplay=>saveSection(t,'photos',{photoDisplay}));return}
       if(kind==='shortcuts'){editShortcuts([],items=>saveSection(t,'shortcuts',{shortcutPins:items}),{touch:true,title:'Choose shortcuts'});return}
       const latest=state(),target=latest.pages.find(p=>p.id===pageId);
