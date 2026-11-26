@@ -11,10 +11,11 @@ This ZIP is a working package: a weather widget that shows current conditions an
 | `connector.js` | Optional. JavaScript that fetches and prepares data, run sandboxed by Dashledge. |
 | `icon.svg` or `icon.png` | Square icon, up to 256 KiB. |
 | `samples/declarative.widget.json` | A manifest for a widget that needs no connector code. |
+| `dashledge.d.ts` | TypeScript declarations for the view and connector APIs. |
 
 Compress the files into a ZIP with `widget.json` at the top level, or in a single folder. To update an installed widget, keep its `id`; its placements stay.
 
-**Limits:** 8 MiB per package, 4 MiB per file, 256 files. Allowed file types: HTML, JS, CSS, JSON, images, fonts, text and licence files. No links or hidden files.
+**Limits:** 8 MiB per package, 4 MiB per file, 256 files. Allowed file types: HTML, JS, CSS, JSON, images, fonts, text, licence and TypeScript source files. Dashledge runs only `.js`. No links or hidden files.
 
 ## Where the data comes from
 
@@ -40,7 +41,10 @@ Every view runs isolated. It can't reach the network, other widgets, Dashledge's
   "displayName": {"serverField": "status.value.hostname"},
   "data": [{"id": "status", "path": "api/status", "every": 10}],
   "actions": [{"id": "restart", "method": "POST", "path": "api/services/{service}/restart", "body": {"service": "{service}"}}],
-  "connector": {"entry": "connector.js", "hosts": ["https://api.example.com"], "storage": 65536}
+  "connector": {"entry": "connector.js", "hosts": ["https://api.example.com"], "storage": 65536},
+  "permissions": ["settings", "keyboard", "ui", "mac.metrics"],
+  "settings": [{"id": "units", "label": "Units", "type": "choice",
+                "options": [{"value": "c", "label": "Celsius"}, {"value": "f", "label": "Fahrenheit"}]}]
 }
 ```
 
@@ -51,6 +55,8 @@ Every view runs isolated. It can't reach the network, other widgets, Dashledge's
 - **`data`** routes are relative to the connection address, polled every 2–3600 seconds. They must return JSON.
 - **`actions`** are `POST`, `PUT` or `DELETE` routes. `{name}` placeholders, in the route or as whole string values in `body`, take 1–128 letters, digits, `.`, `_`, `:` or `-` from the view.
 - **`connector.hosts`** are bare origins such as `https://api.example.com`. `storage` is up to 1 MiB of key-value storage.
+- **`permissions`** asks for Dashledge capabilities; see below. Install lists them, and an update marks new ones.
+- **`settings`** (with the `settings` permission) declares up to 16 per-placement settings: `text` (`maxLength` up to 1024), `number` (`min`, `max`, `step`), `toggle`, or `choice` (2–24 `options`). Each has an `id`, a `label`, an optional `help` line and an optional `default`; Dashledge fills in a default when you leave it out.
 - Unknown fields are refused, so a typo can't silently change what a widget may do.
 
 ## The view API: `window.Dashledge`
@@ -75,6 +81,41 @@ Use ordinary buttons, links and scrolling containers. Dashledge replays touches 
 
 Views can't use `fetch`, storage or nested frames. Load your own files with `<script>`, `<link>` and `<img>` only.
 
+## Capabilities
+
+Each capability works only when `permissions` declares it. Otherwise the call is refused.
+
+```js
+// settings: this placement's values, with defaults filled in. They also arrive in
+// subscribe() state, and again whenever the user saves new ones.
+Dashledge.settings.values.units;
+await Dashledge.settings.open();   // the same editor as Pages & layouts; your gear can open it
+
+// keyboard: Dashledge's touch keyboard, which also accepts typing. Resolves with the text or null.
+const city = await Dashledge.keyboard.open({title: 'Choose a city', value: 'Lisbon', actionLabel: 'Search'});
+
+// mac.metrics: this Mac's readings, about once a second.
+Dashledge.mac.onMetrics(({cpu, gpu, memory, network, chip}) => { /* … */ });
+```
+
+- **settings** are per placement and reach only the view. A connector serves every placement on the same connection, so it doesn't see them.
+- **keyboard** opens only while your widget is on screen, one sheet at a time, and always shows your widget's title.
+- **ui** links Dashledge's `package-ui.css` before your styles. It provides `--dl-*` tokens and the classes `dl-surface`, `dl-panel`, `dl-caption`, `dl-reading` with `dl-unit`, `dl-list` with `dl-row`, `dl-button`, `dl-loading`, `dl-empty` and `dl-error`. Sizes follow `--px-scale`, so they keep their physical size at the native viewport.
+- **mac.metrics** reports CPU, per-core load, GPU, memory, network throughput, uptime and the chip name. It never includes the Mac's name, volumes or network interfaces.
+
+## Develop with an unpacked folder
+
+In **Widget Studio**, choose **Load unpacked package** and pick the folder that holds `widget.json`. Dashledge checks it like an install and runs it from that folder. When a file in it changes, open views reload and the connector restarts. After editing `widget.json`, choose **Reload** on the widget's page to pick up new settings or permissions. An unpacked folder takes the place of an installed package with the same ID. Removing it unlinks the folder and leaves your files where they are.
+
+A connector widget's page has **Connector log**, with the last 50 lines it wrote with `console` and any error that stopped it.
+
+For TypeScript, reference `dashledge.d.ts` and compile to JavaScript:
+
+```ts
+/// <reference path="./dashledge.d.ts" />
+Dashledge.onData<{temperature: number}>(({data}) => render(data.temperature));
+```
+
 ## The connector API
 
 ```js
@@ -84,7 +125,7 @@ const socket = new WebSocket('wss://…'); // onopen, onmessage, onclose, onerro
 setTimeout(fn, ms); setInterval(fn, ms); clearTimeout(id);
 dashledge.storage.get(key); dashledge.storage.set(key, value); // persists across restarts
 dashledge.emit(data);               // send JSON-compatible data (up to 1 MiB) to the view
-console.log(...);
+console.log(...);                    // also info, warn, error and debug; shown in the connector log
 ```
 
 Requests can't set `Authorization`, `Cookie`, `Host` or `X-Emby-Token`; Dashledge adds the connection's credential to requests for that connection only. Redirects aren't followed. Responses are limited to 8 MiB. A connector that runs for more than two seconds without returning is stopped, and the view receives the error.
