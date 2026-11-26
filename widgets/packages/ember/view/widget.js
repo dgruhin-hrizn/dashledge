@@ -173,287 +173,331 @@
     });
   }
 
-  let usageRange = "month";
+  let usageRange = "14d";
   let selectedDay;
   let chartMetric = "tokens";
   let displayedReport;
   const palette = ["#d97757","#8fb0d8","#c49bc0","#9db36a","#d9b25f"];
+  const ns = "http://www.w3.org/2000/svg";
 
-  function seriesLine(values, color, fixedMax, fill = false) {
-    const ns = "http://www.w3.org/2000/svg";
+  function seriesLine(values, color) {
     const svg = document.createElementNS(ns, "svg");
     svg.setAttribute("viewBox", "0 0 100 30");
     svg.setAttribute("preserveAspectRatio", "none");
     svg.setAttribute("aria-hidden", "true");
-    const peak = fixedMax ?? Math.max(1, ...values);
-    const pulse = document.createElementNS(ns, "g");
-    pulse.setAttribute("class", "ud-trace-pulse");
+    const peak = Math.max(1, ...values.filter(v => v != null));
     let segment = [];
     function flush() {
-      if (!segment.length) return;
-      const points = segment.map(([x,y]) => x + "," + y).join(" ");
-      if (fill) {
-        const area = document.createElementNS(ns, "polygon");
-        area.setAttribute("points", segment[0][0] + ",29 " + points + " " + segment.at(-1)[0] + ",29");
-        area.setAttribute("fill", color);
-        area.setAttribute("opacity", ".14");
-        svg.append(area);
-      }
-      const line = document.createElementNS(ns, "polyline");
-      line.setAttribute("points", points);
-      line.setAttribute("fill", "none");
-      line.setAttribute("stroke", color);
-      line.setAttribute("vector-effect", "non-scaling-stroke");
-      line.setAttribute("stroke-width", "2");
-      line.setAttribute("stroke-linejoin", "round");
-      svg.append(line);
       if (segment.length > 1) {
-        const highlight = line.cloneNode(false);
-        highlight.setAttribute("stroke", "#ffe2b5");
-        highlight.setAttribute("stroke-width", "3");
-        pulse.append(highlight);
+        const line = document.createElementNS(ns, "polyline");
+        line.setAttribute("points", segment.map(([x,y]) => x + "," + y).join(" "));
+        line.setAttribute("fill", "none");
+        line.setAttribute("stroke", color);
+        line.setAttribute("vector-effect", "non-scaling-stroke");
+        line.setAttribute("stroke-width", "2");
+        line.setAttribute("stroke-linejoin", "round");
+        svg.append(line);
       }
       segment = [];
     }
     values.forEach((value,i) => {
       if (value == null) { flush(); return; }
-      segment.push([1 + 98*i/Math.max(1,values.length-1),27 - 24*value/peak]);
+      segment.push([1 + 98*i/Math.max(1,values.length-1),28 - 26*value/peak]);
     });
     flush();
-    if (pulse.childElementCount) svg.append(pulse);
     return svg;
   }
 
-  function summaryPanel(title, name, note) {
-    const {section,header} = panel(title);
-    section.classList.add("ud-" + name);
-    if (note) header.append(text("small",note));
+  // One segmented control, as on Ember's own Usage page: a joined row of choices.
+  function segmented(label, options, current, choose) {
+    const group = text("div", "", "ud-segmented");
+    group.setAttribute("role", "group");
+    group.setAttribute("aria-label", label);
+    for (const [key, name, spoken] of options) {
+      const choice = text("button", name);
+      choice.type = "button";
+      if (spoken) choice.setAttribute("aria-label", spoken);
+      choice.setAttribute("aria-pressed", String(key === current));
+      choice.onclick = () => { if (key !== current) choose(key); };
+      group.append(choice);
+    }
+    return group;
+  }
+
+  function usagePanel(title, name, note) {
+    const section = text("section", "", "panel ud-" + name);
+    const header = text("header", "", "panel-heading");
+    header.append(text("h2", title));
+    if (note) header.append(text("small", note, "ud-note"));
+    section.append(header);
     return section;
+  }
+
+  // Green with room to spare, amber as a window tightens, red near its end.
+  function capacityColor(remaining) {
+    const low = remaining <= 30;
+    const weight = Math.max(0, Math.min(1, low ? (remaining - 10) / 20 : (remaining - 30) / 40)) * 100;
+    return low ? "color-mix(in srgb, #e07a68, #d9b25f " + weight + "%)" : "color-mix(in srgb, #d9b25f, #9db36a " + weight + "%)";
+  }
+
+  function capacityBar(remaining, label) {
+    const bar = text("progress", "", "ud-capacity");
+    bar.max = 100;
+    bar.value = remaining;
+    bar.setAttribute("aria-label", label);
+    return bar;
+  }
+
+  const resetFormat = { weekday: "short", hour: "numeric", minute: "2-digit" };
+
+  // The primary reading: the plan window with the least room left, across every account.
+  function drawHeadroom(report) {
+    const panel = usagePanel("Plan headroom", "headroom");
+    const now = Date.now();
+    const accounts = report.meters.map(account => ({
+      label: account.label,
+      all: account.windows,
+      windows: new Map(account.windows
+        .filter(w => Number.isFinite(w.percent) && !(Date.parse(w.resetsAt) <= now))
+        .map(w => [w.id, { ...w, remaining: Math.max(0, Math.min(100, 100 - w.percent)) }])),
+    })).filter(account => account.windows.size);
+    const columns = new Map([["five_hour","5-hour"], ["seven_day","Weekly"], ["model:fable","Fable"]]);
+    for (const account of accounts) for (const w of account.windows.values()) if (!columns.has(w.id)) columns.set(w.id, w.label);
+    let tightest;
+    for (const account of accounts) {
+      for (const w of account.windows.values()) {
+        const reset = Date.parse(w.resetsAt);
+        const better = !tightest || w.remaining < tightest.w.remaining ||
+          (w.remaining === tightest.w.remaining && Number.isFinite(reset) && !(Date.parse(tightest.w.resetsAt) <= reset));
+        if (better) tightest = { account, w };
+      }
+    }
+    const hero = text("div", "", "ud-hero");
+    if (tightest) {
+      const { account, w } = tightest;
+      const name = columns.get(w.id) ?? w.label;
+      hero.style.setProperty("--capacity-color", capacityColor(w.remaining));
+      hero.dataset.low = String(w.remaining <= 30);
+      const reading = text("p", "", "ud-primary");
+      reading.append(text("strong", String(Math.round(w.remaining))), text("span", "% left", "ud-primary-unit"));
+      reading.setAttribute("aria-label", Math.round(w.remaining) + "% left in " + account.label + "'s " + name + " window");
+      const reset = Date.parse(w.resetsAt);
+      const what = text("p", "", "ud-hero-what");
+      what.append(text("b", name), document.createTextNode(accounts.length > 1 ? " · " + account.label : ""));
+      hero.append(reading, capacityBar(w.remaining, account.label + " · " + name + " remaining"), what);
+      if (Number.isFinite(reset)) hero.append(text("p", "Resets " + new Date(reset).toLocaleString(undefined, resetFormat), "ud-hero-reset"));
+    } else {
+      const reading = text("p", "", "ud-primary ud-primary-empty");
+      reading.append(text("strong", "—"));
+      hero.append(reading, text("p", "No current plan readings. Limits appear once Ember reads an account.", "ud-hero-reset"));
+    }
+    panel.append(hero);
+    if (!accounts.length) return panel;
+    const list = text("div", "", "ud-accounts");
+    for (const account of accounts) {
+      const row = text("div", "", "ud-account");
+      row.append(text("strong", account.label, "ud-account-name"));
+      const gauges = text("div", "", "ud-gauges");
+      for (const [id, name] of columns) {
+        const w = account.windows.get(id);
+        const meter = text("div", "", "ud-gauge");
+        if (!w) {
+          const unlimited = id === "five_hour" && !account.all.some(entry => entry.id === id);
+          const value = text("b", unlimited ? "∞" : "—", unlimited ? "ud-unlimited" : "ud-unavailable");
+          value.setAttribute("aria-label", unlimited ? "No 5-hour limit" : name + " reading unavailable");
+          meter.append(text("span", name), value);
+        } else {
+          meter.style.setProperty("--capacity-color", capacityColor(w.remaining));
+          if (tightest?.w === w) meter.dataset.tightest = "true";
+          meter.append(text("span", name), text("b", Math.round(w.remaining) + "%"), capacityBar(w.remaining, account.label + " · " + name + " remaining"));
+        }
+        gauges.append(meter);
+      }
+      row.append(gauges);
+      list.append(row);
+    }
+    panel.append(list);
+    return panel;
   }
 
   function drawOverview() {
     const report = snapshot.report ?? window.emberUsageBootstrap;
     if (!report) {
-      panel("Usage").section.append(text("p","Waiting for Ember usage history.","empty"));
+      const waiting = usagePanel("Usage", "waiting");
+      waiting.append(text("p", "Waiting for Ember usage history.", "empty"));
+      cards.append(waiting);
       return;
     }
     displayedReport = report.at;
-    if (!report.ranges[usageRange]) usageRange = "14d";
+    if (!report.ranges[usageRange]) usageRange = report.ranges["14d"] ? "14d" : Object.keys(report.ranges)[0];
     const data = report.ranges[usageRange];
-    const title = text("header","","ud-title");
-    title.append(text("h2","Usage"));
+    const title = text("header", "", "ud-title");
+    const heading = text("div", "", "ud-heading");
     const timestamp = new Date(report.at);
-    title.append(text("small", "All accounts · " + timestamp.toLocaleDateString(undefined,{month:"short",day:"numeric"}) + " " + time.format(timestamp)));
-    const choices = text("div","","ud-choices");
-    for (const [key,label] of [["7d","7 days"],["14d","14 days"],["month","MTD"]]) {
-      if (!report.ranges[key]) continue;
-      const button = text("button",label);
-      if (key === "month") button.setAttribute("aria-label","Month to date");
-      button.setAttribute("aria-pressed",String(key === usageRange));
-      button.onclick = () => { if (usageRange !== key) { usageRange = key; drawBoard("range"); } };
-      choices.append(button);
-    }
-    title.append(choices);
-    cards.append(title);
-    const limits = summaryPanel("Plan limits","limits");
-    const accounts = text("div","","ud-accounts");
-    const now = Date.now();
-    const windowsByAccount = report.meters.map(account => new Map(account.windows
-      .filter(w => Number.isFinite(w.percent) && !(Date.parse(w.resetsAt) <= now))
-      .map(w => [w.id, w])));
-    const columns = new Map([["five_hour","5-hour"], ["seven_day","Weekly"], ["model:fable","Fable"]]);
-    for (const windows of windowsByAccount) {
-      for (const w of windows.values()) if (!columns.has(w.id)) columns.set(w.id, w.label);
-    }
-    for (const [index, account] of report.meters.entries()) {
-      const windows = windowsByAccount[index];
-      if (!windows.size) continue;
-      const group = text("div","","ud-account");
-      group.append(text("strong", account.label));
-      const gauges = text("div","","ud-gauges");
-      for (const [id, name] of columns) {
-        const w = windows.get(id);
-        const meter = text("div","","ud-gauge");
-        if (!w) {
-          const unlimited = id === "five_hour" && !account.windows.some(entry => entry.id === id);
-          const value = text("span", unlimited ? "∞" : "—", unlimited ? "ud-unlimited" : "ud-unavailable");
-          value.setAttribute("aria-label", unlimited ? "No 5-hour limit" : name + " reading unavailable");
-          meter.append(text("strong",name), value);
-          gauges.append(meter);
-          continue;
-        }
-        const reset = Date.parse(w.resetsAt);
-        const remaining = Math.max(0,Math.min(100,100 - w.percent));
-        const low = remaining <= 30;
-        const blend = low ? (remaining - 10) / 20 : (remaining - 30) / 40;
-        const weight = Math.max(0, Math.min(1, blend)) * 100;
-        meter.style.setProperty("--capacity-color", low
-          ? "color-mix(in srgb, #e07a68, #d9b25f " + weight + "%)"
-          : "color-mix(in srgb, #d9b25f, #9db36a " + weight + "%)");
-        const capacity = text("progress","","ud-capacity");
-        capacity.max = 100;
-        capacity.value = remaining;
-        capacity.setAttribute("aria-label",account.label + " · " + name + " remaining");
-        meter.append(text("strong",name),text("b",Math.round(remaining) + "% left"),capacity);
-        if (Number.isFinite(reset)) meter.append(text("small",new Date(reset).toLocaleString(undefined,{weekday:"short",hour:"numeric",minute:"2-digit"})));
-        gauges.append(meter);
-      }
-      if (gauges.children.length) {
-        group.append(gauges);
-        accounts.append(group);
-      }
-    }
-    limits.append(accounts.children.length ? accounts : text("small","No current account readings"));
-    const tiles = text("div","","ud-tiles");
+    const today = timestamp.toDateString() === new Date().toDateString();
+    const updated = (today ? "" : timestamp.toLocaleDateString(undefined,{month:"short",day:"numeric"}) + ", ") + time.format(timestamp);
+    heading.append(text("small", "All accounts · " + updated, "ud-eyebrow"), text("h2", "Usage"));
+    const ranges = [["7d","7 days"],["14d","14 days"],["month","Month","Month to date"]].filter(([key]) => report.ranges[key]);
+    title.append(heading, segmented("Range", ranges, usageRange, key => { usageRange = key; selectedDay = undefined; drawBoard("range"); }));
+    cards.append(title, drawHeadroom(report));
+    const tiles = text("div", "", "ud-tiles");
     for (const t of data.tiles) {
-      const tile = text("div","","ud-stat");
-      const shortLabel = {"API-equivalent cost":"API-cost", "Subagent tokens":"Subagent"}[t.label] ?? t.label;
-      const label = text("small",shortLabel);
-      if (shortLabel !== t.label) {
-        tile.setAttribute("role","group");
-        tile.setAttribute("aria-label",t.label);
-      }
-      tile.append(label,text("strong",t.value));
-      if (t.points.length) tile.append(seriesLine(t.points,"#f09870"));
+      const tile = text("div", "", "ud-stat");
+      const shortLabel = {"API-equivalent cost":"API cost", "Subagent tokens":"Subagent"}[t.label] ?? t.label;
+      tile.setAttribute("role", "group");
+      tile.setAttribute("aria-label", t.label + " " + t.value);
+      tile.append(text("small", shortLabel), text("strong", t.value));
+      if (t.points.length) tile.append(seriesLine(t.points, "#e3936f"));
+      else if (t.label === "Subagent tokens") tile.append(text("span", "included above", "ud-stat-note"));
       tiles.append(tile);
     }
-    cards.append(tiles);
-    cards.append(drawDaily(data, report.days));
-    const heat = summaryPanel("Hour × weekday","heat","Turns");
-    const grid = text("div","","ud-grid");
-    const levels = new Map(data.heat.data.map(([h,d,v])=>[24*d+h,v]));
+    cards.append(tiles, drawDaily(data, report.days), drawHeat(data));
+  }
+
+  function drawHeat(data) {
+    const heat = usagePanel("Hour × weekday", "heat", "Turns");
+    const grid = text("div", "", "ud-grid");
+    const levels = new Map(data.heat.data.map(([h,d,v]) => [24*d+h, v]));
     const weekdays = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
-    for (const d of [6,0,1,2,3,4,5]) {
-      const label = text("small",weekdays[d].slice(0,2));
+    for (const d of [0,1,2,3,4,5,6]) {
+      const label = text("small", weekdays[d].slice(0,3));
       label.title = weekdays[d];
       grid.append(label);
-      for (let h=0;h<24;h++) {
-        const cell = text("i","");
-        const level = levels.get(24*d+h) ?? 0;
-        cell.style.background = ["#33312f","#4c362d","#754631","#ac6345","#ed9873"][level];
-        if (level > 0) {
-          cell.className = "ud-active-hour";
-          // Stable phases keep the panel in rhythm across report refreshes.
-          const phase = ((h * 43 + d * 71 + h * d * 13) % 157) / 157;
-          const period = 4.8 + ((h * 3 + d * 5) % 7) * .45;
-          cell.style.setProperty("--phase", (-phase * period).toFixed(2) + "s");
-          cell.style.setProperty("--period", period + "s");
-          cell.style.setProperty("--lamp", ["#80513e","#aa6547","#df8760","#ffcc94"][level - 1]);
-        }
+      for (let h = 0; h < 24; h++) {
+        const cell = text("i", "");
+        cell.dataset.level = levels.get(24*d+h) ?? 0;
         grid.append(cell);
       }
     }
-    const clock = text("div","","ud-clock");
-    for (const hour of ["12 am","6 am","Noon","6 pm"]) clock.append(text("span",hour));
+    const clock = text("div", "", "ud-clock");
+    for (const hour of ["12 am","6 am","Noon","6 pm"]) clock.append(text("span", hour));
     grid.append(clock);
-    heat.append(grid);
+    const key = text("div", "", "ud-heat-key");
+    key.setAttribute("aria-hidden", "true");
+    key.append(text("span", "Fewer"));
+    for (let level = 0; level < 5; level++) { const swatch = text("i", ""); swatch.dataset.level = level; key.append(swatch); }
+    key.append(text("span", "More"));
+    heat.append(grid, key);
+    return heat;
+  }
+
+  // Label every nth day, counted back from today, with n as small as the column width allows.
+  function thinTicks(axis) {
+    const ticks = [...axis.children];
+    const column = axis.clientWidth / Math.max(1, ticks.length);
+    if (!column) return;
+    const gap = parseFloat(getComputedStyle(axis).fontSize);
+    const widest = Math.max(...ticks.map(tick => tick.offsetWidth));
+    const step = Math.max(1, Math.ceil((widest + gap) / column));
+    const today = ticks.at(-1);
+    for (const tick of ticks) tick.hidden = tick !== today && (tick.dataset.fromEnd % step !== 0 ||
+      tick.getBoundingClientRect().right + gap > today.getBoundingClientRect().left);
+  }
+
+  // A round top for the y-axis so its ticks read as plain numbers.
+  function niceMax(value) {
+    if (!(value > 0)) return 1;
+    const power = 10 ** Math.floor(Math.log10(value));
+    return power * ([1, 1.2, 1.6, 2, 3, 4, 5, 6, 8, 10].find(step => step * power >= value));
   }
 
   function drawDaily(data, dayDetails) {
     const detail = dayDetails?.[selectedDay]?.[chartMetric];
     const showingDay = detail && data.daily.days.includes(selectedDay);
     if (!showingDay) selectedDay = undefined;
-    const heading = showingDay ? new Date(selectedDay + "T12:00:00").toLocaleDateString(undefined,{weekday:"short",month:"short",day:"numeric"}) : "Daily usage";
-    const daily = text("section", "", "panel ud-daily");
-    const dailyHeading = text("header", "", "panel-heading");
-    dailyHeading.append(text("h2", heading));
-    daily.append(dailyHeading);
+    const dateLabel = day => new Date(day + "T12:00:00").toLocaleDateString(undefined,{month:"short",day:"numeric"});
+    const daily = usagePanel(showingDay ? new Date(selectedDay + "T12:00:00").toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric"}) : "Daily usage", "daily");
+    const header = daily.querySelector("header");
     function updateDaily() {
       const next = drawDaily(data, dayDetails);
       next.classList.add("ud-reveal");
       daily.replaceWith(next);
     }
-    const header = daily.querySelector("header");
     if (showingDay) {
-      const back = text("button","‹ Back","ud-switch");
-      back.setAttribute("aria-label","Back to daily usage chart");
+      const back = text("button", "‹ All days", "ud-back");
+      back.type = "button";
+      back.setAttribute("aria-label", "Back to the daily usage chart");
       back.onclick = () => { selectedDay = undefined; updateDaily(); };
       header.prepend(back);
     }
-    const toggle = text("button",chartMetric === "cost" ? "API-COST ▾" : "Tokens ▾","ud-switch");
-    toggle.setAttribute("aria-label","Switch daily usage to " + (chartMetric === "cost" ? "tokens" : "API-equivalent cost"));
-    toggle.onclick = () => { chartMetric = chartMetric === "cost" ? "tokens" : "cost"; updateDaily(); };
-    header.append(toggle);
+    const chart = chartMetric === "cost" ? data.cost : data.daily;
+    const money = chartMetric === "cost" ? "$" : "";
+    const totals = chart.days.map((_,i) => chart.series.reduce((sum,s) => sum + s.values[i], 0));
+    const peak = Math.max(0, ...totals);
+    const peakIndex = peak > 0 ? totals.indexOf(peak) : -1;
+    if (!showingDay && peakIndex >= 0) header.append(text("small", "Peak " + money + compact.format(peak) + " · " + dateLabel(chart.days[peakIndex]), "ud-note"));
+    header.append(segmented("Measure", [["tokens","Tokens"],["cost","Cost","API-equivalent cost"]], chartMetric, key => { chartMetric = key; updateDaily(); }));
     if (showingDay) {
-      const lists = text("div","","ud-rankings");
-      for (const [label,rows] of [["Top projects",detail.projects],["Top chats",detail.chats]]) {
-        const section = text("section","");
-        section.append(text("h3",label));
+      const lists = text("div", "", "ud-rankings");
+      for (const [label, rows] of [["Top projects", detail.projects], ["Top chats", detail.chats]]) {
+        const section = text("section", "");
+        section.append(text("h3", label));
         for (const row of rows) {
-          const line = text("div","","ud-rank");
-          line.append(text("span",row.label),text("b",row.value));
+          const line = text("div", "", "ud-rank");
+          line.append(text("span", row.label), text("b", row.value));
           section.append(line);
         }
-        if (!rows.length) section.append(text("small",chartMetric === "cost" ? "No priced usage" : "No usage"));
+        if (!rows.length) section.append(text("p", chartMetric === "cost" ? "No priced usage" : "No usage", "empty"));
         lists.append(section);
       }
       daily.append(lists);
       return daily;
     }
-    const chart = chartMetric === "cost" ? data.cost : data.daily;
-    const legend = text("div","","ud-key");
-    const ranked = chart.series.map(s => ({ ...s, total:s.values.reduce((a,b) => a+b,0) }))
-      .filter(s => s.total > 0).sort((a,b) => b.total-a.total);
+    const legend = text("div", "", "ud-key");
+    const ranked = chart.series.map(s => ({ ...s, total: s.values.reduce((a,b) => a+b, 0) }))
+      .filter(s => s.total > 0).sort((a,b) => b.total - a.total);
     const series = ranked.length > 3 ? ranked.slice(0,2) : ranked.slice();
     if (ranked.length > 3) {
       const rest = ranked.slice(2);
-      series.push({label:"Other", detail:rest.map(s => s.label).join(", "),
-        values:chart.days.map((_,i) => rest.reduce((sum,s) => sum+s.values[i],0))});
+      series.push({ label: "Other", detail: rest.map(s => s.label).join(", "),
+        values: chart.days.map((_,i) => rest.reduce((sum,s) => sum + s.values[i], 0)) });
     }
-    for (const [index,s] of series.entries()) {
-      s.color = s.detail ? "#93918c" : palette[index];
-      const label = text("span",s.label.split("/").pop());
+    for (const [index, s] of series.entries()) {
+      s.color = s.detail ? "#8d8a82" : palette[index];
+      const label = text("span", s.label.split("/").pop());
       label.title = s.detail ?? s.label;
-      label.style.setProperty("--series",s.color);
+      label.style.setProperty("--series", s.color);
       legend.append(label);
     }
-    const plot = text("div","","ud-columns");
-    const totals = chart.days.map((_,i)=>chart.series.reduce((sum,s)=>sum+s.values[i],0));
-    const peak = Math.max(0,...totals);
-    const peakIndex = peak > 0 ? totals.indexOf(peak) : -1;
-    const max = peak || 1;
-    const scale = text("small",(chartMetric === "cost" ? "$" : "") + compact.format(max),"ud-scale");
-    const frame = text("div","","ud-plot-frame");
-    chart.days.forEach((day,i)=>{
-      const col = text(dayDetails?.[day] ? "button" : "div","","ud-column");
-      col.title = day + " · " + compact.format(totals[i]);
+    const max = niceMax(peak);
+    const frame = text("div", "", "ud-plot-frame");
+    const scale = text("div", "", "ud-scale");
+    scale.setAttribute("aria-hidden", "true");
+    for (const fraction of [1, .5, 0]) scale.append(text("span", fraction ? money + compact.format(max * fraction) : "0"));
+    const plot = text("div", "", "ud-columns");
+    chart.days.forEach((day, i) => {
+      const col = text(dayDetails?.[day] ? "button" : "div", "", "ud-column");
+      col.title = dateLabel(day) + " · " + money + compact.format(totals[i]);
       if (dayDetails?.[day]) {
-        col.setAttribute("aria-label","Show " + day + " project and chat breakdown");
+        col.type = "button";
+        col.setAttribute("aria-label", dateLabel(day) + ", " + money + compact.format(totals[i]) + ". Show its projects and chats");
         col.onclick = () => { selectedDay = day; updateDaily(); };
       }
+      if (i === peakIndex) col.dataset.peak = "true";
       const stack = text("span", "", "ud-stack");
       stack.setAttribute("aria-hidden", "true");
-      stack.style.setProperty("--delay", Math.round(180 * i / Math.max(1,chart.days.length-1)) + "ms");
-      if (totals[i] > 0) {
-        stack.classList.add("ud-bar-lit");
-        stack.style.setProperty("--bar-height", 100 * totals[i] / max + "%");
-        stack.style.setProperty("--sweep-delay", (1 + 3.6 * i / Math.max(1, chart.days.length - 1)) + "s");
-        if (i === peakIndex) stack.classList.add("ud-bar-peak");
-      }
+      stack.style.setProperty("--delay", Math.round(180 * i / Math.max(1, chart.days.length - 1)) + "ms");
       for (const s of series) {
-        const rect = text("i","");
-        rect.style.height = 100*s.values[i]/max + "%";
+        const rect = text("i", "");
+        rect.style.height = 100 * s.values[i] / max + "%";
         rect.style.background = s.color;
-        if (s.values[i] > 0 && i === chart.days.length - 1) {
-          stack.querySelector(".ud-latest")?.classList.remove("ud-latest");
-          rect.classList.add("ud-latest");
-        }
         stack.append(rect);
       }
       col.append(stack);
       plot.append(col);
     });
-    const axis = text("div","","ud-x");
-    const dateLabel = day => new Date(day + "T12:00:00").toLocaleDateString(undefined,{month:"short",day:"numeric"});
-    daily.style.setProperty("--day-count", Math.max(1,chart.days.length));
-    if (chart.days.length > 1) axis.append(text("span",dateLabel(chart.days[0]),"ud-first-day"));
-    if (peakIndex >= 0) {
-      const peakDate = dateLabel(chart.days[peakIndex]);
-      axis.append(text("span","Peak · " + peakDate,"ud-peak-key"));
-    }
-    if (chart.days.length) axis.append(text("span","Today","ud-last-day"));
-    frame.append(scale,plot,axis);
-    daily.append(legend,frame);
+    const axis = text("div", "", "ud-x");
+    axis.setAttribute("aria-hidden", "true");
+    chart.days.forEach((day, i) => {
+      const tick = text("span", i === chart.days.length - 1 ? "Today" : dateLabel(day));
+      tick.style.gridColumn = String(i + 1);
+      tick.dataset.fromEnd = chart.days.length - 1 - i;
+      axis.append(tick);
+    });
+    daily.style.setProperty("--day-count", Math.max(1, chart.days.length));
+    frame.append(scale, plot, axis);
+    daily.append(legend, frame);
+    requestAnimationFrame(() => thinTicks(axis));
     return daily;
   }
 
