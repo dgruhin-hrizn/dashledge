@@ -31,6 +31,7 @@ mod widget_host;
 mod widget_package;
 mod package_manifest;
 mod package_store;
+mod package_connector;
 mod vault;
 
 use std::{path::PathBuf, sync::OnceLock, time::Duration};
@@ -265,6 +266,8 @@ pub fn run() {
             widget_package::save_widget_example,
             package_store::inspect_widget_package, package_store::install_widget_package,
             package_store::list_packages, package_store::remove_widget_package,
+            package_connector::package_open, package_connector::package_read, package_connector::package_ping,
+            package_connector::package_close, package_connector::package_action,
             vault::unlock_connections,
             vault::recover_credential,
             widget_host::widget_open,
@@ -312,6 +315,7 @@ pub fn run() {
             general::init(app.handle())?;
             package_store::init(app.handle())?;
             widget_host::reap_idle(app.handle().clone());
+            package_connector::reap_idle(app.handle().clone());
 
             // Example: start sampling CPU / memory / network for system_snapshot.
 
@@ -388,6 +392,7 @@ pub fn run() {
         .run(|_, event| {
             if matches!(event, tauri::RunEvent::Exit) {
                 widget_host::shutdown();
+                package_connector::shutdown();
             }
         });
 }

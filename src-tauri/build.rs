@@ -13,6 +13,7 @@ fn main() {
         .file("apple_music.m")
         .file("native.m")
         .file("spotify_spectrum.m")
+        .file("connector.m")
         .flag("-fobjc-arc")
         .compile("edge_native");
     println!("cargo:rerun-if-changed=photos.m");
@@ -20,7 +21,8 @@ fn main() {
     println!("cargo:rerun-if-changed=native.m");
     println!("cargo:rerun-if-changed=spotify_spectrum.m");
     println!("cargo:rerun-if-changed=apple_music.m");
-    for name in ["Photos", "EventKit", "Foundation", "AppKit", "IOKit", "Metal", "CoreAudio", "Accelerate", "ScriptingBridge", "ImageIO", "LinkPresentation"] {
+    println!("cargo:rerun-if-changed=connector.m");
+    for name in ["Photos", "EventKit", "Foundation", "AppKit", "IOKit", "Metal", "CoreAudio", "Accelerate", "ScriptingBridge", "ImageIO", "LinkPresentation", "JavaScriptCore"] {
         println!("cargo:rustc-link-lib=framework={name}");
     }
     tauri_build::build()

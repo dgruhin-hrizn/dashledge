@@ -72,3 +72,24 @@ test('swipes, the page picker and gesture verdicts are forwarded safely', async 
   await handleMessage(entry, {type: 'gesture', page: true});
   assert.equal(frame.__gestureVerdict, true);
 });
+
+test('package data reaches the frame once its SDK is ready, and only declared actions run', async () => {
+  const {frame, posted, load} = fakeFrame();
+  const unregister = registerFrame(frame, {viewer: 'v5', feed: 'pkg-1', actions: ['toggle']});
+  unregister.deliver({rev: 3, data: {temp: 21}, error: null});
+  assert.equal(posted.length, 0, 'nothing is sent before the frame is ready');
+  load();
+  window.dispatchEvent(Object.assign(new Event('message'), {source: frame.contentWindow, data: {dashledge: 1, type: 'ready'}}));
+  await settle();
+  assert.deepEqual(posted.at(-1)[0], {dashledge: 1, type: 'data', rev: 3, data: {temp: 21}, error: null});
+  unregister.deliver({rev: 4, data: {temp: 22}, error: null});
+  assert.equal(posted.at(-1)[0].rev, 4);
+  const entry = unregister.entry;
+  await handleMessage(entry, {type: 'command', id: 1, name: 'action', args: {id: 'toggle', args: {entity: 'light.desk'}}});
+  assert.deepEqual(calls.at(-1), ['package_action', {id: 'pkg-1', viewer: 'v5', action: 'toggle', args: {entity: 'light.desk'}}]);
+  const before = calls.length;
+  await handleMessage(entry, {type: 'command', id: 2, name: 'action', args: {id: 'reboot'}});
+  assert.equal(calls.length, before);
+  assert.equal(posted.at(-1)[0].error, 'Unknown widget command');
+  unregister();
+});

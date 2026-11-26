@@ -189,11 +189,17 @@ function layouts(){
 const sourceHelp={
   json:['JSON endpoint','https://service.example/status','Optional bearer token']
 };
-// Bundled widgets describe their own connections in widget.json.
-for(const [kind,info] of packageInfo)if(info.sources){
-  sourceNames[kind]=info.title;
-  sourceHelp[kind]=[info.sources.addressLabel||'Server URL',info.sources.addressPlaceholder||'https://server.local',info.sources.credentialLabel||'Credential'];
+// Package widgets describe their own connections in widget.json: bundled ones
+// through the package list, installed ones through their layout entry.
+function syncSourceTables(){
+  const describe=(kind,title,sources)=>{
+    sourceNames[kind]=title;
+    sourceHelp[kind]=[sources.addressLabel||'Server URL',sources.addressPlaceholder||'https://server.local',sources.credentialLabel||'Credential'];
+  };
+  for(const [kind,info] of packageInfo)if(info.sources)describe(kind,info.title,info.sources);
+  for(const entry of config.plugins)if(entry.apiVersion===2&&entry.sources)describe(entry.id,entry.title,entry.sources);
 }
+syncSourceTables();
 function sourceForm(widget,existing){
   const kind=widgetInfo(config,widget).feed,name=input(existing?.name),address=input(existing?.address,'url'),secret=input('','password');
   name.required=address.required=true;secret.autocomplete='new-password';secret.placeholder=existing?'Leave blank to keep saved credential':'Optional';
@@ -337,6 +343,7 @@ function installV2(info,bytes){
     const installedInfo=await invoke('install_widget_package',bytes);
     const saved=change(()=>recordPackage(config,installedInfo),false);
     if(!saved)throw Error('Could not save this package.');
+    syncSourceTables();
   },old?'Update widget':'Install widget');
 }
 function plugins(){
