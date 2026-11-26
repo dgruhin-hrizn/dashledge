@@ -6,7 +6,7 @@ import {editWatchlist} from './market-watchlist.js';
 import {marketConnection,marketPicker} from './markets.js';
 import {editPhotos} from './photos.js';
 import {editShortcuts,shortcutPins} from './mac-shortcuts.js';
-import {categories,widgetInfo,installed,connectionsFor,defaultSource,useDefault,placements,removeWidget} from './widget-catalog.js';
+import {catalogGroups,widgetInfo,installed,connectionsFor,defaultSource,useDefault,placements,removeWidget} from './widget-catalog.js';
 import {general,loadGeneral,updateGeneral,fitDashboard,checkUpdate,automaticUpdates} from './general.js';
 import {icon} from './admin-icons.js';
 import {appendPage,assignWidget,pickWidget} from './page-actions.js';
@@ -22,9 +22,9 @@ function tag(kind){const t=el('span','kind-icon');t.dataset.kind=kind;const info
   if(info?.icon){const image=el('img');image.src=info.icon;image.alt='';t.append(image)}else t.append(icon(kind));
   return t}
 function panel(title,...children){const p=section(title,...children);p.classList.add('panel');return p}
-let detail=null;
+let detail=null,studioCategory;
 function go(next){tab=next;detail=null;render()}
-function widgetSettings(kind){tab='Widget Studio';detail=kind;render()}
+function widgetSettings(kind){studioCategory=widgetInfo(config,kind)?.category;tab='Widget Studio';detail=kind;render()}
 
 const sourceNames={comfy:'ComfyUI',emby:'Emby',proxmox:'Proxmox',omlx:'oMLX',unraid:'Unraid',json:'JSON endpoint'};
 function notice(text){const n=document.querySelector('#notice');n.textContent=text;clearTimeout(statusTimer);statusTimer=setTimeout(()=>n.textContent='',6000)}
@@ -158,13 +158,7 @@ function layouts(){
   left.append(screen,panel('Layout preset',presetGrid),inspector);
   const lib=el('div','library-list'),search=input();search.type='search';search.placeholder='Find a widget';search.setAttribute('aria-label','Find a widget');
   const searchBox=el('div','search-box');searchBox.append(icon('find'),search);
-  const groups=[
-    ['Mac system',categories['Mac system']],
-    ['Services',[...categories['Service dashboards'],'spotify','applemusic']],
-    ['Slack',categories.Slack],
-    ['Everyday',categories.Everyday.filter(kind=>!['spotify','applemusic'].includes(kind))],
-    ['My widgets',config.plugins.map(v=>v.id)]
-  ];
+  const groups=catalogGroups(config);
   const fill=()=>{
     lib.replaceChildren();
     const query=search.value.trim().toLowerCase();
@@ -172,7 +166,7 @@ function layouts(){
       const rows=[];
       for(const k of kinds){
         const label=widgetInfo(config,k)?.title;
-        if(!installed(config,k)||!label||!(label.toLowerCase().includes(query)||k.toLowerCase().includes(query)))continue;
+        if(!label||!(label.toLowerCase().includes(query)||k.toLowerCase().includes(query)))continue;
         const b=button('',()=>assign(index,k),s.kind===k?'selected':'');
         b.append(tag(k),el('span','',label),icon(s.kind===k?'check':'plus'));
         b.setAttribute('aria-label','Place '+label+' in section '+(index+1));b.draggable=true;b.ondragstart=e=>e.dataTransfer.setData('text/plain',k);rows.push(b);
@@ -353,11 +347,38 @@ function plugins(){
     const choices=row();for(const k of removed)choices.append(button('Restore '+titles[k],()=>change(()=>{config.removedWidgets=config.removedWidgets.filter(v=>v!==k)},false)));
     restore.append(choices);main.append(restore);
   }
-  const groups={'Installed packages':config.plugins.map(p=>p.id),...categories};
-  for(const [name,kinds] of Object.entries(groups)){
-    const available=kinds.filter(k=>installed(config,k));if(!available.length)continue;
-    const section=el('section','studio-group');section.append(el('h2','studio-heading',name));
-    const grid=el('div','studio-grid');
+  const groups=catalogGroups(config);
+  if(!groups.length)return;
+  if(studioCategory!==null&&!groups.some(([name])=>name===studioCategory))studioCategory=groups[0][0];
+  const sections=new Map();
+  const jump=select([['','Choose a section'],...groups.map(([name])=>[name,name])],studioCategory||'',name=>{
+    if(name)activateSection(name);
+  });
+  jump.options[0].disabled=true;
+  jump.id='studio-jump';
+  const label=el('label','','Jump to section');label.htmlFor=jump.id;
+  const navigation=el('div','studio-navigation');navigation.append(label,jump);main.append(navigation);
+  function activateSection(name){
+    studioCategory=name;
+    jump.value=name||'';
+    for(const [category,{toggle,grid}] of sections){
+      toggle.setAttribute('aria-expanded',String(category===name));
+      grid.hidden=category!==name;
+    }
+    if(name){
+      const {toggle}=sections.get(name);
+      toggle.focus({preventScroll:true});
+      toggle.scrollIntoView({block:'nearest'});
+    }
+  }
+  for(const [name,available] of groups){
+    const section=el('section','studio-group'),heading=el('h2','studio-heading');
+    const toggle=button('',()=>activateSection(studioCategory===name?null:name),'studio-toggle');
+    toggle.append(el('span','',name),el('span','studio-count',String(available.length)));
+    const grid=el('div','studio-grid');grid.id='studio-panel-'+sections.size;
+    grid.hidden=studioCategory!==name;
+    toggle.setAttribute('aria-expanded',String(!grid.hidden));toggle.setAttribute('aria-controls',grid.id);
+    sections.set(name,{toggle,grid});heading.append(toggle);section.append(heading);
     for(const kind of available){
       const info=widgetInfo(config,kind),card=el('article','panel studio-card');
       const title=el('div','card-title');title.append(tag(kind),el('h3','',info.title));

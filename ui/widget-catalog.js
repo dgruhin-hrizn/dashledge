@@ -2,11 +2,20 @@ import {titles, slot} from './model.js';
 
 import {slackWidgets} from './slack-catalog.js';
 export const categories = {
-  Slack: Object.keys(slackWidgets),
-  'Service dashboards': ['ember','proxmox','emby','comfy','omlx','unraid'],
+  'Music & media': ['spotify','applemusic','emby','photos'],
+  'Productivity': ['googledesk','shortcuts','notes','focus'],
+  'Clocks': ['clock','world','rundmd'],
+  'Finance': ['markets'],
+  'Slack': Object.keys(slackWidgets),
   'Mac system': ['cpu','gpu','memory','disk','network','power','interfaces','volumes','machine'],
-  'Everyday': ['markets','photos','shortcuts','rundmd','clock','world','focus','notes','googledesk','spotify','applemusic'],
+  'Servers & storage': ['proxmox','unraid'],
+  'AI & development': ['ember','omlx','comfy'],
 };
+export function catalogGroups(config){
+  return [...Object.entries(categories),['Installed packages',config.plugins.map(p=>p.id)]]
+    .map(([name,kinds])=>[name,kinds.filter(kind=>installed(config,kind))])
+    .filter(([,kinds])=>kinds.length);
+}
 const descriptions = {
   markets:'Live US stock and ETF trades, watchlists and intraday charts via Alpaca IEX.',
   photos:'A moving gallery from your Mac Photos library and albums.',

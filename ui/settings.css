@@ -140,3 +140,15 @@
 
 .about-panel p { max-width:64ch; }
 .about-panel a { color:inherit; text-underline-offset:.2em; }
+
+.studio-navigation {position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:#18201e;padding:8px 14px;border-radius:10px}
+.studio-navigation label {font-weight:600}
+.studio-navigation select {min-height:44px;max-width:100%}
+.studio-group {margin:10px 0}
+.studio-heading {margin:0}
+.studio-toggle {display:flex;align-items:center;gap:12px;width:100%;min-height:48px;padding:10px 16px;text-align:left;font-size:16px;scroll-margin-top:108px}
+.studio-toggle::after {content:'';width:8px;height:8px;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:rotate(-45deg);margin-right:3px}
+.studio-toggle[aria-expanded=true]::after {transform:rotate(45deg)}
+.studio-count {margin-left:auto;font-size:13px;font-variant-numeric:tabular-nums;opacity:.75}
+.studio-grid {margin-top:10px}
+.studio-grid[hidden] {display:none}
