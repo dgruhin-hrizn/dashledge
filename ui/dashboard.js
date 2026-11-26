@@ -94,6 +94,7 @@ function renderTile(t){
   else if(kind==='clock')nodes=[value(clockText()),sub(new Date().toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric'}))];
   else if(kind==='notes'){const a=el('textarea');a.value=localStorage.getItem('ew.notes')||'';a.placeholder='Write a note';a.oninput=()=>localStorage.setItem('ew.notes',a.value);nodes=[a]}
   else if(kind==='focus')nodes=focus(t);
+  else if(custom?.apiVersion===2)nodes=[sub('This package view isn’t available yet.')];
   else if(custom?.feed==='mac')nodes=customView(t,custom,metrics,'This Mac');
   else if(kind==='world')nodes=[list([['Local',undefined],['Los Angeles','America/Los_Angeles'],['New York','America/New_York'],['London','Europe/London'],['Tokyo','Asia/Tokyo']].map(([label,timeZone])=>[label,clockText(timeZone)]))];
   else if(kind==='empty'){

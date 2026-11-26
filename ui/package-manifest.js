@@ -1,0 +1,28 @@
+// Helpers for normalized API version 2 manifests. Rust validates every manifest
+// (src-tauri/src/package_manifest.rs); the UI only reads the result.
+
+export const isV2 = manifest => manifest?.apiVersion === 2;
+
+// The highest trust tier a manifest uses: view, declarative, connector or collector.
+export function packageTier(manifest) {
+  if (manifest.collector) return 'collector';
+  if (manifest.connector) return 'connector';
+  if (manifest.data?.length || manifest.actions?.length) return 'declarative';
+  return 'view';
+}
+
+// Plain-language permissions for the install sheet.
+export function permissionSummary(manifest) {
+  const lines = [];
+  const sources = manifest.sources;
+  if (sources?.max) lines.push(sources.max === 1 ? 'Uses one connection you choose.' : 'Uses up to ' + sources.max + ' connections you choose.');
+  if (manifest.data?.length) lines.push('Reads ' + manifest.data.length + (manifest.data.length === 1 ? ' route' : ' routes') + ' from that connection.');
+  if (manifest.actions?.length) lines.push('Can send ' + manifest.actions.length + (manifest.actions.length === 1 ? ' action' : ' actions') + ' to that connection when you tap.');
+  if (manifest.connector) {
+    lines.push('Runs its own code in a sandbox, with no access to your files or other widgets.');
+    if (manifest.connector.hosts?.length) lines.push('Can also connect to: ' + manifest.connector.hosts.join(', ') + '.');
+  }
+  if (manifest.collector) lines.push('Runs a collector with full access to this Mac. Bundled widgets only.');
+  if (!lines.length) lines.push('Shows its own view only. It can’t reach the network.');
+  return lines;
+}

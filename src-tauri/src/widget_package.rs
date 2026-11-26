@@ -19,7 +19,7 @@ fn entry(archive: &mut ZipArchive<Cursor<Vec<u8>>>, name: &str) -> Result<Vec<u8
     Ok(bytes)
 }
 
-fn unpack(bytes: Vec<u8>) -> Result<Value, String> {
+pub(crate) fn unpack(bytes: Vec<u8>) -> Result<Value, String> {
     if bytes.len() > 512 * 1024 {
         return Err("Packages must be 512 KiB or smaller.".into());
     }
@@ -86,14 +86,6 @@ fn example() -> Result<Vec<u8>, String> {
     zip.finish()
         .map(|c| c.into_inner())
         .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn read_widget_package(window: tauri::WebviewWindow, bytes: Vec<u8>) -> Result<Value, String> {
-    if window.label() != "settings" {
-        return Err("Open Widget Studio in Settings.".into());
-    }
-    unpack(bytes)
 }
 
 #[tauri::command]
