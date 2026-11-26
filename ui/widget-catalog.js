@@ -5,9 +5,10 @@ export const categories = {
   Slack: Object.keys(slackWidgets),
   'Service dashboards': ['ember','proxmox','emby','comfy','omlx','unraid'],
   'Mac system': ['cpu','gpu','memory','disk','network','power','interfaces','volumes','machine'],
-  'Everyday': ['photos','shortcuts','rundmd','clock','world','focus','notes','googledesk','spotify','applemusic'],
+  'Everyday': ['markets','photos','shortcuts','rundmd','clock','world','focus','notes','googledesk','spotify','applemusic'],
 };
 const descriptions = {
+  markets:'Live US stock and ETF trades, watchlists and intraday charts via Alpaca IEX.',
   photos:'A moving gallery from your Mac Photos library and albums.',
   shortcuts:"Run your pinned Mac shortcuts from the touch display.",
   rundmd:'A pinball dot-matrix clock with animations from your Run-DMD card.',
