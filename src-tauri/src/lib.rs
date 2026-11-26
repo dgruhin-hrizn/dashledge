@@ -15,6 +15,7 @@
 
 mod connections;
 mod instruments;
+mod migration;
 mod touch;
 mod transcript;
 mod tray;
@@ -210,6 +211,7 @@ pub fn run() {
             transcript::ember_transcript,
             instruments::read_metrics,
             instruments::spotify,
+            migration::import_zurface_connections,
             connections::set_secret,
             connections::source_read,
             connections::poster,

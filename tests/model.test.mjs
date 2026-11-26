@@ -35,3 +35,20 @@ test('splits preserve existing tile identity and divide exactly the selected reg
   assert.equal(regions(page).reduce((sum,r)=>sum+r.w*r.h,0).toFixed(4),'1.0000');
   resize(page,'Five');assert.equal(page.regions,undefined);
 });
+
+test('connection import keeps existing identities and binds separate worker slots',async()=>{
+  const {mergeSources}=await import('../ui/migration.js');
+  const cfg=initial(),p=makePage('Workers','Two',['comfy','comfy']);
+  cfg.pages=[p];
+  cfg.sources=[{id:'custom',name:'Saved name',kind:'comfy',address:'http://one.example/'}];
+  const rows=[{kind:'comfy',name:'Original name',address:'http://one.example'},{kind:'comfy',name:'Worker two',address:'http://two.example/'}];
+  assert.equal(mergeSources(cfg,rows),1);assert.equal(cfg.sources[0].name,'Saved name');
+  assert.deepEqual(p.slots.map(s=>s.source),cfg.sources.map(s=>s.id));
+  assert.equal(mergeSources(cfg,rows),0);
+});
+test('Add page activates a new numbered canvas without requiring a keyboard',async()=>{
+  const {appendPage}=await import('../ui/page-actions.js');const cfg=initial();
+  cfg.pages[0].name='Page 5';
+  const added=appendPage(cfg);
+  assert.equal(added.name,'Page 6');assert.equal(added.slots[0].kind,'empty');
+});

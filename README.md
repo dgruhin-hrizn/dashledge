@@ -4,11 +4,13 @@ Edge Workbench is a macOS menu-bar application for the Corsair XENEON Edge. One 
 
 ## Try the preview
 
-Open **Edge Workbench.app**. The first launch opens Settings on your main display. Choose **Preview** for a live Mac dashboard. Under **Layouts**, add pages, choose a preset and tap or drag a widget into a section. Split individual sections side by side or stack them vertically. The menu-bar icon reopens Settings.
+Open **Edge Workbench.app**. The first launch opens Settings on your main display. Choose **Live preview** for a live Mac dashboard. Under **Pages & layouts**, choose **+ Add page**, then click **+ Add widget** in the empty section. You can also add a page directly from **Pages** on the Edge. Choose a preset or drag a widget from the library to arrange the page. Split individual sections side by side or stack them vertically. The menu-bar icon reopens Settings.
 
-To use the touchscreen, quit any other app controlling Edge touch. Open **Display → Enable Edge output** and save to restart. Grant Input Monitoring if macOS requests it. Choose **Return to preview** to release the device. The physical dashboard can switch pages using its page picker. Open at Login is available in the menu bar.
+To use the touchscreen, quit any other app controlling Edge touch. Open **Display & touch → Enable Edge output** and save to restart. Grant Input Monitoring if macOS requests it. Choose **Return to preview** to release the device. The physical dashboard can switch pages using its page picker. Open at Login is available in the menu bar.
 
 ## Widgets and connections
+
+The app imports connection settings from the installed Emby and Unraid collectors, Proxmox, ComfyUI workers and oMLX on first launch. The import reads the collectors’ saved settings locally and copies API credentials to Keychain. The Proxmox certificate is scoped to its server. Guest SSH targets and identity file paths are retained as references. GPU polling over SSH is pending. Ember reads its existing local database. **Connections → Import from Zurface** reruns discovery and fills missing entries. A connection's **Test** button checks its current reachability.
 
 CPU, GPU, memory, disk capacity, network throughput, network interfaces, power and thermal state, and Mac information read local system metrics. The GPU tile reports unavailable on hardware that does not expose the counter. Spotify connects to the running desktop player and may request Automation access. Local and world clocks, focus timer and scratchpad work locally.
 

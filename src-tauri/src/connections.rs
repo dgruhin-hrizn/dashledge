@@ -6,7 +6,7 @@ use serde_json::{json, Value};
 use std::{sync::OnceLock, time::Duration};
 
 const SERVICE: &str = "dev.edgeworkbench.connections";
-fn endpoint(raw: &str) -> Result<Url, String> {
+pub(crate) fn endpoint(raw: &str) -> Result<Url, String> {
     let url = Url::parse(raw).map_err(|_| "Enter a full server URL".to_string())?;
     if !matches!(url.scheme(), "http" | "https")
         || !url.username().is_empty()
@@ -19,6 +19,28 @@ fn endpoint(raw: &str) -> Result<Url, String> {
     }
     Ok(url)
 }
+fn account_ids(kind: &str, base: &Url) -> Vec<String> {
+    let exact = format!("{kind}|{base}");
+    if base.path() == "/" || !matches!(kind, "emby" | "unraid" | "comfy" | "omlx" | "proxmox") {
+        return vec![exact];
+    }
+    let alternate = if base.as_str().ends_with('/') {
+        base.as_str().trim_end_matches('/').to_owned()
+    } else {
+        format!("{base}/")
+    };
+    vec![exact, format!("{kind}|{alternate}")]
+}
+fn secret_for(kind: &str, base: &Url) -> Result<Option<Vec<u8>>, String> {
+    for account in account_ids(kind, base) {
+        match get_generic_password(SERVICE, &account) {
+            Ok(value) => return Ok(Some(value)),
+            Err(e) if e.code() == -25300 => continue,
+            Err(_) => return Err("Keychain access unavailable".into()),
+        }
+    }
+    Ok(None)
+}
 #[tauri::command]
 pub fn set_secret(
     window: tauri::WebviewWindow,
@@ -29,13 +51,24 @@ pub fn set_secret(
     if window.label() != "settings" {
         return Err("Open Settings to change credentials".into());
     }
-    let id = format!("{kind}|{}", endpoint(&address)?);
+    let base = endpoint(&address)?;
+    let id = format!("{kind}|{base}");
     if secret.is_empty() {
-        let r = delete_generic_password(SERVICE, &id);
-        return match r {
-            Err(e) if e.code() == -25300 => Ok(()),
-            other => other.map_err(|_| "Keychain could not clear the credential".into()),
-        };
+        for account in account_ids(&kind, &base) {
+            if let Err(e) = delete_generic_password(SERVICE, &account) {
+                if e.code() != -25300 {
+                    return Err("Keychain could not clear the credential".into());
+                }
+            }
+        }
+        if kind == "proxmox" {
+            if let Err(e) = delete_generic_password(CA_SERVICE, base.as_str()) {
+                if e.code() != -25300 {
+                    return Err("Keychain could not clear the certificate".into());
+                }
+            }
+        }
+        return Ok(());
     }
     set_generic_password(SERVICE, &id, secret.as_bytes())
         .map_err(|_| "Keychain could not save the credential".into())
@@ -50,8 +83,57 @@ fn http() -> &'static Client {
             .expect("HTTP client")
     })
 }
+const CA_SERVICE: &str = "dev.edgeworkbench.proxmox-ca";
+
+fn import_if_missing(service: &str, account: &str, bytes: &[u8]) -> Result<(), String> {
+    match get_generic_password(service, account) {
+        Ok(_) => Ok(()),
+        Err(e) if e.code() == -25300 => set_generic_password(service, account, bytes)
+            .map_err(|_| "Keychain could not save the imported connection".into()),
+        Err(_) => Err("Keychain access unavailable".into()),
+    }
+}
+pub(crate) fn import_secret(kind: &str, address: &str, bytes: &[u8]) -> Result<(), String> {
+    let base = endpoint(address)?;
+    if secret_for(kind, &base)?.is_some() {
+        return Ok(());
+    }
+    import_if_missing(SERVICE, &format!("{kind}|{base}"), bytes)
+}
+pub(crate) fn import_ca(address: &str, bytes: &[u8]) -> Result<(), String> {
+    import_if_missing(CA_SERVICE, endpoint(address)?.as_str(), bytes)
+}
+pub(crate) fn validate_ca(bytes: &[u8]) -> Result<Vec<reqwest::Certificate>, String> {
+    let certs = reqwest::Certificate::from_pem_bundle(bytes)
+        .map_err(|_| "Invalid Proxmox CA certificate")?;
+    if certs.is_empty() {
+        return Err("Missing Proxmox CA certificate".into());
+    }
+    Ok(certs)
+}
+fn service_client(kind: &str, base: &Url) -> Result<Client, String> {
+    if kind != "proxmox" {
+        return Ok(http().clone());
+    }
+    match get_generic_password(CA_SERVICE, base.as_str()) {
+        Ok(bytes) => {
+            let mut builder = Client::builder()
+                .timeout(Duration::from_secs(5))
+                .redirect(reqwest::redirect::Policy::none());
+            for cert in validate_ca(&bytes)? {
+                builder = builder.add_root_certificate(cert);
+            }
+            builder
+                .build()
+                .map_err(|_| "Could not load Proxmox CA certificate".into())
+        }
+        Err(e) if e.code() == -25300 => Ok(http().clone()),
+        Err(_) => Err("Cannot read Proxmox certificate from Keychain".into()),
+    }
+}
+
 async fn get(kind: &str, base: &Url, path: &str, key: &str) -> Result<Value, String> {
-    let client = http();
+    let client = service_client(kind, base)?;
     let mut url = base.clone();
     if !path.is_empty() {
         let (route, query) = path
@@ -109,11 +191,8 @@ fn play_method(session: &Value) -> &str {
 #[tauri::command]
 pub async fn source_read(kind: String, address: String) -> Result<Value, String> {
     let base = endpoint(&address)?;
-    let key = match get_generic_password(SERVICE, &format!("{kind}|{base}")) {
-        Ok(b) => String::from_utf8(b).map_err(|_| "Invalid credential")?,
-        Err(e) if e.code() == -25300 => String::new(),
-        Err(_) => return Err("Keychain access unavailable".into()),
-    };
+    let key = String::from_utf8(secret_for(&kind, &base)?.unwrap_or_default())
+        .map_err(|_| "Invalid credential")?;
     let read = |path| get(&kind, &base, path, &key);
     match kind.as_str() {
         "json" => read("").await,
@@ -173,7 +252,7 @@ pub async fn poster(address: String, media_id: String) -> Result<String, String>
     ));
     url.set_query(Some("maxWidth=256&quality=80&format=jpg"));
     let mut req = http().get(url);
-    if let Ok(key) = get_generic_password(SERVICE, &format!("emby|{base}")) {
+    if let Some(key) = secret_for("emby", &base)? {
         req = req.header("X-Emby-Token", key);
     }
     image_data(req, 512000).await
@@ -182,11 +261,8 @@ pub async fn poster(address: String, media_id: String) -> Result<String, String>
 #[tauri::command]
 pub async fn comfy_preview(address: String) -> Result<String, String> {
     let base = endpoint(&address)?;
-    let key = match get_generic_password(SERVICE, &format!("comfy|{base}")) {
-        Ok(value) => String::from_utf8(value).map_err(|_| "Invalid credential")?,
-        Err(e) if e.code() == -25300 => String::new(),
-        Err(_) => return Err("Keychain access unavailable".into()),
-    };
+    let key = String::from_utf8(secret_for("comfy", &base)?.unwrap_or_default())
+        .map_err(|_| "Invalid credential")?;
     let records = get("comfy", &base, "history?max_items=4", &key).await?;
     let mut jobs: Vec<_> = records
         .as_object()

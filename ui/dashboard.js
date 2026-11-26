@@ -1,7 +1,9 @@
+import {appendPage,assignWidget,pickWidget} from './page-actions.js';
+import {importConnections} from './migration.js';
 import {emberTile} from './ember.js';
 import {mediaView,comfyView,storageView} from './services.js';
 import {titles,layout,readPath} from './model.js';
-import {ensure,state,current,activate,invoke,el,button,num,bytes} from './common.js';
+import {ensure,state,current,activate,save,invoke,el,button,num,bytes} from './common.js';
 const $=s=>document.querySelector(s);
 let config=ensure(),page,tiles=[],timer,metrics={},sample=0;
 const history=new Map(),feeds=new Map(),art=new Map();
@@ -116,7 +118,16 @@ function renderTile(t){
   else if(kind==='interfaces')nodes=[list((metrics.interfaces||[]).map(i=>[i.name,'↓ '+bytes(i.rx)+'/s  ↑ '+bytes(i.tx)+'/s']))];
   else if(kind==='volumes')nodes=[list((metrics.disks||[]).map(d=>[d.name,bytes(d.free)+' free']))];
   else if(kind==='world')nodes=[list([['Local',undefined],['Los Angeles','America/Los_Angeles'],['New York','America/New_York'],['London','Europe/London'],['Tokyo','Asia/Tokyo']].map(([label,timeZone])=>[label,new Date().toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit',timeZone})]))];
-  else if(kind==='empty')nodes=[button('Choose widget',()=>invoke('open_settings'))];
+  else if(kind==='empty'){
+    if(box.querySelector('.add-widget'))return;
+    const pageId=page.id;
+    nodes=[button('+ Add widget',()=>pickWidget(state(),kind=>{
+      const latest=state(),target=latest.pages.find(p=>p.id===pageId);
+      const i=target?.slots.findIndex(item=>item.id===s.id)??-1;
+      if(i>=0){target.slots[i]=assignWidget(latest,kind);save(latest)}
+      mount();
+    }),'add-widget')];
+  }
   else {const src=config.sources.find(x=>x.id===s.source);nodes=src?remote(t,src,custom):[sub('Choose a connection in Layouts'),button('Settings',()=>invoke('open_settings'))]}
   const offsets=[box,...box.querySelectorAll('.list,.poster-grid')].map(n=>n.scrollTop);
   box.replaceChildren(el('h2','',title),...nodes);
@@ -128,10 +139,12 @@ function mount(){
 }
 function switchPage(next){activate(next);mount();if($('#picker').open)$('#picker').close()}
 $('#pages').onclick=()=>{const l=$('#page-list');l.replaceChildren(...config.pages.map(p=>button(p.name,()=>switchPage(p),page.id===p.id?'selected':'')));$('#picker').showModal()};
+$('#add-page').onclick=()=>{const latest=state();const added=appendPage(latest);save(latest);switchPage(added)};
 $('#dismiss').onclick=()=>$('#picker').close();$('#settings').onclick=()=>invoke('open_settings');
-let down;window.addEventListener('edgetouch',({detail:d})=>{if(d.kind==='down')down=d.x;if(d.kind==='up'&&down<=40&&d.x-down>70){switchPage(config.pages[(config.pages.findIndex(p=>p.id===page.id)+1)%config.pages.length])}});
+let down;window.addEventListener('edgetouch',({detail:d})=>{if(document.querySelector('dialog[open]')){down=undefined;return}if(d.kind==='down')down=d.x;if(d.kind==='up'&&down<=40&&d.x-down>70){switchPage(config.pages[(config.pages.findIndex(p=>p.id===page.id)+1)%config.pages.length])}});
 window.addEventListener('storage',e=>{if(['edge-workbench.layout.v1','edge.current'].includes(e.key))mount()});
 mount();
+importConnections().then(result=>{if(result)mount()}).catch(()=>{});
 async function tick(){
   if(!document.hidden){try{metrics=await invoke('read_metrics')||{}}catch{}sample++;const seen=new Set();for(const t of tiles){t.seen=seen;if(!t.box.querySelector('.edge-pressed')&&!t.box.matches(':active'))renderTile(t)}$('#time').textContent=clockText()}
   timer=setTimeout(tick,1000);
