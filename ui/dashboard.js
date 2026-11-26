@@ -217,7 +217,7 @@ function mount(){
       tile.slot=next;
     });
     if(!view){
-      const grid=el('div','tile-grid');
+      const grid=el('div','tile-grid');grid.dataset.page=p.id;
       const instances=p.slots.map(slot=>({slot,pageId:p.id,box:el('article','tile')}));
       grid.hidden=p.id!==page.id;grid.append(...instances.map(t=>t.box));$('#tiles').append(grid);
       view={grid,tiles:instances,signature};mountedPages.set(p.id,view);
