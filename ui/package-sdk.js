@@ -49,6 +49,9 @@
     if (latest) callback(latest);
     return () => dataListeners.delete(callback);
   };
+  // The name to show for this placement's server: the user's name for the
+  // connection, else the name the server reports, else the address's host.
+  api.displayName = serverName => state.displayName || String(serverName || state.serverName || '').trim() || state.host || '';
   // Run an action the manifest declares, with values for its {placeholders}.
   api.action = (id, args = {}) => api.command('action', {id, args});
   window.Dashledge = api;

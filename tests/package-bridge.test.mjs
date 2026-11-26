@@ -27,7 +27,7 @@ test('a frame gets its state when its SDK is ready', async () => {
   await settle();
   const [message] = posted.at(-1);
   assert.equal(message.type, 'state');
-  assert.deepEqual(message.state, {instanceID: 'omlx-dashboard@v1', touchMode: false, displayName: '',
+  assert.deepEqual(message.state, {instanceID: 'omlx-dashboard@v1', touchMode: false, displayName: '', serverName: '', host: '',
     theme: {mode: 'dark', primary: '#111111', accent: '#222222'}});
   assert.equal(packageState({viewer: 'x', displayName: 'Tower'}).displayName, 'Tower');
 });
@@ -91,5 +91,18 @@ test('package data reaches the frame once its SDK is ready, and only declared ac
   await handleMessage(entry, {type: 'command', id: 2, name: 'action', args: {id: 'reboot'}});
   assert.equal(calls.length, before);
   assert.equal(posted.at(-1)[0].error, 'Unknown widget command');
+  unregister();
+});
+
+test('a package’s server name is read from its data and sent with its state', async () => {
+  const {frame, posted, load} = fakeFrame();
+  const unregister = registerFrame(frame, {viewer: 'v6', feed: 'pkg-2', host: 'hub.local', serverField: 'info.value.location_name'});
+  load();
+  window.dispatchEvent(Object.assign(new Event('message'), {source: frame.contentWindow, data: {dashledge: 1, type: 'ready'}}));
+  await settle();
+  unregister.deliver({rev: 1, data: {info: {value: {location_name: 'Home'}}}, error: null});
+  const state = posted.map(([m]) => m).filter(m => m.type === 'state').at(-1).state;
+  assert.equal(state.serverName, 'Home');
+  assert.equal(state.host, 'hub.local');
   unregister();
 });

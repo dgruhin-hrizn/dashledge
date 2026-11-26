@@ -84,6 +84,7 @@ export function packageEntry(info){
   }
   if(info.view?.viewport==='native')entry.viewport='native';
   if(info.actions?.length)entry.actions=info.actions.map(a=>a.id);
+  if(info.displayName?.serverField)entry.serverField=info.displayName.serverField;
   return entry;
 }
 export function recordPackage(config,info){

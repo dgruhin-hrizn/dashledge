@@ -9,6 +9,7 @@ import {editPhotos} from './photos.js';
 import {editShortcuts,shortcutPins} from './mac-shortcuts.js';
 import {catalogGroups,widgetInfo,installed,connectionsFor,defaultSource,useDefault,placements,removeWidget,recordPackage} from './widget-catalog.js';
 import {permissionSummary} from './package-manifest.js';
+import {connectionLabel} from './display-name.js';
 import {general,loadGeneral,updateGeneral,fitDashboard} from './general.js';
 import {icon} from './admin-icons.js';
 import {appendPage,assignWidget,pickWidget} from './page-actions.js';
@@ -138,7 +139,7 @@ function layouts(){
   inspectorTitle.classList.add('inspector-title');inspector.append(inspectorTitle);
   if(Object.hasOwn(sourceNames,feed)){
     const matching=connectionsFor(config,s.kind);
-    inspector.append(field('Connection',select([['','Choose connection'],...matching.map(x=>[x.id,x.name])],s.source,x=>change(()=>s.source=x))),button('Widget settings',()=>widgetSettings(s.kind)));
+    inspector.append(field('Connection',select([['','Choose connection'],...matching.map(x=>[x.id,connectionLabel(x)])],s.source,x=>change(()=>s.source=x))),button('Widget settings',()=>widgetSettings(s.kind)));
   }
   if(slackWidgets[s.kind]?.field){
     const spec=slackWidgets[s.kind],control=input(s.slackTarget||'');control.placeholder=spec.hint;control.maxLength=512;
@@ -202,7 +203,7 @@ function syncSourceTables(){
 syncSourceTables();
 function sourceForm(widget,existing){
   const kind=widgetInfo(config,widget).feed,name=input(existing?.name),address=input(existing?.address,'url'),secret=input('','password');
-  name.required=address.required=true;secret.autocomplete='new-password';secret.placeholder=existing?'Leave blank to keep saved credential':'Optional';
+  address.required=true;name.placeholder='Automatic (from server)';name.maxLength=60;secret.autocomplete='new-password';secret.placeholder=existing?'Leave blank to keep saved credential':'Optional';
   const addressField=field('',address),secretField=field('',secret);
   const describe=()=>{const [label,hint,credential]=sourceHelp[kind];addressField.firstChild.textContent=label;address.placeholder=hint;secretField.firstChild.textContent=credential};
   describe();
@@ -212,7 +213,6 @@ function sourceForm(widget,existing){
     if(existing?.widgets)obj.widgets=existing.widgets;
     if(existing?.owner||(!existing&&kind==='json'))obj.owner=existing?.owner||widget;
     if(existing?.gpuGuests&&existing.kind===obj.kind&&existing.address===obj.address)obj.gpuGuests=existing.gpuGuests;
-    if(!obj.name)throw Error('Enter a connection name');
     if(secret.value)await invoke('set_secret',{kind:obj.kind,address:obj.address,secret:secret.value});
     change(()=>{if(existing)config.sources[config.sources.findIndex(item=>item.id===existing.id)]=obj;else config.sources.push(obj);
       if(connectionsFor(config,widget).length===1)useDefault(config,widget,obj.id);
@@ -236,17 +236,17 @@ function connections(widget){
   tools.append(toggle,actions);
   if(widgetInfo(config,widget).feed==='json'){
     const legacy=config.sources.filter(s=>s.kind==='json'&&!s.owner&&!matching.some(m=>m.id===s.id));
-    if(legacy.length)sources.append(field('Link a saved endpoint',select([['','Choose an endpoint'],...legacy.map(s=>[s.id,s.name])],'',id=>{
+    if(legacy.length)sources.append(field('Link a saved endpoint',select([['','Choose an endpoint'],...legacy.map(s=>[s.id,connectionLabel(s)])],'',id=>{
       const source=legacy.find(s=>s.id===id);if(!source)return;
       change(()=>{source.widgets=[...new Set([...(source.widgets||[]),widget])];if(!matching.length)useDefault(config,widget,id)},false);
     })));
   }
   if(!matching.length)sources.append(el('p','empty-info','Add a server to connect this widget.'));
-  if(matching.length>1)sources.append(field('Default connection',select(matching.map(s=>[s.id,s.name]),defaultSource(config,widget),id=>change(()=>useDefault(config,widget,id),false))));
+  if(matching.length>1)sources.append(field('Default connection',select(matching.map(s=>[s.id,connectionLabel(s)]),defaultSource(config,widget),id=>change(()=>useDefault(config,widget,id),false))));
   for(const s of matching){
     const line=el('div','service-row'),details=el('div','service-identity'),health=el('small','service-health'),actions=el('div','service-actions');
     const endpointKey=s.kind+'|'+s.address;health.textContent=sourcesStatus.get(endpointKey)||'';
-    details.append(el('strong','',s.name),el('code','endpoint',s.address));
+    details.append(el('strong','',connectionLabel(s)),s.name?.trim()?'':el('small','sub','Name from server'),el('code','endpoint',s.address));
     if(s.gpuGuests)details.append(el('small','',Object.keys(s.gpuGuests).length+' saved guest SSH mappings'));
     const test=button('Test',async()=>{
       test.disabled=true;health.textContent='Testing…';
@@ -254,12 +254,12 @@ function connections(widget){
       catch(e){health.textContent=String(e)}finally{sourcesStatus.set(endpointKey,health.textContent);test.disabled=false}
     });
     const menu=el('details','service-menu'),summary=el('summary','','•••');
-    summary.setAttribute('aria-label','Options for '+s.name);
+    summary.setAttribute('aria-label','Options for '+connectionLabel(s));
     const recover=button('Recover previous credential',async()=>{
       try{await invoke('recover_credential',{kind:s.kind,address:s.address});notice('Previous credential recovered')}catch(e){notice(String(e))}
       menu.open=false;
     });
-    menu.append(summary,row(button('Edit',()=>sourceForm(widget,s)),recover,button('Remove',()=>formDialog('Remove '+s.name+'?',[el('p','','Widgets using this connection can be reconnected in Pages & layouts.')],async()=>{
+    menu.append(summary,row(button('Edit',()=>sourceForm(widget,s)),recover,button('Remove',()=>formDialog('Remove '+connectionLabel(s)+'?',[el('p','','Widgets using this connection can be reconnected in Pages & layouts.')],async()=>{
       if(!config.sources.some(other=>other.id!==s.id&&other.kind===s.kind&&((other.kind==='json'?other.address:other.address.replace(/\/+$/,''))===(s.kind==='json'?s.address:s.address.replace(/\/+$/,'')))))await invoke('set_secret',{kind:s.kind,address:s.address,secret:''});
       change(()=>{config.sources=config.sources.filter(x=>x.id!==s.id);
         for(const [kind,id] of Object.entries(config.widgetDefaults||{}))if(id===s.id)delete config.widgetDefaults[kind];
