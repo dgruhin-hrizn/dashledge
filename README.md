@@ -75,14 +75,15 @@ npm ci
 npm run dev
 ```
 
-Run `npm test` for the JavaScript and Rust suites. To prepare a macOS bundle and sign it in a separate Terminal session:
+Develop each widget in its own Git worktree and branch from the latest `origin/main`. Test it there and open one pull request per widget targeting `main`. Once all widget PRs for the release have merged, sync a clean `main` checkout and run the following commands. You can run the signing step in a separate Mac Terminal session.
 
 ```sh
+npm test
 ./scripts/package-mac.sh --prepare-only
 ./scripts/sign-mac.sh "$PWD/dist/Dashledge.app"
 ```
 
-The signing script signs the app and its bundled runtime, verifies them, creates the release ZIP, and installs and opens the app. If you built in a feature-specific output directory, pass the path to that directory’s app. For a personal build with a bundled Run-DMD card, set `RUNDMD_IMAGE` to your card image when preparing the bundle.
+The signing script signs the app and its bundled runtime, verifies them, creates the release ZIP, and installs and opens the app. If you built in a custom output directory, pass the path to that directory’s app. For a personal build with a bundled Run-DMD card, set `RUNDMD_IMAGE` to your card image when preparing the bundle.
 
 ## Upstream credit
 

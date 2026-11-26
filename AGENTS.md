@@ -1,14 +1,20 @@
+# Widget development
+
+For each new widget or update to an existing widget, create a dedicated branch and Git worktree from the latest `origin/main`. Implement and test that widget in its worktree, then push the branch and open one pull request targeting `main`.
+
+Merge every widget PR intended for a release before signing. Sync a clean `main` checkout to the merged revision, run `npm test`, and prepare a fresh app from that checkout. Sign and release that build.
+
 # Dashledge macOS builds
 
 Test the changes and prepare the integrated app with `scripts/package-mac.sh --prepare-only`. Use the build's actual output directory and preserve the user's bundled Run-DMD card when preparing their personal build.
 
-For signing and installation, use the repository's `scripts/sign-mac.sh` with the absolute path of the prepared app. The Spotify workflow uses this Mac Terminal command:
+For signing and installation, use the repository's `scripts/sign-mac.sh` with the absolute path of the prepared app. For the default output directory, run this command in Mac Terminal.
 
 ```sh
-~/edge-workbench/scripts/sign-mac.sh "$HOME/edge-workbench/dist/spotify-touch-keyboard/Dashledge.app"
+~/edge-workbench/scripts/sign-mac.sh "$HOME/edge-workbench/dist/Dashledge.app"
 ```
 
-Substitute the actual feature output directory for each build. The script uses the HORIZN INC Developer ID, signs and verifies the bundled Node runtime and app, writes the ZIP, installs into /Applications, and relaunches Dashledge.
+Use the actual output directory of the merged build. The script uses the HORIZN INC Developer ID, signs and verifies the bundled Node runtime and app, writes the ZIP, installs into /Applications, and relaunches Dashledge.
 
 If the build shell cannot access the Developer ID, leave the prepared app ready and provide the single pasteable command for the user's Mac Terminal. An ad-hoc signature does not complete this workflow. Confirm the installer reported `Installed and opened /Applications/Dashledge.app` before reporting success.
 
