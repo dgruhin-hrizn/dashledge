@@ -67,6 +67,9 @@ pub fn invalidate(kind: &str, base: &reqwest::Url) {
                 .any(|s| endpoint(&s.address).as_ref() == Ok(base))
     });
 }
+pub fn restart_markets() {
+    FEEDS.lock().unwrap().retain(|_, feed| feed.kind != "markets");
+}
 pub fn shutdown() {
     FEEDS.lock().unwrap().clear();
 }
@@ -92,11 +95,12 @@ fn assets(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf), String> {
 fn launch(kind: &str, sources: &[Source], assets: &Path, node: &Path) -> Result<Feed, String> {
     let entry = match kind {
         "comfy" | "emby" | "unraid" => "capture.mjs",
-        "omlx" | "proxmox" => "collect.mjs",
+        "omlx" | "proxmox" | "markets" => "collect.mjs",
         "ember" => "collector.mjs",
         _ => return Err("Unknown widget".into()),
     };
     let mut settings = Vec::new();
+    if kind == "markets" { settings.push(crate::markets::credentials()?); }
     for source in sources {
         let base = endpoint(&source.address)?;
         let (key, ca) = widget_credentials(kind, &base)?;
@@ -156,7 +160,7 @@ pub async fn widget_open(
     viewer: String,
 ) -> Result<String, String> {
     let count = match kind.as_str() {
-        "ember" => 0..=0,
+        "ember" | "markets" => 0..=0,
         "comfy" => 1..=2,
         "omlx" => 1..=20,
         "emby" | "unraid" | "proxmox" => 1..=1,
@@ -235,6 +239,7 @@ fn resource(id: &str, path: &str) -> Option<(Vec<u8>, &'static str)> {
     let feeds = FEEDS.lock().unwrap();
     let feed = feeds.get(id)?;
     let root = match parts.as_slice() {
+        ["market.json"] if feed.kind == "markets" => feed.directory.path(),
         ["snapshot.js"] | ["revision.js"] => feed.directory.path(),
         ["art" | "previews", file] if file.ends_with(".jpg") => feed.directory.path(),
         ["container-icons", file] if file.ends_with("-icon.png") => feed.directory.path(),
@@ -242,6 +247,7 @@ fn resource(id: &str, path: &str) -> Option<(Vec<u8>, &'static str)> {
         _ => return None,
     };
     let mime = match Path::new(path).extension()?.to_str()? {
+        "json" => "application/json",
         "html" => "text/html; charset=utf-8",
         "css" => "text/css",
         "js" => "text/javascript",

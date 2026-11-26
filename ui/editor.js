@@ -2,6 +2,7 @@ import {slackSettings,takeSlackSetup} from './slack.js';
 import {slackWidgets,slackTarget} from './slack-catalog.js';
 import {googleSettings,takeGoogleSetup} from './google-desk.js';
 import {mountDmd} from './rundmd/player.js';
+import {marketConnection,marketPicker} from './markets.js';
 import {editPhotos} from './photos.js';
 import {editShortcuts,shortcutPins} from './mac-shortcuts.js';
 import {categories,widgetInfo,installed,connectionsFor,defaultSource,useDefault,placements,removeWidget} from './widget-catalog.js';
@@ -140,6 +141,7 @@ function layouts(){
       change(()=>s.slackTarget=control.value.trim());
     }));
   }
+  if(s.kind==='markets')inspector.append(field('Featured symbol',marketPicker(s.marketSymbol,marketSymbol=>change(()=>s.marketSymbol=marketSymbol))));
   if(s.kind==='photos')inspector.append(button('Configure photos',()=>configureSection(p,index,'photos')));
   if(s.kind==='shortcuts'){
     const items=shortcutPins(s);
@@ -274,6 +276,7 @@ function widgetDetail(kind){
       value=>localStorage.setItem('edge.'+kind+'.spectrum',value));
     main.append(panel('Appearance',field('Disc behind the album cover',disc),field('Playback bar spectrum',spectrum)));
   }
+  if(kind==='markets')main.append(panel('Alpaca market data',marketConnection()));
   if(slackWidgets[kind])main.append(panel('Slack workspace',slackSettings()));
   if(['photos','shortcuts'].includes(kind)){
     const spaces=config.pages.flatMap(p=>p.slots.flatMap((s,i)=>s.kind==='empty'?[[s.id,p.name+' · Section '+(i+1)]]:[]));
@@ -466,8 +469,8 @@ function syncEditor(){
 }
 window.addEventListener('storage',e=>{if(e.key==='edge-workbench.layout.v1')syncEditor()});
 window.addEventListener('storage',e=>{if(e.key==='edge.google.setup'&&takeGoogleSetup())widgetSettings('googledesk')});
-function openSlackSetup(){const kind=takeSlackSetup();if(kind)widgetSettings(kind);return !!kind}
-window.addEventListener('storage',e=>{if(e.key==='edge.slack.setup')openSlackSetup()});
+function openSlackSetup(){if(localStorage.getItem("edge.market.setup")){localStorage.removeItem("edge.market.setup");widgetSettings("markets");return true}const kind=takeSlackSetup();if(kind)widgetSettings(kind);return !!kind}
+window.addEventListener('storage',e=>{if(['edge.market.setup','edge.slack.setup'].includes(e.key))openSlackSetup()});
 if(!openSlackSetup()){if(takeGoogleSetup())widgetSettings('googledesk');else render()}
 invoke('plugin:app|version').then(version=>{document.querySelector('#app-version').textContent='Version '+version}).catch(()=>{});
 loadGeneral().then(()=>{if(tab==='General'||tab==='Layouts')render();automaticUpdates()}).catch(e=>notice(String(e)));

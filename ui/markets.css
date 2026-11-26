@@ -1,0 +1,15 @@
+.dashboard .tile.market-watch{container-type:size;display:grid;grid-template-columns:minmax(0,1.9fr) minmax(0,1fr);padding:0;gap:0;background:#0d151a;color:#e9f1f2;font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-variant-numeric:tabular-nums;overflow:hidden}
+.full-widget .market-watch{border:0;border-radius:0}
+.mw-main{min-width:0;min-height:0;display:grid;grid-template-rows:auto auto minmax(0,1fr) auto;gap:1.5cqh;padding:4cqh 3.5cqw;background:radial-gradient(ellipse at top left,#173138 0,transparent 65%)}
+.mw-main header{display:flex;align-items:baseline;gap:.7em}.mw-main header strong{font-size:clamp(15px,3.5cqh,27px);color:#bac7cf}.mw-ticker{font-weight:750;letter-spacing:.05em;font-size:clamp(20px,5.8cqh,44px)}
+.mw-hero{display:flex;flex-wrap:wrap;gap:.3em .75em;align-items:baseline}
+.mw-price{font-size:clamp(32px,min(7cqw,15cqh),114px);letter-spacing:-.055em;line-height:1.1}
+.mw-change{font-size:clamp(15px,4cqh,32px);font-weight:600}.mw-chart{width:100%;height:100%;min-height:0}
+.mw-main footer{display:flex;align-items:center;gap:.75em;flex-wrap:wrap;font-size:clamp(13px,2.8cqh,22px);color:#b5c3c8}.mw-main footer b{color:#9ce6d3}
+.mw-rail{display:flex;flex-direction:column;min-height:0;padding:3cqh 1.8cqw;background:#111d23;border-left:1px solid #35424a}
+.mw-controls,.mw-rows button{display:flex;align-items:center;justify-content:space-between;gap:.55em}.mw-controls select,.market-watch button{min-width:44px;min-height:44px}
+.mw-controls h2{font-size:clamp(16px,4cqh,29px);color:#e9f1f2;text-transform:none;letter-spacing:-.02em}
+.mw-rows{overflow:auto;margin-top:1.6cqh}.mw-rows button{width:100%;border:0;border-radius:0;border-bottom:1px solid #334149;background:transparent;color:#dee9eb;text-align:left;padding:.5em .6em;font-size:clamp(15px,3.55cqh,28px)}.mw-rows button[aria-pressed=true]{background:#203639;box-shadow:inset 3px 0 #8ae9c7}
+.mw-rows canvas{width:28%;height:1.15em}.market-watch :focus-visible{outline:2px solid #92f0d4;outline-offset:-2px}.market-watch [hidden]{display:none}
+@container(max-width:720px){.mw-rail{padding:0;border:0;background:transparent;position:absolute;right:8px;top:8px}.mw-controls h2,.mw-rows{display:none}.mw-main{grid-column:1/-1}.mw-main header{padding-right:84px}.mw-main header strong{display:none}}
+.mw-main[data-direction=down]{background:radial-gradient(ellipse at top left,#32242a 0,transparent 65%)}

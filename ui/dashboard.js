@@ -1,3 +1,4 @@
+import {mountMarkets} from './markets.js';
 import {mountPhotos,editPhotos} from './photos.js';
 import {mountShortcuts,editShortcuts} from './mac-shortcuts.js';
 import {renderSlack} from './slack.js';
@@ -79,6 +80,7 @@ function renderTile(t){
   if(slackWidgets[kind]){renderSlack(box,s);return}
   if(kind==='applemusic'){renderAppleMusic(box);return}
   if(kind==='googledesk'){renderGoogle(box,s.id);return}
+  if(kind==='markets'){t.dispose??=mountMarkets(box,s,marketSymbol=>saveSection(t,kind,{marketSymbol}));return}
   if(kind==='photos'){t.dispose??=mountPhotos(box,s,photoDisplay=>saveSection(t,'photos',{photoDisplay}));return}
   if(kind==='shortcuts'){t.dispose??=mountShortcuts(box,s,items=>saveSection(t,'shortcuts',{shortcutPins:items}));return}
   if(kind==='spotify'){renderSpotify(box);return}
@@ -135,10 +137,10 @@ function mount(){
   config=state();page=current(config);
   $('#tiles').setAttribute('aria-label',page.name);
   const soloKind=page.slots.length===1?page.slots[0].kind:null;
-  document.body.classList.toggle('full-widget',['spotify','applemusic','googledesk','shortcuts','photos'].includes(soloKind)||!!slackWidgets[soloKind]||soloKind==='rundmd'||originalKinds.includes(soloKind));
+  document.body.classList.toggle('full-widget',['spotify','applemusic','googledesk','shortcuts','photos','markets'].includes(soloKind)||!!slackWidgets[soloKind]||soloKind==='rundmd'||originalKinds.includes(soloKind));
   const frame=window.frameElement;
   if(frame){
-    const music=['spotify','applemusic'].includes(soloKind),native=['applemusic','ember','googledesk','shortcuts','photos'].includes(soloKind)||!!slackWidgets[soloKind];
+    const music=['spotify','applemusic'].includes(soloKind),native=['applemusic','ember','googledesk','shortcuts','photos','markets'].includes(soloKind)||!!slackWidgets[soloKind];
     if(frame.hasAttribute('data-full-spotify')!==music||frame.hasAttribute('data-native-viewport')!==native){
       frame.toggleAttribute('data-full-spotify',music);
       frame.toggleAttribute('data-native-viewport',native);
