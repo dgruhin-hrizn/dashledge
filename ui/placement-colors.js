@@ -5,7 +5,8 @@ const HEX = /^#[0-9a-f]{6}$/i;
 const clean = value => typeof value === 'string' && HEX.test(value) ? value.toLowerCase() : null;
 
 // Built-in widgets with a palette of their own (artwork, brand or provider colours).
-const ownPalette = new Set(['applemusic', 'spotify', 'plans', 'markets', 'photos', 'shortcuts', 'rundmd', 'empty']);
+// Mail & Calendar colours each pane itself, so General and an override can't reach it.
+const ownPalette = new Set(['applemusic', 'spotify', 'plans', 'markets', 'photos', 'shortcuts', 'rundmd', 'googledesk', 'empty']);
 
 // Does this widget follow the General colours, and so take a per-placement override?
 // Packages say so in their manifest (`view.theme`); built-in tiles follow them unless
