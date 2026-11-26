@@ -66,7 +66,7 @@ function readingTime(a,now){
   const mins=Math.max(0,Math.floor((now-a.at)/60000));
   return mins<1?'Updated just now':mins<60?'Updated '+mins+'m ago':mins<1440?'Updated '+Math.floor(mins/60)+'h ago':'Updated '+Math.floor(mins/1440)+'d ago';
 }
-function guidance(a){return a.provider==='Claude'?'Open Ember or sign in to Claude Code on this Mac.':'Sign in to Codex with your ChatGPT account on this Mac.';}
+function guidance(a){return a.message || (a.provider==='Claude'?'Sign in to Claude Code with your Claude subscription.':'Sign in to Codex with your ChatGPT account on this Mac.');}
 function metric(w,now){
   const row=el('div','pm-window'),labels=el('div','pm-window-label');
   const live=valid(w,now),bar=el('div','pm-track');
@@ -82,6 +82,7 @@ function details(a,alias,onConfigure){
   const draw=()=>{
     const item=accounts().find(row=>row.id===a.id)||a,now=Date.now();
     body.replaceChildren(el('p','',(item.source||item.provider)+' · '+readingTime(item,now)));
+    if(item.message && item.windows.length)body.append(el('p','',item.message));
     for(const w of item.windows){
       body.append(metric(w,now));
       if(w.reset)body.append(el('small','', 'Reset · '+new Date(w.reset).toLocaleString()));

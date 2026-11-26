@@ -16,6 +16,11 @@ if [[ -z "$identity" ]]; then
 fi
 timestamp=--timestamp
 if [[ "$identity" == '-' ]]; then timestamp=--timestamp=none; fi
+if [[ -d "$contents/Resources/runtime/plan-sdks/python" ]]; then
+  while IFS= read -r -d '' binary; do
+    /usr/bin/codesign --force --options runtime "$timestamp" --sign "$identity" "$binary"
+  done < <(find "$contents/Resources/runtime/plan-sdks/python" -type f \( -name '*.so' -o -name '*.dylib' -o -name python3 \) -print0)
+fi
 /usr/bin/codesign --force --options runtime "$timestamp" --entitlements "$project/src-tauri/WidgetRuntime.entitlements" --sign "$identity" "$contents/Resources/runtime/node"
 /usr/bin/codesign --force --options runtime "$timestamp" --entitlements "$project/src-tauri/Entitlements.plist" --sign "$identity" "$bundle"
 /usr/bin/codesign --verify --strict --deep "$bundle"
