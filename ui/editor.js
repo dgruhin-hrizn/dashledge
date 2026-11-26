@@ -53,6 +53,7 @@ function formDialog(title,fields,apply,submitLabel='Save'){
   d.append(f);document.body.append(d);d.onclose=()=>d.remove();
   f.onsubmit=async e=>{e.preventDefault();ok.disabled=true;try{await apply();d.close()}catch(e){error.textContent=e.message||String(e)}finally{ok.disabled=false}};
   d.showModal();
+  return d;
 }
 function nameDialog(title,value,cb){const n=input(value);n.required=true;n.maxLength=60;formDialog(title,[field('Name',n)],()=>{if(!n.value.trim())throw Error('Enter a name');cb(n.value.trim())})}
 function pageControls(p){
@@ -229,7 +230,7 @@ function sourceForm(widget,existing){
   const extra=kind==='comfy'?[el('p','sub','GPU load comes from the Crystools node when it’s installed, or from this Mac when ComfyUI runs here. Otherwise add SSH access to the worker.'),field('GPU telemetry over SSH',sshTarget),field('SSH key file',sshKey)]:[];
   const proxmox=kind==='proxmox'?proxmoxFields(existing):null;
   if(proxmox)extra.push(...proxmox.nodes);
-  formDialog(existing?'Edit connection':'Add connection',[field('Connection name',name),addressField,secretField,...extra],async()=>{
+  const dialog=formDialog(existing?'Edit connection':'Add connection',[field('Connection name',name),addressField,secretField,...extra],async()=>{
     const u=new URL(address.value);if(!['http:','https:'].includes(u.protocol)||u.username||u.password||u.search||u.hash)throw Error('Use an HTTP(S) URL without embedded credentials or query');
     const obj={id:existing?.id||id(),name:name.value.trim(),kind,address:u.href};
     if(existing?.widgets)obj.widgets=existing.widgets;
@@ -247,7 +248,8 @@ function sourceForm(widget,existing){
     change(()=>{if(existing)config.sources[config.sources.findIndex(item=>item.id===existing.id)]=obj;else config.sources.push(obj);
       if(connectionsFor(config,widget).length===1)useDefault(config,widget,obj.id);
     },false);
-  })
+  });
+  if(extra.length)dialog.classList.add('wide-dialog');
 }
 // Proxmox connection extras: the GPU guests Dashledge reads over SSH, and the CA
 // certificate for a self-signed cluster. Both apply only when the form is saved.
@@ -271,7 +273,7 @@ function proxmoxFields(existing){
 
   // CA certificate: paste PEM text or choose a file. Saving an empty field keeps the saved one.
   const pem=el('textarea');pem.rows=4;pem.placeholder='-----BEGIN CERTIFICATE-----';pem.spellcheck=false;
-  const status=el('small','sub',existing?'Checking for a saved certificate…':'No certificate. Proxmox must use a publicly trusted one.');
+  const status=el('small','sub certificate-status',existing?'Checking for a saved certificate…':'No certificate. Proxmox must use a publicly trusted one.');
   const file=input('','file');file.accept='.pem,.crt,.cer';file.hidden=true;
   file.onchange=async()=>{const f=file.files[0];if(f&&f.size<=65536){pem.value=await f.text();remove=false;status.textContent='Selected '+f.name+'. Save to use it.'}else if(f)notice('Certificate files must be 64 KiB or smaller.');file.value=''};
   let remove=false,saved=null;
