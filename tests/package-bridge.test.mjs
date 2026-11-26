@@ -32,6 +32,25 @@ test('a frame gets its state when its SDK is ready', async () => {
   assert.equal(packageState({viewer: 'x', displayName: 'Tower'}).displayName, 'Tower');
 });
 
+test('a view that says ready before its frame loads still gets its state and live colours', async () => {
+  // The real order: the SDK posts `ready` from <head>, then the frame's load event fires.
+  const {frame, posted, load} = fakeFrame();
+  const unregister = registerFrame(frame, {viewer: 'v-early', feed: 'f-early', native: true, colors: {accent: '#33aaff'}});
+  window.dispatchEvent(Object.assign(new Event('message'), {source: frame.contentWindow, data: {dashledge: 1, type: 'ready'}}));
+  await settle();
+  assert.equal(posted.at(-1)?.[0].type, 'state', 'ready is answered before load');
+  assert.equal(posted.at(-1)[0].state.theme.accent, '#33aaff');
+  assert.equal(posted.at(-1)[0].state.viewport, 'native');
+  load();
+  const count = posted.length;
+  unregister.colors({accent: '#ff8fb1'});
+  assert.equal(posted.length, count + 1, 'load does not undo readiness');
+  assert.equal(posted.at(-1)[0].state.theme.accent, '#ff8fb1');
+  assert.ok(isPackageWindow(frame.contentWindow));
+  unregister();
+  assert.ok(!isPackageWindow(frame.contentWindow));
+});
+
 test('messages from windows that are not registered package frames are ignored', async () => {
   const before = calls.length;
   const stranger = {postMessage() { throw Error('should not reply'); }};
