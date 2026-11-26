@@ -15,6 +15,26 @@ pub(crate) fn endpoint(raw: &str) -> Result<Url, String> {
     }
     Ok(url)
 }
+/// The base URL a widget's requests start from, for Test and the widget alike.
+/// `address: origin` keeps only the scheme, host and port; `path` keeps the path as a
+/// directory, so routes join beneath a reverse-proxy prefix. Saved credentials stay
+/// keyed by `endpoint(address)`.
+pub(crate) fn resolve(kind: &str, address: &str) -> Result<Url, String> {
+    let mode = crate::package_store::lookup(kind).and_then(|(info, _)| info.manifest.sources.map(|s| s.address));
+    Ok(with_mode(endpoint(address)?, mode))
+}
+fn with_mode(mut url: Url, mode: Option<crate::package_manifest::AddressMode>) -> Url {
+    use crate::package_manifest::AddressMode;
+    match mode {
+        Some(AddressMode::Origin) => url.set_path("/"),
+        Some(AddressMode::Path) if !url.path().ends_with('/') => {
+            let path = format!("{}/", url.path());
+            url.set_path(&path);
+        }
+        _ => {}
+    }
+    url
+}
 pub(crate) fn account_ids(kind: &str, base: &Url) -> Vec<String> {
     let exact = format!("{kind}|{base}");
     // Earlier releases saved bundled widgets' credentials with or without a trailing slash.
@@ -155,8 +175,8 @@ fn auth_for(kind: &str) -> crate::package_manifest::Auth {
         .unwrap_or(crate::package_manifest::Auth::Bearer)
 }
 
-async fn get(kind: &str, base: &Url, path: &str, key: &str) -> Result<Value, String> {
-    let client = service_client(kind, base)?;
+async fn get(kind: &str, account: &Url, base: &Url, path: &str, key: &str) -> Result<Value, String> {
+    let client = service_client(kind, account)?;
     let mut url = base.clone();
     if !path.is_empty() {
         let (route, query) = path
@@ -220,15 +240,17 @@ pub async fn source_read(kind: String, address: String) -> Result<Value, String>
     let key = String::from_utf8(secret_for(&kind, &base)?.unwrap_or_default())
         .map_err(|_| "Invalid credential")?;
     if kind == "json" {
-        return get(&kind, &base, "", &key).await;
+        return get(&kind, &base, &base, "", &key).await;
     }
     let (info, _) = crate::package_store::lookup(&kind).ok_or("Unknown provider")?;
+    // The same base the widget's collector or connector receives.
+    let requests = resolve(&kind, &address)?;
     let routes = info.manifest.sources.map(|s| s.test).unwrap_or_default();
     for route in &routes {
-        get(&kind, &base, route, &key).await?;
+        get(&kind, &base, &requests, route, &key).await?;
     }
     if routes.is_empty() {
-        get(&kind, &base, "", &key).await?;
+        get(&kind, &base, &requests, "", &key).await?;
     }
     Ok(json!({"ok": true, "routes": routes.len().max(1)}))
 }
@@ -236,6 +258,20 @@ pub async fn source_read(kind: String, address: String) -> Result<Value, String>
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn test_and_collectors_resolve_the_same_base() {
+        use crate::package_manifest::AddressMode;
+        let url = |raw: &str| Url::parse(raw).unwrap();
+        assert_eq!(with_mode(url("http://proxy.local/omlx"), Some(AddressMode::Path)).as_str(), "http://proxy.local/omlx/");
+        assert_eq!(with_mode(url("https://pve.local:8006/"), Some(AddressMode::Path)).as_str(), "https://pve.local:8006/");
+        assert_eq!(with_mode(url("http://mac:8000/v1"), Some(AddressMode::Origin)).as_str(), "http://mac:8000/");
+        assert_eq!(with_mode(url("http://x/status.json"), None).as_str(), "http://x/status.json");
+        // Bundled widgets: oMLX and Proxmox keep a reverse-proxy prefix like the rest.
+        assert_eq!(resolve("omlx", "https://proxy.local/omlx").unwrap().as_str(), "https://proxy.local/omlx/");
+        assert_eq!(resolve("proxmox", "https://proxy.local/pve").unwrap().as_str(), "https://proxy.local/pve/");
+        assert_eq!(resolve("emby", "http://media.local:8096/emby").unwrap().as_str(), "http://media.local:8096/emby/");
+        assert_eq!(resolve("json", "http://x/status.json").unwrap().as_str(), "http://x/status.json");
+    }
     #[test]
     fn endpoints_keep_the_service_path_and_reject_embedded_credentials() {
         assert_eq!(

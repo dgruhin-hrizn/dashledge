@@ -7,10 +7,9 @@ import { monitorGPUs } from "./gpu.mjs";
 const attachGPUs = monitorGPUs();
 import { context } from '../../_shared/context.mjs';
 const server = context.sources[0];
-const address = new URL(server.address);
 const split = server.key.indexOf('=');
 const config = {
-  host: address.hostname, port: Number(address.port || 443),
+  address: server.address,
   tokenId: server.key.slice(0, split), secret: server.key.slice(split + 1),
   ca: server.ca || undefined, gpuGuests: server.gpuGuests,
 };

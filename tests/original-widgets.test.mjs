@@ -29,16 +29,16 @@ test('the worker wall and server selector start with the assigned endpoint',()=>
 test('model action uses the selected server, acknowledges the viewer and consumes a tap once',async()=>{
   const dir=await mkdtemp(join(tmpdir(),'workbench-model-'));
   try {
-    const address='http://fixture.test', viewer='omlx-dashboard@fixture';
+    const address='http://fixture.test/', viewer='omlx-dashboard@fixture';
     const tap={id:'f'.repeat(32),at:Date.now(),action:'unload',address,model:'example'};
     const calls=[];
     const controls=await modelControls({state:join(dir,'claims.json'),preferences:()=>({widgetStorage:{[viewer]:{'omlx.modelAction':JSON.stringify(tap)}}}),fetchApi:async(url,options)=>{
       calls.push([url,options.method]);return {status:202,ok:true};
     }});
     const inventory=[{address,canControl:true,models:[{id:'example',loaded:true,controllable:true}]}];
-    await controls.consume([{origin:address}],inventory);
-    await controls.consume([{origin:address}],inventory);
-    assert.deepEqual(calls,[[address+'/admin/api/models/example/unload','POST']]);
+    await controls.consume([{base:address}],inventory);
+    await controls.consume([{base:address}],inventory);
+    assert.deepEqual(calls,[[address+'admin/api/models/example/unload','POST']]);
     assert.equal(controls.receipts()[viewer].id,tap.id);
     assert.equal(controls.receipts()[viewer].status,'success');
   }finally{await rm(dir,{recursive:true,force:true});}

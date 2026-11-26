@@ -1,20 +1,25 @@
+import http from "node:http";
 import https from "node:https";
-import { isIP } from "node:net";
 
-export function endpoint(host, port) {
-  if (typeof host !== "string" || !host || /[\s/@?#\\]/.test(host)) throw Error("Enter a hostname or IP address.");
-  const literal = host.replace(/^\[(.*)\]$/, "$1");
-  if (!isIP(literal) && !/^[a-z\d.-]+$/i.test(host)) throw Error("Enter the host without a protocol or port.");
-  if (!Number.isInteger(port) || port < 1 || port > 65535) throw Error("Port must be 1–65535.");
-  return new URL("https://" + (isIP(literal) === 6 ? "[" + literal + "]" : literal) + ":" + port);
+// The cluster's base address as Dashledge resolved it, the same one Test used. A path
+// (a reverse-proxy prefix) is kept, and API routes join beneath it.
+export function endpoint(address) {
+  let base;
+  try { base = new URL(address); } catch { throw Error("Enter the cluster URL."); }
+  if (!["https:", "http:"].includes(base.protocol) || base.username || base.password || base.search || base.hash)
+    throw Error("Enter the cluster URL without credentials or a query.");
+  if (!base.pathname.endsWith("/")) base.pathname += "/";
+  return base;
 }
+export const apiURL = (base, path) => new URL("api2/json/" + path.replace(/^\/+/, ""), base);
 
 export async function connect(config) {
-  const base = endpoint(config.host, config.port);
+  const base = endpoint(config.address);
   if (typeof config.tokenId !== "string" || typeof config.secret !== "string" || !/^[^\s!=]+@[^\s!=]+![^\s!=]+$/.test(config.tokenId) || !/^[^\s=]+$/.test(config.secret)) throw Error("Check token ID and secret.");
   const ca = config.ca;
   return path => new Promise((resolve, reject) => {
-    const req = https.get(new URL("/api2/json" + path, base), {
+    const client = base.protocol === "http:" ? http : https;
+    const req = client.get(apiURL(base, path), {
       ca, headers:{ Authorization:"PVEAPIToken=" + config.tokenId + "=" + config.secret },
       signal:AbortSignal.timeout(8000)
     }, res => {

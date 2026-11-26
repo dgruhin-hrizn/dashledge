@@ -1,4 +1,5 @@
 import { readFile, rename, rm, writeFile } from "node:fs/promises";
+import { route } from "./address.mjs";
 
 const mailbox = "omlx.modelAction";
 const maxAge = 30_000;
@@ -25,7 +26,7 @@ function valid(command, now) {
 async function post(server, command, fetchApi) {
   try {
     const path = "/admin/api/models/" + encodeURIComponent(command.model) + "/" + command.action;
-    const response = await fetchApi(server.origin + path, {
+    const response = await fetchApi(route(server, path), {
       method: "POST",
       headers: server.key ? { Authorization: "Bearer " + server.key } : {},
       redirect: "error",
@@ -69,7 +70,7 @@ export async function modelControls({ preferences, state, fetchApi = fetch }) {
         continue;
       }
       if (!valid(command, now) || recent.has(command.id)) continue;
-      const server = servers.find(({ origin }) => origin === command.address);
+      const server = servers.find(({ base }) => base === command.address);
       const current = inventory.find(({ address }) => address === command.address);
       const model = current?.models?.find(({ id }) => id === command.model);
       const finish = (result) => results.set(instance, { id: command.id, at: Date.now(), ...result });
@@ -87,16 +88,16 @@ export async function modelControls({ preferences, state, fetchApi = fetch }) {
 
       if (!server || !current?.canControl || !model?.controllable) {
         finish({ status: "error", message: "Model controls unavailable for this server." });
-      } else if (busy.has(server.origin) || model.loading) {
+      } else if (busy.has(server.base) || model.loading) {
         finish({ status: "error", message: "A model action is already in progress." });
       } else if (model.loaded === (command.action === "load")) {
         finish({ status: "success", message: "Model is already " + (model.loaded ? "loaded." : "unloaded.") });
       } else if (command.action === "load" && model.loadFit === false) {
         finish({ status: "error", message: "Not enough memory headroom. Unload a model first." });
       } else {
-        busy.add(server.origin);
+        busy.add(server.base);
         finish({ status: "pending" });
-        void post(server, command, fetchApi).then(finish).finally(() => busy.delete(server.origin));
+        void post(server, command, fetchApi).then(finish).finally(() => busy.delete(server.base));
       }
     }
   }

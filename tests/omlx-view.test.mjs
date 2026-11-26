@@ -26,7 +26,7 @@ test('oMLX sends model actions as the command its manifest declares', async () =
 test('oMLX renders natively with every px size scaled', async () => {
   const manifest = JSON.parse(await read('widget.json'));
   assert.equal(manifest.view.viewport, 'native');
-  assert.equal(manifest.version, '1.4.2');
+  assert.equal(manifest.version, '1.4.3');
   const css = (await read('view/style.css'))
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/calc\(\d*\.?\d+px\*var\(--px-scale,1\)\)/g, '')
