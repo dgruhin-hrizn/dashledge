@@ -1,7 +1,7 @@
 import './helpers/bundled-packages.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {followsColors, placementOverride, placementColors, applyTileColors, writePreview, readPreview, clearPreview, PREVIEW_KEY} from '../ui/placement-colors.js';
+import {followsColors, placementOverride, placementColors, applyTileColors, writePreview, readPreview, clearPreview, PREVIEW_KEY, HIGHLIGHTS, TEXTS} from '../ui/placement-colors.js';
 import {packageInfo} from '../ui/packages.js';
 import {packageEntry} from '../ui/widget-catalog.js';
 
@@ -62,17 +62,28 @@ test('a package view gets its placement colours and live changes', async () => {
   assert.equal(posted.at(-1).state.theme.accent, '#f88d4f', 'back to General');
 });
 
-test('a colour draft previews on one placement until it is cleared', () => {
-  writePreview('slot-a', {primary: null, accent: '#33AAFF'});
+test('a placement draft previews on one placement until it is cleared', () => {
+  writePreview('slot-a', {colors: {primary: null, accent: '#33AAFF'}});
   assert.deepEqual(readPreview(), {slot: 'slot-a', colors: {accent: '#33aaff'}});
-  writePreview('slot-a', {primary: '#edf0e6', accent: null});
+  writePreview('slot-a', {colors: {primary: '#edf0e6', accent: null}});
   assert.deepEqual(readPreview(), {slot: 'slot-a', colors: {primary: '#edf0e6'}}, 'a preview shows even a General colour');
-  writePreview('slot-a', {primary: null, accent: null});
+  writePreview('slot-a', {colors: {primary: null, accent: null}});
   assert.deepEqual(readPreview(), {slot: 'slot-a', colors: null}, 'following General previews no override');
+  writePreview('slot-b', {colors: null, packageSettings: {metric: 'memory', trace: false}});
+  assert.deepEqual(readPreview(), {slot: 'slot-b', colors: null, packageSettings: {metric: 'memory', trace: false}}, 'settings preview with the colours');
+  assert.equal(readPreview(JSON.stringify({slot: 'slot-b', colors: {}, packageSettings: [1], at: Date.now()})).packageSettings, undefined, 'settings must be an object');
   const stale = JSON.stringify({slot: 'slot-a', colors: {accent: '#33aaff'}, at: Date.now() - 11 * 60 * 1000});
   assert.equal(readPreview(stale), null, 'an abandoned preview expires');
   assert.equal(readPreview('not json'), null);
   clearPreview();
   assert.equal(localStorage.getItem(PREVIEW_KEY), null);
   assert.equal(readPreview(), null);
+});
+
+test('the curated palettes are valid colours with names', () => {
+  for (const [name, value] of [...HIGHLIGHTS, ...TEXTS]) {
+    assert.ok(name && /^#[0-9a-f]{6}$/.test(value), name);
+    assert.deepEqual(placementOverride({accent: value}, general), value === general.accent ? null : {accent: value});
+  }
+  assert.equal(new Set(HIGHLIGHTS.map(([, v]) => v)).size, HIGHLIGHTS.length, 'no duplicate swatches');
 });

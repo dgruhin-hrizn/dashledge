@@ -1,8 +1,6 @@
 // Per-placement colours. General settings choose the text and highlight colours every
 // widget follows; a placement may override either for itself, saved on its slot as
 // `colors: {primary?, accent?}`. A missing value keeps following General.
-import {el, button} from './common.js';
-
 const HEX = /^#[0-9a-f]{6}$/i;
 const clean = value => typeof value === 'string' && HEX.test(value) ? value.toLowerCase() : null;
 
@@ -37,20 +35,30 @@ export function placementColors(slot, general = {}) {
   };
 }
 
-// Live preview while the colours editor is open. The settings window writes the
-// draft here; the dashboard shows it on that one placement without saving it, and
-// drops it when the key goes away. A stale preview (editor closed abnormally) expires.
-export const PREVIEW_KEY = 'edge.colorPreview';
+// Curated choices for the placement panel. `null` follows General.
+export const HIGHLIGHTS = [['Lime', '#c4f38f'], ['Mint', '#7ee0b5'], ['Teal', '#4fd1c5'], ['Sky', '#7cc4ff'], ['Iris', '#a99cff'],
+  ['Rose', '#ff8fb1'], ['Coral', '#ff7a6b'], ['Amber', '#ffc566'], ['Sand', '#e2c9a0'], ['Slate', '#9aa7b0']];
+export const TEXTS = [['Warm', '#f6ecd9'], ['Cool', '#e3edf7'], ['Soft', '#b9c2bb']];
+
+// Live preview while a placement is being edited. The settings window writes the
+// draft (colours and package settings) here; the dashboard shows it on that one
+// placement without saving it, and drops it when the key goes away. A stale preview
+// (editor closed abnormally) expires.
+export const PREVIEW_KEY = 'edge.placementPreview';
 const PREVIEW_TTL = 10 * 60 * 1000;
-export function writePreview(slot, colors) {
-  localStorage.setItem(PREVIEW_KEY, JSON.stringify({slot, colors: placementOverride(colors) || {}, at: Date.now()}));
+export function writePreview(slot, {colors = null, packageSettings} = {}) {
+  const value = {slot, colors: placementOverride(colors) || {}, at: Date.now()};
+  if (packageSettings && typeof packageSettings === 'object') value.packageSettings = packageSettings;
+  localStorage.setItem(PREVIEW_KEY, JSON.stringify(value));
 }
 export function clearPreview() { localStorage.removeItem(PREVIEW_KEY); }
 export function readPreview(raw = localStorage.getItem(PREVIEW_KEY), now = Date.now()) {
   try {
     const value = JSON.parse(raw);
     if (typeof value?.slot !== 'string' || !(now - value.at < PREVIEW_TTL)) return null;
-    return {slot: value.slot, colors: placementOverride(value.colors) || null};
+    const out = {slot: value.slot, colors: placementOverride(value.colors) || null};
+    if (value.packageSettings && typeof value.packageSettings === 'object' && !Array.isArray(value.packageSettings)) out.packageSettings = value.packageSettings;
+    return out;
   } catch { return null; }
 }
 
@@ -64,72 +72,4 @@ export function applyTileColors(box, slot) {
     else box.style.removeProperty(name);
   }
   box.toggleAttribute('data-colors', !!(primary || accent));
-}
-
-// The editor: one swatch per colour, each with "Use General", and a live sample.
-// `save(override)` receives null when both follow General again. Resolves with the
-// saved override (or null), or undefined when cancelled.
-export function editPlacementColors({title, value, general, save, preview = () => {}}) {
-  return new Promise(resolve => {
-    const draft = {primary: clean(value?.primary), accent: clean(value?.accent)};
-    let result;
-    const dialog = el('dialog', 'admin-dialog placement-colors');
-    dialog.setAttribute('aria-label', title);
-    const sample = el('div', 'color-sample'), reading = el('strong', '', '72'), unit = el('span', '', '%'), caption = el('small', '', 'CPU load');
-    reading.append(unit);
-    sample.append(caption, reading, el('i'));
-    const rows = el('div', 'color-rows'), status = el('p', 'form-error');
-    status.setAttribute('role', 'alert');
-
-    function paint() {
-      const colors = placementColors({colors: draft}, general);
-      sample.style.setProperty('--sample-text', colors.primary);
-      sample.style.setProperty('--sample-accent', colors.accent);
-      preview({primary: draft.primary, accent: draft.accent});
-    }
-    const pickers = {};
-    for (const [key, label] of [['primary', 'Text'], ['accent', 'Highlight']]) {
-      const picker = el('input'), follow = el('input'), hex = el('code');
-      picker.type = 'color';
-      picker.setAttribute('aria-label', label + ' colour');
-      follow.type = 'checkbox';
-      const sync = () => {
-        const current = draft[key] || general[key];
-        picker.value = current;
-        picker.disabled = !draft[key];
-        follow.checked = !draft[key];
-        hex.textContent = draft[key] ? current : current + ' · General';
-        paint();
-      };
-      pickers[key] = picker;
-      // The Mac's colour panel may report a choice with input or only with change.
-      picker.oninput = picker.onchange = () => { draft[key] = clean(picker.value); sync(); };
-      follow.onchange = () => { draft[key] = follow.checked ? null : clean(picker.value) || general[key]; sync(); };
-      const followLabel = el('label', 'color-follow');
-      followLabel.append(follow, el('span', '', 'Use General'));
-      const row = el('div', 'color-row');
-      row.append(el('span', 'color-name', label), picker, hex, followLabel);
-      rows.append(row);
-      sync();
-    }
-
-    const footer = el('div', 'row form-actions');
-    footer.append(button('Cancel', () => dialog.close()), button('Save', () => {
-      // Read the pickers themselves, in case the colour panel hasn't reported yet.
-      for (const key of ['primary', 'accent']) if (draft[key] && clean(pickers[key].value)) draft[key] = clean(pickers[key].value);
-      const override = placementOverride(draft, general);
-      try {
-        save(override);
-        result = override;
-        dialog.close();
-      } catch (error) {
-        status.textContent = String(error?.message || error);
-      }
-    }, 'primary'));
-    const intro = el('p', 'sub', 'Colours for this placement only. Other placements and widgets keep the General colours.');
-    dialog.append(el('h2', '', title), intro, sample, rows, status, footer);
-    dialog.onclose = () => { preview(undefined); dialog.remove(); resolve(result); };
-    document.body.append(dialog);
-    dialog.showModal();
-  });
 }
