@@ -3,7 +3,7 @@
   "id": "proxmox",
   "title": "Proxmox",
   "description": "Cluster health, virtual machines and GPU telemetry.",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "category": "Servers & storage",
   "icon": "view/icon.svg",
   "view": {
@@ -14,11 +14,11 @@
     "min": 1,
     "max": 1,
     "auth": "pve-token",
-    "address": "origin",
+    "address": "path",
     "test": [
       "api2/json/cluster/resources"
     ],
-    "addressLabel": "Cluster URL",
+    "addressLabel": "Cluster URL (usually port 8006)",
     "addressPlaceholder": "https://pve.local:8006",
     "credentialLabel": "API token ID=secret"
   },

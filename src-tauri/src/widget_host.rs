@@ -2,7 +2,7 @@
 //! Each virtual directory serves the package's view plus only the output files its
 //! manifest declares. Bundled packages come from `widgets/packages/`; Market Watch and
 //! AI Plan Monitor keep their built-in collectors in `widgets/collectors/`.
-use crate::connections::{endpoint, widget_credentials};
+use crate::connections::{endpoint, resolve, widget_credentials};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
@@ -136,8 +136,10 @@ fn launch(kind: &str, sources: &[Source], assets: &Path, node: &Path) -> Result<
     let mut settings = Vec::new();
     if kind == "markets" { settings.push(crate::markets::credentials()?); }
     for source in sources {
-        let base = endpoint(&source.address)?;
-        let (key, ca) = widget_credentials(kind, &base)?;
+        // Credentials are keyed by the address as saved; requests use the resolved base,
+        // the same one Test uses.
+        let (key, ca) = widget_credentials(kind, &endpoint(&source.address)?)?;
+        let base = resolve(kind, &source.address)?;
         settings.push(json!({"address":base.as_str(),"name":source.name,"key":key,"ca":ca,"gpuGuests":source.gpu_guests}));
     }
     let directory = tempfile::Builder::new()

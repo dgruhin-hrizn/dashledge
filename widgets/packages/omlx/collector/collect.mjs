@@ -3,6 +3,7 @@ import { execFile } from "node:child_process";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { modelControls } from "./model-control.mjs";
+import { route } from "./address.mjs";
 
 import { context, preferences } from '../../_shared/context.mjs';
 const interval = 1000;
@@ -11,9 +12,10 @@ const positive = (value) => finite(value) || null;
 const rows = (value) => Array.isArray(value) ? value : [];
 const label = (value) => typeof value === "string" ? value.slice(0, 500) : null;
 
+
 async function request(server, path, fetchJson) {
   try {
-    const response = await fetchJson(server.origin + path, {
+    const response = await fetchJson(route(server, path), {
       headers: server.key ? { Authorization: "Bearer " + server.key } : {},
       redirect: "error",
       signal: AbortSignal.timeout(2500),
@@ -68,7 +70,7 @@ function activityModel(model, activity, wasLoaded) {
 }
 
 export async function pollServer(server, fetchJson = fetch) {
-  const identity = { address: server.origin, name: server.name };
+  const identity = { address: server.base, name: server.name };
   if (server.configurationError) return { ...identity, error: server.configurationError };
   const [statusResponse, modelsResponse, activityResponse] = await Promise.all([
     request(server, "/api/status", fetchJson),
@@ -190,7 +192,8 @@ async function readMacSpecs() {
 
 async function run() {
   const output = join(context.directory, 'snapshot.js');
-  const servers = context.sources.map(s => ({ origin: new URL(s.address).origin, name: s.name, key: s.key }));
+  // Dashledge resolves each address once, so these are the bases Test used.
+  const servers = context.sources.map(s => ({ base: new URL(s.address).href, name: s.name, key: s.key }));
   const mac = await readMacSpecs();
   const previous = new Map();
   const weeks = new Map();
@@ -200,11 +203,11 @@ async function run() {
     for (const [index,result] of results.entries()) {
       if (result.error) continue;
       const server = servers[index];
-      let entry = weeks.get(server.origin);
+      let entry = weeks.get(server.base);
       if (!entry || entry.key !== server.key || Date.now() >= entry.next) {
         // `undefined` until the first fetch lands, so the view can say it is loading.
         entry = {key:server.key, next:Date.now()+60000, data:entry?.key === server.key ? entry?.data : undefined};
-        weeks.set(server.origin,entry);
+        weeks.set(server.base,entry);
         void weeklyUsage(server).then(data => { entry.data = data; });
 
       }
