@@ -1,6 +1,6 @@
 import {writeFile,rename} from 'node:fs/promises';
 import {join} from 'node:path';
-import {context,onWatchlist} from '../context.mjs';
+import {context,onWatchlist} from '../../packages/_shared/context.mjs';
 import {loadArtwork} from './artwork.mjs';
 import {symbols} from './symbols.mjs';
 import {sessionAt,tradingDate,applyTrade} from './session.mjs';

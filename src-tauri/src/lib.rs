@@ -310,6 +310,7 @@ pub fn run() {
         .setup(|app| {
             let _ = APP.set(app.handle().clone());
             general::init(app.handle())?;
+            package_store::init(app.handle())?;
             widget_host::reap_idle(app.handle().clone());
 
             // Example: start sampling CPU / memory / network for system_snapshot.

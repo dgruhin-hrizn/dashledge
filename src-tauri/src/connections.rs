@@ -17,7 +17,8 @@ pub(crate) fn endpoint(raw: &str) -> Result<Url, String> {
 }
 pub(crate) fn account_ids(kind: &str, base: &Url) -> Vec<String> {
     let exact = format!("{kind}|{base}");
-    if base.path() == "/" || !matches!(kind, "emby" | "unraid" | "comfy" | "omlx" | "proxmox") {
+    // Earlier releases saved bundled widgets' credentials with or without a trailing slash.
+    if base.path() == "/" || !crate::package_store::is_bundled(kind) {
         return vec![exact];
     }
     let alternate = if base.as_str().ends_with('/') {
@@ -71,10 +72,8 @@ pub(crate) fn validate_ca(bytes: &[u8]) -> Result<Vec<reqwest::Certificate>, Str
     }
     Ok(certs)
 }
+/// A connection with a saved CA certificate trusts it; others use the system roots.
 fn service_client(kind: &str, base: &Url) -> Result<Client, String> {
-    if kind != "proxmox" {
-        return Ok(http().clone());
-    }
     match crate::vault::get(kind, base)?.ca {
         Some(pem) => {
             let mut builder = Client::builder()
@@ -91,6 +90,13 @@ fn service_client(kind: &str, base: &Url) -> Result<Client, String> {
     }
 }
 
+/// How a connection sends its credential: from its widget's manifest, else a bearer token.
+fn auth_for(kind: &str) -> crate::package_manifest::Auth {
+    crate::package_store::lookup(kind)
+        .and_then(|(info, _)| info.manifest.sources.map(|s| s.auth))
+        .unwrap_or(crate::package_manifest::Auth::Bearer)
+}
+
 async fn get(kind: &str, base: &Url, path: &str, key: &str) -> Result<Value, String> {
     let client = service_client(kind, base)?;
     let mut url = base.clone();
@@ -103,10 +109,12 @@ async fn get(kind: &str, base: &Url, path: &str, key: &str) -> Result<Value, Str
     }
     let mut request = client.get(url);
     if !key.is_empty() {
-        request = match kind {
-            "emby" => request.header("X-Emby-Token", key),
-            "proxmox" => request.header("Authorization", format!("PVEAPIToken={key}")),
-            _ => request.bearer_auth(key),
+        use crate::package_manifest::Auth;
+        request = match auth_for(kind) {
+            Auth::EmbyToken => request.header("X-Emby-Token", key),
+            Auth::PveToken => request.header("Authorization", format!("PVEAPIToken={key}")),
+            Auth::Bearer => request.bearer_auth(key),
+            Auth::None => request,
         };
     }
     let mut res = request
@@ -125,28 +133,6 @@ async fn get(kind: &str, base: &Url, path: &str, key: &str) -> Result<Value, Str
     }
     serde_json::from_slice(&bytes).map_err(|_| "Expected a JSON response".into())
 }
-fn play_method(session: &Value) -> &str {
-    if let Some(m) = session["PlayState"]["PlayMethod"]
-        .as_str()
-        .or(session["PlayMethod"].as_str())
-    {
-        return m;
-    }
-    let t = &session["TranscodingInfo"];
-    if t.is_object() {
-        if t["IsVideoDirect"].as_bool() == Some(true) && t["IsAudioDirect"].as_bool() == Some(true)
-        {
-            "DirectStream"
-        } else {
-            "Transcode"
-        }
-    } else if session["NowPlayingItem"].is_object() {
-        "DirectPlay"
-    } else {
-        "Unknown"
-    }
-}
-
 // One in-flight JSON request per endpoint for all dashboard and preview windows.
 // Keep samples in process memory. The Test button uses an independent fresh read.
 type Reading = std::sync::Arc<tauri::async_runtime::Mutex<Option<(std::time::Instant, Result<Value,String>)>>>;
@@ -169,49 +155,24 @@ pub async fn widget_source_read(kind:String,address:String)->Result<Value,String
     result
 }
 
+/// Test a connection: read every route its widget's manifest declares for Test.
 #[tauri::command]
 pub async fn source_read(kind: String, address: String) -> Result<Value, String> {
     let base = endpoint(&address)?;
     let key = String::from_utf8(secret_for(&kind, &base)?.unwrap_or_default())
         .map_err(|_| "Invalid credential")?;
-    let read = |path| get(&kind, &base, path, &key);
-    match kind.as_str() {
-        "json" => read("").await,
-        "comfy" => {
-            let q = read("queue").await?;
-            let stats = read("system_stats").await?;
-            Ok(
-                json!({"running":q["queue_running"].as_array().map(Vec::len),"queued":q["queue_pending"].as_array().map(Vec::len),"devices":stats["devices"],"system":stats["system"]}),
-            )
-        }
-        "emby" => {
-            let sessions = read("Sessions").await?;
-            let rows:Vec<_>=sessions.as_array().ok_or("Expected sessions")?.iter().filter(|s|s["NowPlayingItem"].is_object()).map(|s|json!({"session":s["Id"],"overview":s["NowPlayingItem"]["Overview"],"rating":s["NowPlayingItem"]["CommunityRating"],"critics":s["NowPlayingItem"]["CriticRating"],"year":s["NowPlayingItem"]["ProductionYear"],"client":s["Client"],"mediaId":s["NowPlayingItem"]["Id"],"title":s["NowPlayingItem"]["Name"],"series":s["NowPlayingItem"]["SeriesName"],"user":s["UserName"],"device":s["DeviceName"],"method":play_method(s),"paused":s["PlayState"]["IsPaused"],"position":s["PlayState"]["PositionTicks"],"duration":s["NowPlayingItem"]["RunTimeTicks"]})).collect();
-            Ok(json!({"streams":rows.len(),"sessions":rows}))
-        }
-        "proxmox" => read("api2/json/cluster/resources").await,
-        "unraid" => {
-            let system = read("system").await?;
-            let array = read("array").await?;
-            let disks = read("disks").await.ok();
-            let containers = read("docker").await.ok();
-            let running = containers.as_ref().and_then(Value::as_array).map(|rows| {
-                rows.iter()
-                    .filter(|c| c["state"] == "running")
-                    .map(|c| json!({"name":c["name"],"cpu":c["cpu_percent"]}))
-                    .collect::<Vec<_>>()
-            });
-            Ok(json!({"system":system,"array":array,"disks":disks,"running":running}))
-        }
-        "omlx" => {
-            let mut status = read("api/status").await?;
-            if let Ok(activity) = read("admin/api/activity").await {
-                status["active_models"] = activity["active_models"].clone();
-            }
-            Ok(status)
-        }
-        _ => Err("Unknown provider".into()),
+    if kind == "json" {
+        return get(&kind, &base, "", &key).await;
     }
+    let (info, _) = crate::package_store::lookup(&kind).ok_or("Unknown provider")?;
+    let routes = info.manifest.sources.map(|s| s.test).unwrap_or_default();
+    for route in &routes {
+        get(&kind, &base, route, &key).await?;
+    }
+    if routes.is_empty() {
+        get(&kind, &base, "", &key).await?;
+    }
+    Ok(json!({"ok": true, "routes": routes.len().max(1)}))
 }
 
 #[cfg(test)]
@@ -232,18 +193,11 @@ mod tests {
         }
     }
     #[test]
-    fn emby_counts_paused_direct_play_and_trusts_explicit_transcode_state() {
-        assert_eq!(
-            play_method(&json!({"NowPlayingItem":{},"PlayState":{"IsPaused":true}})),
-            "DirectPlay"
-        );
-        assert_eq!(
-            play_method(&json!({"NowPlayingItem":{},"PlayState":{"PlayMethod":"Transcode"}})),
-            "Transcode"
-        );
-        assert_eq!(
-            play_method(&json!({"TranscodingInfo":{"IsVideoDirect":true,"IsAudioDirect":true}})),
-            "DirectStream"
-        );
+    fn auth_style_comes_from_the_widget_manifest() {
+        use crate::package_manifest::Auth;
+        assert_eq!(auth_for("emby"), Auth::EmbyToken);
+        assert_eq!(auth_for("proxmox"), Auth::PveToken);
+        assert_eq!(auth_for("unraid"), Auth::Bearer);
+        assert_eq!(auth_for("json"), Auth::Bearer);
     }
 }

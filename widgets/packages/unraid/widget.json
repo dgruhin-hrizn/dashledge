@@ -1,0 +1,33 @@
+{
+  "apiVersion": 2,
+  "id": "unraid",
+  "title": "Unraid",
+  "description": "Array health, containers, storage and server activity.",
+  "version": "2.3.0",
+  "category": "Servers & storage",
+  "icon": "view/unraid.svg",
+  "view": {
+    "entry": "view/index.html",
+    "viewport": "reference"
+  },
+  "sources": {
+    "min": 1,
+    "max": 1,
+    "auth": "bearer",
+    "address": "path",
+    "test": [
+      "system",
+      "array"
+    ],
+    "addressLabel": "Monitoring API URL",
+    "addressPlaceholder": "http://tower.local:8043/api/v1/",
+    "credentialLabel": "Monitoring API token"
+  },
+  "collector": {
+    "entry": "collector/capture.mjs",
+    "outputs": [
+      "snapshot.js",
+      "container-icons/*-icon.png"
+    ]
+  }
+}

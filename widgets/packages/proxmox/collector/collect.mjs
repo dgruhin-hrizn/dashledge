@@ -5,7 +5,7 @@ import { connect, summarize } from "./api.mjs";
 
 import { monitorGPUs } from "./gpu.mjs";
 const attachGPUs = monitorGPUs();
-import { context } from '../context.mjs';
+import { context } from '../../_shared/context.mjs';
 const server = context.sources[0];
 const address = new URL(server.address);
 const split = server.key.indexOf('=');

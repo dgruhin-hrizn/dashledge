@@ -4,7 +4,7 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 
 const run = promisify(execFile);
-import { context } from '../context.mjs';
+import { context } from '../../_shared/context.mjs';
 const socketDir = join(context.directory, 'ssh');
 export const query = "nvidia-smi --query-gpu=uuid,name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw --format=csv,noheader,nounits";
 export const validTarget = value => typeof value === "string" && /^(?:[a-z_][a-z0-9_.-]*@)?[a-z0-9][a-z0-9.-]*$/i.test(value);

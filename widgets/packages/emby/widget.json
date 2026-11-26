@@ -1,0 +1,32 @@
+{
+  "apiVersion": 2,
+  "id": "emby",
+  "title": "Emby",
+  "description": "Active streams, playback controls and your media library.",
+  "version": "2.4.1",
+  "category": "Music & media",
+  "icon": "view/icon.svg",
+  "view": {
+    "entry": "view/index.html",
+    "viewport": "reference"
+  },
+  "sources": {
+    "min": 1,
+    "max": 1,
+    "auth": "emby-token",
+    "address": "path",
+    "test": [
+      "Sessions"
+    ],
+    "addressLabel": "Server URL",
+    "addressPlaceholder": "http://media.local:8096/emby/",
+    "credentialLabel": "Emby API key"
+  },
+  "collector": {
+    "entry": "collector/capture.mjs",
+    "outputs": [
+      "snapshot.js",
+      "art/*.jpg"
+    ]
+  }
+}

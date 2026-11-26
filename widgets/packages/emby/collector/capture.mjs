@@ -5,7 +5,7 @@ import {createHash} from 'node:crypto';
 import {join} from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 
-import { context } from '../context.mjs';
+import { context } from '../../_shared/context.mjs';
 const { directory, sources: [server] } = context;
 const target = server.address.replace(/\/*$/, '/');
 const select = (object, fields) => Object.fromEntries(fields.split(' ').filter(k=>object[k]!=null).map(k=>[k,object[k]]));

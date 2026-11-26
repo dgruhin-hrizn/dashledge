@@ -14,7 +14,9 @@ import {instrumentKinds,renderInstrument} from './instruments.js';
 import {mountOriginal,widgetSources} from './original-widgets.js';
 import {titles,layout,readPath,originalKinds} from './model.js';
 import {addBundledDmdPage,ensure,state,current,activate,save,invoke,el,button,num} from './common.js';
+import {loadPackages,nativeViewport} from './packages.js';
 const $=s=>document.querySelector(s);
+await loadPackages();
 let config=ensure(),page,tiles=[],timer,metrics={},sample=0;
 const history=new Map(),feeds=new Map();
 function appendSeries(key,value){
@@ -143,7 +145,7 @@ function mount(){
   document.body.classList.toggle('full-widget',['spotify','applemusic','googledesk','shortcuts','photos','markets','plans'].includes(soloKind)||!!slackWidgets[soloKind]||soloKind==='rundmd'||originalKinds.includes(soloKind));
   const frame=window.frameElement;
   if(frame){
-    const music=['spotify','applemusic'].includes(soloKind),native=['applemusic','ember','googledesk','shortcuts','photos','markets','plans'].includes(soloKind)||!!slackWidgets[soloKind];
+    const music=['spotify','applemusic'].includes(soloKind),native=['applemusic','googledesk','shortcuts','photos','markets','plans'].includes(soloKind)||!!slackWidgets[soloKind]||nativeViewport(soloKind);
     if(frame.hasAttribute('data-full-spotify')!==music||frame.hasAttribute('data-native-viewport')!==native){
       frame.toggleAttribute('data-full-spotify',music);
       frame.toggleAttribute('data-native-viewport',native);

@@ -2,14 +2,14 @@ import {titles, slot} from './model.js';
 
 import {slackWidgets} from './slack-catalog.js';
 export const categories = {
-  'Music & media': ['spotify','applemusic','emby','photos'],
+  'Music & media': ['spotify','applemusic','photos'],
   'Productivity': ['googledesk','shortcuts','notes','focus'],
   'Clocks': ['clock','world','rundmd'],
   'Finance': ['markets'],
   'Slack': Object.keys(slackWidgets),
   'Mac system': ['cpu','gpu','memory','disk','network','power','interfaces','volumes','machine'],
-  'Servers & storage': ['proxmox','unraid'],
-  'AI & development': ['plans','ember','omlx','comfy'],
+  'Servers & storage': [],
+  'AI & development': ['plans'],
 };
 export function catalogGroups(config){
   return [...Object.entries(categories),['Installed packages',config.plugins.map(p=>p.id)]]
@@ -22,12 +22,6 @@ const descriptions = {
   photos:'A moving gallery from your Mac Photos library and albums.',
   shortcuts:"Run your pinned Mac shortcuts from the touch display.",
   rundmd:'A pinball dot-matrix clock with animations from your Run-DMD card.',
-  ember:'Workspaces, chat transcripts and usage from your local Ember installation.',
-  proxmox:'Cluster health, virtual machines and GPU telemetry.',
-  emby:'Active streams, playback controls and your media library.',
-  comfy:'Live render queues, worker activity and image previews.',
-  omlx:'Live decode speed, loaded models and inference history.',
-  unraid:'Array health, containers, storage and server activity.',
   cpu:'Processor load and activity across individual cores.', gpu:'Graphics utilization and recent activity.',
   memory:'Memory allocation, available capacity and swap usage.', disk:'Capacity and free space on a selected volume.',
   network:'Live receive and transmit rates.', power:'Battery charge, power source and thermal state.',
@@ -35,14 +29,21 @@ const descriptions = {
   clock:'Local time and date.', world:'Local time alongside four world cities.', focus:'A countdown timer for focus sessions.',
   googledesk:'Your Mac agenda, meeting links, and Apple Mail or Spark Desktop.', notes:'A scratchpad shared across your pages.', applemusic:'Control Music on this Mac, browse playlists and visualize playback.', spotify:'Album artwork, touch playback controls and your upcoming Spotify queue.',
 };
-const versions = {ember:'1.20.2',proxmox:'1.4.0',emby:'2.4.1',comfy:'1.0.0',omlx:'1.3.0',unraid:'2.3.0'};
+const versions = {};
+// Add a bundled package to its catalog category with its description and version.
+export function registerCatalog(info){
+  const list=categories[info.category]??=[];
+  if(!list.includes(info.id))list.push(info.id);
+  if(info.description)descriptions[info.id]=info.description;
+  versions[info.id]=info.version||'';
+}
 export function widgetInfo(config,kind){
   const custom=config.plugins.find(p=>p.id===kind);
   if(custom)return {...custom,kind,category:'Installed packages',icon:custom.iconData};
   const category=Object.keys(categories).find(k=>categories[k].includes(kind));
   if(!category)return null;
   return {kind,title:titles[kind],description:slackWidgets[kind]?.description||descriptions[kind],category,version:versions[kind],
-    icon:slackWidgets[kind]?'widget-icons/slack.svg':versions[kind]?'/widget-icon/'+kind:'widget-icons/'+kind+'.svg',feed:kind};
+    icon:slackWidgets[kind]?'widget-icons/slack.svg':Object.hasOwn(versions,kind)?'/widget-icon/'+kind:'widget-icons/'+kind+'.svg',feed:kind};
 }
 export function installed(config,kind){
   return Object.hasOwn(titles,kind)?kind!=='empty'&&!config.removedWidgets?.includes(kind):config.plugins.some(p=>p.id===kind);
