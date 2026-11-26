@@ -3,12 +3,12 @@
   "id": "proxmox",
   "title": "Proxmox",
   "description": "Cluster health, virtual machines and GPU telemetry.",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "category": "Servers & storage",
   "icon": "view/icon.svg",
   "view": {
     "entry": "view/index.html",
-    "viewport": "reference"
+    "viewport": "native"
   },
   "sources": {
     "min": 1,
@@ -27,5 +27,8 @@
     "outputs": [
       "snapshot.js"
     ]
+  },
+  "displayName": {
+    "serverField": "data.name"
   }
 }
