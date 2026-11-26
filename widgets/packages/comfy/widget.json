@@ -3,12 +3,12 @@
   "id": "comfy",
   "title": "ComfyUI",
   "description": "Live render queues, worker activity and image previews.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "category": "AI & development",
   "icon": "view/comfy-icon.svg",
   "view": {
     "entry": "view/index.html",
-    "viewport": "reference"
+    "viewport": "native"
   },
   "sources": {
     "min": 1,
