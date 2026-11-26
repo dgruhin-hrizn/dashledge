@@ -1,6 +1,7 @@
-import {mkdir,writeFile,rename} from 'node:fs/promises';
+import {writeFile,rename} from 'node:fs/promises';
 import {join} from 'node:path';
 import {context,onWatchlist} from '../context.mjs';
+import {loadArtwork} from './artwork.mjs';
 import {symbols} from './symbols.mjs';
 import {sessionAt,tradingDate,applyTrade} from './session.mjs';
 
@@ -26,15 +27,10 @@ async function refreshCalendar(){
 let calendarReady=refreshCalendar();
 setInterval(()=>{calendarReady=refreshCalendar()},6*3600000);
 async function metadata(t,s){
-  try{const asset=await (await request(trading+'/v2/assets/'+t)).json();s.name=asset.name||s.name}catch{}
-  try{
-    const response=await request(data+'/v1beta1/logos/'+t+'?placeholder=false');
-    const bytes=Buffer.from(await response.arrayBuffer());
-    if(bytes.length>2e6||!bytes.subarray(0,8).equals(Buffer.from('89504e470d0a1a0a','hex')))return;
-    const dir=join(context.directory,'logos');await mkdir(dir,{recursive:true});await writeFile(join(dir,t+'.png'),bytes);
-    s.logo=true;
-  }catch{/* A company monogram remains visible when logos are unavailable. */}
-  finally{dirty=true}
+  await Promise.allSettled([
+    request(trading+'/v2/assets/'+t).then(r=>r.json()).then(asset=>{s.name=asset.name||s.name;dirty=true}),
+    loadArtwork(t,context.directory).then(available=>{s.logo=available;dirty=true})
+  ]);
 }
 async function seed(tickers){
   if(!tickers.length)return;
