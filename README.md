@@ -34,6 +34,8 @@ The menu-bar icon reopens Settings. You can also run the dashboard in a resizabl
 
 ### Connect a service
 
+Widget Studio and the layout picker group widgets by purpose. Studio opens with the first available category expanded. Use **Jump to section** or select a category heading to switch sections.
+
 In **Widget Studio**, open the widget’s settings, choose **Add connection**, enter the server details, and select **Test**. Pick that connection in the layout inspector. Saved credentials are protected by the macOS Keychain. Existing installations retain their layouts and the Keychain item named **Edge Workbench Connections**.
 
 For Spotify playlists, search, and queue access, register `http://127.0.0.1:4848/callback` in your Spotify developer app. Select **Playlists → Connect Spotify** and enter the app’s Client ID. Allow system audio recording if you enable the spectrum analyzer. The Apple Music widget uses the Music app on this Mac. Allow macOS Automation access when prompted.
