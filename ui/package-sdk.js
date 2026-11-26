@@ -16,11 +16,21 @@
   let latest = null;
   let nextId = 1;
 
-  function applyTheme() {
-    const root = document.documentElement.style;
-    root.setProperty('--text', state.theme.primary);
-    root.setProperty('--accent', state.theme.accent);
+  // --px-scale keeps px-authored sizes at their reference-canvas physical size
+  // when the view renders natively: the factor the 1920 × 540 canvas was scaled by.
+  function pxScale() {
+    if (state.viewport !== 'native') return 1;
+    const width = window.innerWidth, height = window.innerHeight, wide = width >= height;
+    return Math.max(0.25, Math.min(width / (wide ? 1920 : 540), height / (wide ? 540 : 1920)));
   }
+  function applyTheme() {
+    const root = document.documentElement;
+    root.style.setProperty('--text', state.theme.primary);
+    root.style.setProperty('--accent', state.theme.accent);
+    root.style.setProperty('--px-scale', String(pxScale()));
+    root.dataset.viewport = state.viewport || 'reference';
+  }
+  window.addEventListener('resize', () => applyTheme());
 
   const api = {
     subscribe(callback) {

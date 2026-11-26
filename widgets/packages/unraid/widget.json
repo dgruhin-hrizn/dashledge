@@ -3,12 +3,12 @@
   "id": "unraid",
   "title": "Unraid",
   "description": "Array health, containers, storage and server activity.",
-  "version": "2.3.0",
+  "version": "2.4.0",
   "category": "Servers & storage",
   "icon": "view/unraid.svg",
   "view": {
     "entry": "view/index.html",
-    "viewport": "reference"
+    "viewport": "native"
   },
   "sources": {
     "min": 1,
@@ -29,5 +29,8 @@
       "snapshot.js",
       "container-icons/*-icon.png"
     ]
+  },
+  "displayName": {
+    "serverField": "system.hostname"
   }
 }

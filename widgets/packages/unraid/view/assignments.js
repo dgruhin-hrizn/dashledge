@@ -5,4 +5,4 @@ function assignment(d){
   if(d.role==='cache'||d.role==='pool'||(d.device && /^\/mnt\/[^/]+$/.test(d.mount_point||'')&&!['/mnt/user','/mnt/user0','/mnt/disks','/mnt/remotes'].includes(d.mount_point)))return 'Pool devices';
   return 'Other devices';
 }
-globalThis.goliathAssignment=assignment;
+globalThis.unraidAssignment=assignment;

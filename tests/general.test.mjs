@@ -20,7 +20,7 @@ test('a package view receives live appearance changes and keeps its viewer ident
   const props=new Map(),listeners=new Map(),sent=[];
   const host={postMessage:message=>sent.push(message)};
   const window={parent:host,addEventListener:(name,cb)=>listeners.set(name,cb)};
-  const document={documentElement:{style:{setProperty:(k,v)=>props.set(k,v)}},addEventListener(){},querySelector(){return null}};
+  const document={documentElement:{dataset:{},style:{setProperty:(k,v)=>props.set(k,v)}},addEventListener(){},querySelector(){return null}};
   vm.runInNewContext(script,{window,document,Event,setTimeout});
   assert.equal(sent[0].type,'ready');
   const deliver=state=>listeners.get('message')({source:host,data:{dashledge:1,type:'state',state}});
@@ -33,6 +33,11 @@ test('a package view receives live appearance changes and keeps its viewer ident
   assert.equal(props.get('--text'),'#001122','messages from anyone but the host are ignored');
   stop();deliver({theme:{mode:'dark',primary:'#000000',accent:'#000000'}});assert.equal(records.length,3);
   assert.equal(window.Dashledge,window.Zurface);
+  assert.equal(props.get('--px-scale'),'1','split-page frames keep reference px sizes');
+  window.innerWidth=2560;window.innerHeight=720;deliver({viewport:'native'});
+  assert.equal(Number(props.get('--px-scale')).toFixed(4),(4/3).toFixed(4),'a native 2560 × 720 frame scales px like the old canvas');
+  assert.equal(document.documentElement.dataset.viewport,'native');
+  deliver({viewport:'reference'});
   deliver({displayName:'',serverName:'',host:'tower.local'});
   assert.equal(window.Dashledge.displayName('TOWER'),'TOWER');
   assert.equal(window.Dashledge.displayName(''),'tower.local');

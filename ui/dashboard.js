@@ -90,8 +90,10 @@ function renderTile(t){
   if(kind==='shortcuts'){t.dispose??=mountShortcuts(box,s,items=>saveSection(t,'shortcuts',{shortcutPins:items}));return}
   if(kind==='spotify'){renderSpotify(box);return}
   if(kind==='rundmd'){t.dispose??=mountDmd(box);return}
-  if(originalKinds.includes(kind)){t.dispose??=mountOriginal(box,s,config.sources);return}
-  if(custom?.apiVersion===2){t.dispose??=mountPackage(box,s,custom,config.sources);return}
+  // A widget alone on its page renders at the display's real size if its manifest asks.
+  const solo=config.pages.find(p=>p.id===t.pageId)?.slots.length===1;
+  if(originalKinds.includes(kind)){t.dispose??=mountOriginal(box,s,config.sources,{native:solo&&nativeViewport(kind)});return}
+  if(custom?.apiVersion===2){t.dispose??=mountPackage(box,s,custom,config.sources,{native:solo&&custom.viewport==='native'});return}
   if(kind==='notes'&&box.querySelector('textarea'))return;
   let nodes=[];
   if(instrumentKinds.includes(kind)){box.classList.add('instrument');box.dataset.kind=kind;nodes=renderInstrument(kind,metrics,t)}

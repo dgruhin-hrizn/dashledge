@@ -1,4 +1,4 @@
-globalThis.goliathCatalogIcons={
+globalThis.unraidCatalogIcons={
   "lscr.io/linuxserver/radarr": "radarr.png",
   "lscr.io/linuxserver/sonarr": "sonarr.png",
   "ghcr.io/advplyr/audiobookshelf": "audiobookshelf.png",

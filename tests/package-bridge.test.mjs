@@ -27,7 +27,7 @@ test('a frame gets its state when its SDK is ready', async () => {
   await settle();
   const [message] = posted.at(-1);
   assert.equal(message.type, 'state');
-  assert.deepEqual(message.state, {instanceID: 'omlx-dashboard@v1', touchMode: false, displayName: '', serverName: '', host: '',
+  assert.deepEqual(message.state, {instanceID: 'omlx-dashboard@v1', touchMode: false, displayName: '', serverName: '', host: '', viewport: 'reference',
     theme: {mode: 'dark', primary: '#111111', accent: '#222222'}});
   assert.equal(packageState({viewer: 'x', displayName: 'Tower'}).displayName, 'Tower');
 });

@@ -10,7 +10,7 @@ const target = server.address.replace(/\/*$/, '/');
 const host = new URL(target).hostname;
 const select = (object, fields) => Object.fromEntries(fields.split(' ').filter(k=>object[k]!=null).map(k=>[k,object[k]]));
 export const sources = {
-  goliath: {
+  unraid: {
     system: ['system', 10, v=>select(v,'hostname version cpu_usage_percent ram_usage_percent cpu_temp_celsius uptime_seconds')],
     array: ['array', 15, v=>select(v,'state used_percent free_bytes total_bytes parity_valid parity_check_status parity_check_progress num_data_disks num_parity_disks')],
     network: ['network', 6, v=>{
@@ -32,7 +32,7 @@ export async function publish(kind,snapshot) {
 }
 async function run(kind) {
   const key=server.key;
-  const headers=key ? (kind==='goliath'?{Authorization:'Bearer '+key}:{'X-Emby-Token':key}) : {};
+  const headers=key ? {Authorization:'Bearer '+key} : {};
   const sections={}, due={}, history=[], trends={system:[],disk:[],docker:Object.create(null)}, sampleDisks=diskSampler();
   const icons=join(directory,'container-icons');
   await mkdir(icons,{recursive:true});
@@ -107,4 +107,4 @@ async function run(kind) {
     await delay(Math.max(250,Math.min(...Object.values(due))-Date.now()));
   }
 }
-await run('goliath');
+await run('unraid');
