@@ -1,13 +1,14 @@
 import './helpers/bundled-packages.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {followsColors, placementOverride, placementColors, applyTileColors} from '../ui/placement-colors.js';
+import {followsColors, placementOverride, placementColors, applyTileColors, writePreview, readPreview, clearPreview, PREVIEW_KEY} from '../ui/placement-colors.js';
 import {packageInfo} from '../ui/packages.js';
 import {packageEntry} from '../ui/widget-catalog.js';
 
 globalThis.window ??= new EventTarget();
 globalThis.window.__TAURI__ ??= {core: {invoke: async () => null}};
-globalThis.localStorage ??= {store: {}, getItem(k) { return this.store[k] ?? null; }, setItem(k, v) { this.store[k] = String(v); }};
+globalThis.localStorage ??= {store: {}, getItem(k) { return this.store[k] ?? null; }, setItem(k, v) { this.store[k] = String(v); }, removeItem(k) { delete this.store[k]; }};
+localStorage.removeItem ??= function (k) { delete this.store[k]; };
 const {registerFrame, handleMessage} = await import('../ui/package-bridge.js');
 
 const general = {primary: '#edf0e6', accent: '#f88d4f'};
@@ -59,4 +60,19 @@ test('a package view gets its placement colours and live changes', async () => {
   assert.equal(posted.at(-1).state.theme.accent, '#33aaff');
   unregister.colors(null);
   assert.equal(posted.at(-1).state.theme.accent, '#f88d4f', 'back to General');
+});
+
+test('a colour draft previews on one placement until it is cleared', () => {
+  writePreview('slot-a', {primary: null, accent: '#33AAFF'});
+  assert.deepEqual(readPreview(), {slot: 'slot-a', colors: {accent: '#33aaff'}});
+  writePreview('slot-a', {primary: '#edf0e6', accent: null});
+  assert.deepEqual(readPreview(), {slot: 'slot-a', colors: {primary: '#edf0e6'}}, 'a preview shows even a General colour');
+  writePreview('slot-a', {primary: null, accent: null});
+  assert.deepEqual(readPreview(), {slot: 'slot-a', colors: null}, 'following General previews no override');
+  const stale = JSON.stringify({slot: 'slot-a', colors: {accent: '#33aaff'}, at: Date.now() - 11 * 60 * 1000});
+  assert.equal(readPreview(stale), null, 'an abandoned preview expires');
+  assert.equal(readPreview('not json'), null);
+  clearPreview();
+  assert.equal(localStorage.getItem(PREVIEW_KEY), null);
+  assert.equal(readPreview(), null);
 });
