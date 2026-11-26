@@ -3,7 +3,7 @@
   "id": "omlx",
   "title": "oMLX",
   "description": "Live decode speed, loaded models and inference history.",
-  "version": "1.4.5",
+  "version": "1.4.6",
   "category": "AI & development",
   "icon": "view/omlx-icon.svg",
   "view": {
