@@ -52,6 +52,8 @@ For frontend development with the Tauri CLI, run `npm ci` and `npm run dev`. Run
 
 On the signing Mac, with Rust, Xcode Command Line Tools and an official standalone Node 24+ distribution on PATH (or selected with `WIDGET_NODE`), run `./scripts/package-mac.sh`. It signs the app and its bundled Node runtime with the HORIZN INC Developer ID used by Ember, writes the ZIP under `dist/`, then replaces and opens `/Applications/Edge Workbench.app`. The installer verifies the staged copy before quitting a running dashboard and swapping the bundles.
 
+The signing script selects Hrizn’s public certificate name and team ID. The private key stays in the signing Mac’s Keychain. Local key exports and credential files are excluded from Git by default.
+
 To build and sign in separate sessions, run `./scripts/package-mac.sh --prepare-only`, then `./scripts/sign-mac.sh "dist/Edge Workbench.app"` in the signing session. To install an already signed bundle, run `swift scripts/install-mac.swift "dist/Edge Workbench.app"`. `SIGN_IDENTITY` selects a specific signing identity. `SIGN_IDENTITY=-` produces a local ad-hoc build in `dist/` and skips installation.
 
 This release is an early preview. The detailed [product plan](docs/PLAN.md) tracks the intended catalog, service parity and package runtime. The initial package format supports declarative widgets. The six service dashboards use their original presentation assets and the bundled collectors.

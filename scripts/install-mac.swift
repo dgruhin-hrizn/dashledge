@@ -41,7 +41,7 @@ func install(_ source: URL) throws {
     try run("/usr/bin/ditto", [source.path, staged.path])
     let signer = #"anchor apple generic and certificate leaf[subject.OU] = "K5K2SPTZVV" and certificate leaf[field.1.2.840.113635.100.6.1.13] exists"#
     for (path, id) in [(staged.path, identifier), (staged.appendingPathComponent("Contents/Resources/runtime/node").path, "node")] {
-        try run("/usr/bin/codesign", ["--verify", "--deep", "--strict", "-R", "identifier \"\(id)\" and \(signer)", path])
+        try run("/usr/bin/codesign", ["--verify", "--deep", "--strict", "-R", "=identifier \"\(id)\" and \(signer)", path])
     }
 
     // Quit every running copy, including the older one launched from dist.
