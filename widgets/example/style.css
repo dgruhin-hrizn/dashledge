@@ -1,0 +1,13 @@
+/* Sized for the Edge's real 2560 × 720 viewport and for narrow tiles. */
+:root{color-scheme:dark;--text:#edf0e6;--accent:#f88d4f;font:clamp(14px,1.3vw,32px)/1.25 -apple-system,BlinkMacSystemFont,sans-serif;font-variant-numeric:tabular-nums}
+body{margin:0;height:100vh;overflow:hidden;background:#101317;color:var(--text)}
+main{height:100%;box-sizing:border-box;padding:4vh 3vw;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr);gap:3vw;align-items:center}
+.place{margin:0;font-size:1.1em;opacity:.8}
+.reading{margin:.1em 0;font-size:clamp(48px,12vh,180px);font-weight:650;line-height:1}
+.unit{font-size:.4em;margin-left:.1em;opacity:.7}
+.detail{margin:0;opacity:.75}
+.day{margin:0;height:70%;display:grid;grid-template-rows:auto minmax(0,1fr);gap:.5em}
+.day figcaption{opacity:.7}
+#chart{width:100%;height:100%}
+#chart path{fill:none;stroke:var(--accent);stroke-width:2;vector-effect:non-scaling-stroke}
+@media (max-aspect-ratio:2/1){main{grid-template-columns:1fr;grid-template-rows:auto minmax(0,1fr)}}

@@ -786,6 +786,17 @@ mod tests {
     }
 
     #[test]
+    fn the_example_connector_runs_and_reports_a_refused_host_to_its_view() {
+        // Without its declared host the example can't reach Open-Meteo; it must say so.
+        let (output, stop) = start(include_str!("../../widgets/example/connector.js"), None, &[]);
+        assert!(wait_for(&output, |o| o.data.get("status").is_some() || o.error.is_some()), "{:?}", output.lock().unwrap().error);
+        let data = output.lock().unwrap().data.clone();
+        assert_eq!(data["status"], "error");
+        assert!(data["error"].as_str().unwrap().contains("isn’t a host this widget declared"));
+        stop.store(true, Ordering::SeqCst);
+    }
+
+    #[test]
     fn the_watchdog_stops_a_runaway_connector_and_reports_it() {
         let (output, stop) = start("while (true) {}", None, &[]);
         assert!(wait_for(&output, |o| o.error.is_some()));

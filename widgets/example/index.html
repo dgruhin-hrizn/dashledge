@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Weather (example)</title>
+<link rel="stylesheet" href="style.css">
+<script defer src="view.js"></script>
+</head>
+<body>
+<main>
+  <section class="now" aria-live="polite">
+    <p class="place" id="place">Weather</p>
+    <p class="reading"><span id="temperature">—</span><span class="unit" id="unit"></span></p>
+    <p class="detail" id="detail">Loading…</p>
+  </section>
+  <figure class="day">
+    <figcaption>Today</figcaption>
+    <svg id="chart" viewBox="0 0 240 80" preserveAspectRatio="none" role="img" aria-label="Today's temperatures"></svg>
+  </figure>
+</main>
+</body>
+</html>

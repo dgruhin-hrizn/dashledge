@@ -1,0 +1,24 @@
+{
+  "apiVersion": 2,
+  "id": "plugin.server-status",
+  "title": "Server status",
+  "description": "Tier 1 sample: the app polls these routes and runs these actions with the connection's stored credential. No package code runs outside the view.",
+  "version": "1.0.0",
+  "icon": "icon.svg",
+  "view": {"entry": "index.html", "viewport": "native"},
+  "sources": {
+    "min": 1, "max": 1, "auth": "bearer",
+    "test": ["api/status"],
+    "addressLabel": "Server URL",
+    "addressPlaceholder": "http://server.local:8080/",
+    "credentialLabel": "API token"
+  },
+  "displayName": {"serverField": "status.value.hostname"},
+  "data": [
+    {"id": "status", "path": "api/status", "every": 10},
+    {"id": "services", "path": "api/services?state=running", "every": 30}
+  ],
+  "actions": [
+    {"id": "restart", "method": "POST", "path": "api/services/{service}/restart", "body": {"reason": "dashledge"}}
+  ]
+}

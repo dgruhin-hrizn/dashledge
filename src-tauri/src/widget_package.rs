@@ -63,21 +63,18 @@ pub(crate) fn unpack(bytes: Vec<u8>) -> Result<Value, String> {
     Ok(manifest)
 }
 
+/// The example package Widget Studio offers: installable as downloaded.
 fn example() -> Result<Vec<u8>, String> {
     let mut zip = ZipWriter::new(Cursor::new(Vec::new()));
     for (name, bytes) in [
-        (
-            "widget.json",
-            include_bytes!("../../widgets/example/widget.json").as_slice(),
-        ),
-        (
-            "icon.png",
-            include_bytes!("../../widgets/example/icon.png").as_slice(),
-        ),
-        (
-            "README.md",
-            include_bytes!("../../widgets/example/README.md").as_slice(),
-        ),
+        ("widget.json", include_bytes!("../../widgets/example/widget.json").as_slice()),
+        ("icon.svg", include_bytes!("../../widgets/example/icon.svg").as_slice()),
+        ("index.html", include_bytes!("../../widgets/example/index.html").as_slice()),
+        ("view.js", include_bytes!("../../widgets/example/view.js").as_slice()),
+        ("style.css", include_bytes!("../../widgets/example/style.css").as_slice()),
+        ("connector.js", include_bytes!("../../widgets/example/connector.js").as_slice()),
+        ("README.md", include_bytes!("../../widgets/example/README.md").as_slice()),
+        ("samples/declarative.widget.json", include_bytes!("../../widgets/example/samples/declarative.widget.json").as_slice()),
     ] {
         zip.start_file(name, FileOptions::default())
             .map_err(|e| e.to_string())?;
@@ -94,7 +91,7 @@ pub async fn save_widget_example(window: tauri::WebviewWindow) -> Result<bool, S
         return Err("Open Widget Studio in Settings.".into());
     }
     let Some(file) = rfd::AsyncFileDialog::new()
-        .set_file_name("Free-memory.edgewidget.zip")
+        .set_file_name("Weather-example.dashledge.zip")
         .add_filter("Widget package", &["zip"])
         .save_file()
         .await
@@ -109,13 +106,17 @@ pub async fn save_widget_example(window: tauri::WebviewWindow) -> Result<bool, S
 mod tests {
     use super::*;
     #[test]
-    fn exported_example_is_installable_with_its_icon() {
-        let package = unpack(example().unwrap()).unwrap();
-        assert_eq!(package["id"], "plugin.free-memory");
-        assert!(package["iconData"]
-            .as_str()
-            .unwrap()
-            .starts_with("data:image/png;base64,iVBOR"));
+    fn exported_example_is_an_installable_connector_package() {
+        let (raw, files) = crate::package_store::extract(&example().unwrap()).unwrap();
+        let manifest = crate::package_store::check(&raw, &files).unwrap();
+        assert_eq!(manifest.id, "plugin.weather-example");
+        assert_eq!(manifest.tier(), crate::package_manifest::Tier::Connector);
+        assert_eq!(manifest.connector.unwrap().hosts, ["https://api.open-meteo.com"]);
+        assert!(crate::package_store::icon_data(&manifest.icon, &files[&manifest.icon]).is_some());
+        // The tier 1 sample in the ZIP is a valid manifest too.
+        let sample: serde_json::Value = serde_json::from_slice(&files["samples/declarative.widget.json"]).unwrap();
+        let sample = crate::package_manifest::validate(&sample, crate::package_manifest::Origin::Installed).unwrap();
+        assert_eq!(sample.tier(), crate::package_manifest::Tier::Declarative);
         assert!(unpack(vec![0; 512 * 1024 + 1]).is_err());
     }
 }
