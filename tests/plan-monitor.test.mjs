@@ -3,33 +3,33 @@ import test from 'node:test';
 import {mkdtempSync,mkdirSync,writeFileSync,rmSync} from 'node:fs';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
-import {DatabaseSync} from 'node:sqlite';
-import {emberAccounts,codexWindows,recentCodex} from '../widgets/collectors/plans/sources.mjs';
+import {profiles,codexWindows,readClaude,claudeWindows} from '../widgets/collectors/plans/sources.mjs';
 
 test('Codex uses reported windows and preserves a genuine zero',()=>{
   assert.deepEqual(codexWindows({codex:{primary:{usedPercent:0,windowDurationMins:10080,resetsAt:123}},extra:{limitName:'Extra',primary:{usedPercent:67,windowDurationMins:300},secondary:{usedPercent:null}}}),[
     {label:'Weekly',used:0,reset:123000},{label:'Extra · 5-hour',used:67,reset:null}
   ]);
 });
-test('a resumed older Codex session retains the timestamp of its quota observation',t=>{
-  const root=mkdtempSync(join(tmpdir(),'dash-plan-log-'));
+test('standalone profile discovery includes defaults and configured named profiles',t=>{
+  const root=mkdtempSync(join(tmpdir(),'plan-profiles-'));
   t.after(()=>rmSync(root,{recursive:true,force:true}));
-  const folder=join(root,'2026','11','07');mkdirSync(folder,{recursive:true});
-  const timestamp='2026-11-26T01:00:00Z';
-  writeFileSync(join(folder,'rollout-old.jsonl'),JSON.stringify({timestamp,payload:{type:'token_count',rate_limits:{primary:{used_percent:12,window_minutes:300}}}})+'\n');
-  assert.equal(recentCodex(root,new Date(timestamp)).at,Date.parse(timestamp));
+  for(const [dir,file] of [['.claude-work','settings.json'],['.codex-personal','config.toml'],['.claude-backup','unrelated']]){
+    mkdirSync(join(root,dir));writeFileSync(join(root,dir,file),'');
+  }
+  assert.deepEqual(profiles(root).map(a=>a.id),['claude:main','codex:local','claude:work','codex:personal']);
 });
-test('Ember reads the latest limit separately for each named account, including legacy arrays',t=>{
-  const root=mkdtempSync(join(tmpdir(),'dash-plan-ember-'));
-  t.after(()=>rmSync(root,{recursive:true,force:true}));
-  const folder=join(root,'globalStorage','ember.ember-agent');mkdirSync(folder,{recursive:true});
-  writeFileSync(join(root,'settings.json'),'{"ember.accounts.list":[{"id":"other","label":"Work"}],}');
-  const db=new DatabaseSync(join(folder,'ember.db'));
-  db.exec('CREATE TABLE kv(key TEXT PRIMARY KEY,value TEXT)');
-  const add=db.prepare('INSERT INTO kv VALUES(?,?)');
-  const point=p=>({ts:23,windows:[{label:'Weekly',percent:p,resetsAt:'2026-12-01T00:00:00Z'}]});
-  add.run('usage.limits.01',JSON.stringify(point(2)));
-  add.run('usage.limits.02',JSON.stringify([point(57)]));
-  add.run('usage.accountLimits.other.01',JSON.stringify(point(17)));db.close();
-  assert.deepEqual(emberAccounts(root).map(a=>[a.name,a.windows[0].used]),[['Default',57],['Work',17]]);
+test('Claude uses only the SDK quota control and closes its empty input',async()=>{
+  let prompt,closed=false;
+  const report={rate_limits_available:true,rate_limits:{five_hour:{utilization:0},seven_day:{utilization:72,resets_at:120},model_scoped:[{display_name:'Opus',utilization:11}]}};
+  const windows=await readClaude({directory:'/profile'},args=>{
+    prompt=args.prompt;
+    assert.equal(args.options.env.CLAUDE_CONFIG_DIR,'/profile');
+    assert.equal(args.options.persistSession,false);
+    return {async usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET(opts){assert.deepEqual(opts,{skipBehaviors:true});return report;},close(){closed=true;}};
+  },'/cli');
+  assert.ok(closed);
+  assert.equal((await prompt[Symbol.asyncIterator]().next()).done,true);
+  assert.deepEqual(windows.map(w=>w.used),[0,72,11]);
+  assert.equal(windows[1].reset,120000);
+  assert.deepEqual(claudeWindows({rate_limits_available:false,rate_limits:report.rate_limits}),[]);
 });

@@ -20,6 +20,7 @@ for candidate in "${candidates[@]}"; do
     codesign --force --options runtime --entitlements "$project/src-tauri/WidgetRuntime.entitlements" --sign "${SIGN_IDENTITY:--}" "$project/src-tauri/runtime/node"
     "$project/src-tauri/runtime/node" -e "new WebAssembly.Module(Uint8Array.of(0,97,115,109,1,0,0,0))"
     cp "$license" "$project/src-tauri/runtime/Node.LICENSE"
+    "$project/scripts/prepare-plan-sdks.sh"
     exit 0
   fi
 done
