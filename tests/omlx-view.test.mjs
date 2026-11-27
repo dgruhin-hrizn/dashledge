@@ -26,7 +26,7 @@ test('oMLX sends model actions as the command its manifest declares', async () =
 test('oMLX renders natively with every px size scaled', async () => {
   const manifest = JSON.parse(await read('widget.json'));
   assert.equal(manifest.view.viewport, 'native');
-  assert.equal(manifest.version, '1.4.6');
+  assert.equal(manifest.version, '1.4.7');
   const css = (await read('view/style.css'))
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/calc\(\d*\.?\d+px\*var\(--px-scale,1\)\)/g, '')
@@ -174,4 +174,13 @@ test('oMLX infers completed prefill speed only from tight, consistent samples', 
   assert.equal(M.completedPrefillRate(before, {...after, at: 9000}), null);
   assert.equal(M.completedPrefillRate(before, {...after, requests: 1}), null);
   assert.equal(M.completedPrefillRate(null, after), null);
+});
+
+test('oMLX reports live prefill speed while another job waits for its first rate', async () => {
+  const M = await helpers();
+  assert.equal(M.livePrefillRate([{rate: 2033.7}, {rate: 0}]), 2033.7);
+  assert.equal(M.livePrefillRate([{rate: 1000}, {rate: 500}, {rate: null}]), 1500);
+  assert.equal(M.livePrefillRate([{rate: 0}, {rate: null}]), null);
+  assert.equal(M.livePrefillRate([]), null);
+  assert.equal(M.livePrefillRate(undefined), null);
 });

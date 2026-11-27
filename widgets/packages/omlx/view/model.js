@@ -300,6 +300,13 @@
     return seconds > 0 && error <= .1 * seconds ? (tokens - oldTokens) / seconds : null;
   }
 
+  // Live prompt speed across jobs: the sum of the rates oMLX reports, ignoring
+  // jobs still waiting for their first measurement. Null until one has a rate.
+  function livePrefillRate(jobs) {
+    const rates = (jobs ?? []).map((job) => job?.rate).filter((rate) => Number.isFinite(rate) && rate > 0);
+    return rates.length ? rates.reduce((sum, rate) => sum + rate, 0) : null;
+  }
+
   function isLoopback(address) {
     try {
       const host = new URL(address).hostname.replace(/^\[|\]$/g, "");
@@ -312,6 +319,6 @@
   root.omlxModel = {
     glyphType, typeLabel, gib, clock, duration, ago, layoutFor, activityState, generations, prefills,
     countdown, memoryBasis, memorySegments, loadPreview, heatLevel, serverNow, heatGrid, emptyActivity,
-    trackActivity, finishBurst, sparkPath, chartCeiling, completedPrefillRate, isLoopback,
+    trackActivity, finishBurst, sparkPath, chartCeiling, completedPrefillRate, livePrefillRate, isLoopback,
   };
 })(globalThis);
