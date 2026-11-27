@@ -92,8 +92,25 @@ declare namespace DashledgeView {
     completed: boolean;
     due?: string;
     dueTime?: string;
+    /** When a timed reminder is due, in milliseconds since the epoch. */
+    dueAt?: number;
     notes?: string;
     completedAt?: string;
+  }
+  interface ReminderVoice {
+    enabled: boolean;
+    /** Silences Dashledge's voice only; alerts while muted are dropped. */
+    muted: boolean;
+    /** Also speak this many minutes before the due time: 0, 5, 10, 15, 30 or 60. */
+    lead: number;
+    quiet: boolean;
+    /** Quiet hours in minutes after local midnight, on quarter hours. Alerts wait until they end. */
+    quietStart: number;
+    quietEnd: number;
+    /** 0–1, relative to the system volume. */
+    volume: number;
+    /** An installed voice's id, or '' for the system voice. */
+    voice: string;
   }
   interface RemindersSnapshot {
     permission: 'allowed' | 'request' | 'denied';
@@ -158,10 +175,20 @@ declare namespace DashledgeView {
       read(options?: {request?: boolean}): Promise<RemindersSnapshot>;
       /** Check off or reopen a reminder. Only while the widget is on screen. */
       setCompleted(id: string, completed: boolean): Promise<{ok: true; item: Reminder}>;
-      /** Add a reminder to `list`, or the default list. Only while the widget is on screen. */
-      add(title: string, options?: {list?: string}): Promise<{ok: true; item: Reminder}>;
+      /** Add a reminder to `list`, or the default list, due on `due` (YYYY-MM-DD) and at `time` (HH:MM) when given. A timed reminder also gets an alert. Only while the widget is on screen. */
+      add(title: string, options?: {list?: string; due?: string; time?: string; priority?: 0 | 1 | 5 | 9}): Promise<{ok: true; item: Reminder}>;
       /** Open Privacy & Security › Reminders in System Settings. */
       openPrivacy(): Promise<void>;
+      /** Called when reminders change anywhere: in this view, the Reminders app, through Siri or on another device. Returns an unsubscribe function. */
+      onChange(callback: () => void): () => void;
+      /** Spoken reminders. One setting for all of Dashledge, not per placement. */
+      voice: {
+        get(): Promise<{settings: ReminderVoice; voices: {id: string; name: string; language: string; quality: 1 | 2 | 3}[]}>;
+        /** Save the voice settings. Only while the widget is on screen. Resolves with the values as saved. */
+        set(settings: ReminderVoice): Promise<ReminderVoice>;
+        /** Say a sample, even while muted, with `settings` (an unsaved draft) or the saved voice. Only while the widget is on screen. */
+        test(settings?: ReminderVoice): Promise<void>;
+      };
     };
     /** Requires the `mac.metrics` permission. */
     mac: {

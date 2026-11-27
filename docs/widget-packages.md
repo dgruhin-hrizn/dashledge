@@ -67,7 +67,7 @@ The validator refuses a collector in an installed or unpacked package. A view on
 - **Commands** run only when the manifest declares them:
   - `model`, and any other command in `collector.commands` (sent to the collector's stdin as `{command, args}` by `widget_command`);
   - `action` for declarative actions, which Rust checks again;
-  - `settings.open`, `settings.offer`, `keyboard.open`, `mac.metrics`, `mac.subscribe` and `reminders.*` (`read`, `complete`, `add`, `privacy`) when the matching permission is present. `reminders` is bundled-only, and asking macOS for access or changing a reminder needs the widget on screen.
+  - `settings.open`, `settings.offer`, `keyboard.open`, `mac.metrics`, `mac.subscribe` and `reminders.*` (`read`, `changes`, `complete`, `add`, `privacy`, `voice`, `voice.set`, `voice.test`) when the matching permission is present. `reminders` is bundled-only, and asking macOS for access, changing a reminder or changing the voice needs the widget on screen. Spoken reminders run in the host (`src-tauri/src/voice.rs`), not the view: they work on any page, with Dashledge-wide settings in `reminders-voice.json`.
   - Anything else gets `Unknown widget command`. The bridge is the enforcement point; SDK-side checks are convenience only.
 - Touch from the Edge is forwarded into frames. The SDK replays it as pointer events, scrolling and taps, then reports whether a horizontal drag belongs to the page, so page swipes still work.
 - The view CSP names `tauri://localhost` explicitly. `'self'` blocks every script in an opaque-origin frame.

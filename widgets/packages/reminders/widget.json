@@ -2,8 +2,8 @@
   "apiVersion": 2,
   "id": "reminders",
   "title": "Reminders",
-  "description": "Your Apple Reminders: what’s due, check it off, add new ones with the touch keyboard.",
-  "version": "1.0.0",
+  "description": "Your Apple Reminders: what’s due, check it off, add new ones with a due date, and hear them spoken when they’re due.",
+  "version": "1.1.0",
   "category": "Everyday",
   "icon": "view/icon.svg",
   "view": {
