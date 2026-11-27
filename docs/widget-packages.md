@@ -140,6 +140,17 @@ Nothing else in the app changes: `list_packages` registers it in the catalog, th
 
 **A new per-placement option for all widgets** (like colours): store it on the slot, leave it out of the page signature, apply it in `renderTile`, and pass it to `mountOriginal`/`mountPackage` and `registerFrame` with a live update method. Add its control to the draft part of the placement panel, carry it in the preview so the Edge shows it before Save, and offer it only where the widget honours it.
 
+## Live streams
+
+Live video (Frigate cameras through go2rtc) reaches a view as fragmented MP4 that the view plays with Media Source Extensions. A spike in a real `WKWebView` (macOS 27.2) settled how. It ran four `sandbox="allow-scripts"` frames under the widget CSP, each fed a 720p H.264 fMP4 in 64 KiB chunks by `postMessage` with transfer.
+
+- **`video.src = URL.createObjectURL(mediaSource)` fails in an opaque-origin frame.** It gives `MEDIA_ERR_SRC_NOT_SUPPORTED`, for both `MediaSource` and `ManagedMediaSource`, with or without a `media-src blob:` CSP. The same page plays when the frame isn't sandboxed. WebKit can't resolve a `blob:null/…` media URL.
+- **`video.srcObject = mediaSource` plays in the sandboxed frame**, for both `MediaSource` and `ManagedMediaSource`, under the unchanged view CSP. It needs no `media-src` entry. Playback started about 15 ms after the first chunk and dropped no frames across four simultaneous streams.
+- **Relaying is cheap.** Posting 44 transferred 64 KiB chunks across four frames took about 1 ms of main-thread time. The Tauri IPC leg (Rust → dashboard) is measured with the stream capability itself.
+- **go2rtc's WebSocket doesn't need an `Origin` header.** Its server uses gorilla/websocket, whose default origin check allows a request without one. The Rust client sends none. Confirm this against a live Frigate before relying on it.
+
+So: the view CSP stays as it is, the SDK's player attaches with `srcObject` (never a `blob:` URL), and the stream capability relays frames from Rust through the bridge with transfer lists.
+
 ## Verifying a change
 
 - `npm test` runs the JavaScript and Rust tests, including every bundled package validating and its files existing.
