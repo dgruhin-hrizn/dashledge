@@ -33,8 +33,12 @@ mod touch;
 mod tray;
 mod widget_host;
 mod widget_package;
-mod package_manifest;
+/// The validator lives in the `package-core` crate so the registry's CLI runs the same rules.
+mod package_manifest {
+    pub use dashledge_package_core::manifest::*;
+}
 mod package_store;
+mod marketplace;
 mod package_connector;
 mod package_media;
 mod package_stream;
@@ -273,6 +277,11 @@ pub fn run() {
             widget_package::save_widget_example,
             package_store::inspect_widget_package, package_store::install_widget_package,
             package_store::list_packages, package_store::remove_widget_package,
+            marketplace::marketplace_catalog, marketplace::marketplace_image,
+            marketplace::marketplace_inspect, marketplace::marketplace_install,
+            marketplace::marketplace_check, marketplace::marketplace_set_auto_update,
+            marketplace::marketplace_installed, marketplace::marketplace_prepare_submission,
+            marketplace::open_registry_page,
             package_store::choose_unpacked_package, package_store::reload_unpacked_package,
             package_connector::package_logs,
             package_connector::package_open, package_connector::package_read, package_connector::package_ping,
@@ -338,6 +347,7 @@ pub fn run() {
             general::init(app.handle())?;
             package_store::init(app.handle())?;
             voice::init(app.handle())?;
+            marketplace::start_checks(app.handle().clone());
             widget_host::reap_idle(app.handle().clone());
             package_connector::reap_idle(app.handle().clone());
 

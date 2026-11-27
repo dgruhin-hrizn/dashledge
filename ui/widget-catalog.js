@@ -94,7 +94,22 @@ export function packageEntry(info){
   if(info.permissions?.length)entry.permissions=[...info.permissions];
   if(info.settings?.length)entry.settings=info.settings.map(setting=>({...setting}));
   if(info.origin==='unpacked'){entry.unpacked=true;entry.path=info.path}
+  if(info.disabled)entry.disabled=info.disabled;
   return entry;
+}
+// Rust's list of installed packages is the truth; the layout's catalog entries follow it.
+// The Marketplace updates packages and turns pulled versions off in the background, and an
+// install whose layout write was lost would otherwise leave a package on disk that no page
+// can use. Returns how many entries changed.
+export function syncInstalled(config,list){
+  let changed=0;
+  for(const info of list){
+    if(info.apiVersion!==2||!['installed','unpacked'].includes(info.origin))continue;
+    const entry=config.plugins.find(p=>p.id===info.id);
+    if(entry&&entry.apiVersion!==2)continue;
+    if(!entry||(entry.version||'')!==(info.version||'')||(entry.disabled||'')!==(info.disabled||'')){recordPackage(config,info);changed++}
+  }
+  return changed;
 }
 export function recordPackage(config,info){
   const entry=packageEntry(info),i=config.plugins.findIndex(p=>p.id===entry.id),old=config.plugins[i];

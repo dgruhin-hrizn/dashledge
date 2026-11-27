@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {isV2, packageTier, permissionSummary} from '../ui/package-manifest.js';
+import {isV2, packageFacts, packageTier, permissionSummary} from '../ui/package-manifest.js';
 
 const base = {apiVersion: 2, id: 'plugin.home', title: 'Home', icon: 'icon.png', view: {entry: 'index.html'}};
 
@@ -25,4 +25,10 @@ test('permission summary names every declared host and tier', () => {
 test('the install sheet lists the servers a typed widget connects to', () => {
   const lines = permissionSummary({...base, sources: {min: 1, max: 1, types: [{id: 'sabnzbd', label: 'SABnzbd'}, {id: 'nzbget', label: 'NZBGet'}, {id: 'qbittorrent', label: 'qBittorrent'}]}});
   assert.ok(lines.includes('Connects to SABnzbd, NZBGet or qBittorrent.'), lines.join(' | '));
+});
+
+test('the install sheet states version, license, home page and the app it needs', () => {
+  assert.equal(packageFacts({version: '1.2.0', license: 'MIT', homepage: 'https://example.com/widget', minAppVersion: '0.9.0'}),
+    'Version 1.2.0 · MIT license · example.com · Needs Dashledge 0.9.0 or later');
+  assert.equal(packageFacts({}), '');
 });

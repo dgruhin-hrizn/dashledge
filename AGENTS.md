@@ -10,7 +10,7 @@ Merge every widget PR intended for a release before signing. Sync a clean `main`
 
 ## Widget packages
 
-Every widget with its own view is a package. The host reads all of its per-widget details from the package’s `widget.json`, which `src-tauri/src/package_manifest.rs` validates as the only validator.
+Every widget with its own view is a package. The host reads all of its per-widget details from the package’s `widget.json`, which `src-tauri/package-core/src/manifest.rs` validates as the only validator.
 
 Read [`docs/widget-packages.md`](docs/widget-packages.md) before building a widget or changing how packages load, talk to Dashledge or store placement state. It maps the code, the data flow, the trust tiers, the bridge and per-placement state, and lists the rules and recipes. For widget authors outside the project, [`widgets/README.md`](widgets/README.md) walks through building a package, and [`widgets/example/README.md`](widgets/example/README.md) is the reference that ships in the downloadable example. Keep both current when the manifest, the SDK or a capability changes.
 
@@ -29,6 +29,7 @@ Dashledge is moving every widget to a true plugin system. A plugin is a package 
   - **Connector commands:** `Dashledge.command` from the view to the connector.
   - **Binary connector I/O.**
 - **Credentials stay in Rust.** Rust adds every credential and sign-in session, only on the connection's own origin. It scrubs any echo of it in replies, so connectors and views never see it. A package can't set `Authorization`, `Cookie`, `Host`, `X-Emby-Token`, `Proxy-Authorization`, `Content-Length` or its own credential header.
+- **Package rules live in `src-tauri/package-core/`**, a crate without Tauri that the app and the Marketplace registry's `dashledge-package` checker share. Change a manifest field, limit or archive rule there, with its tests, and keep `cargo build --manifest-path src-tauri/package-core/Cargo.toml --bin dashledge-package` working. The Marketplace's trust chain is in `docs/widget-packages.md` → Marketplace.
 - **Migrating a bundled widget to a plugin** is its own branch and PR, like any widget. The PR says what happens to existing placements and saved connections.
 
 ### Package layout and the host

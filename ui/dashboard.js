@@ -13,13 +13,16 @@ import {instrumentKinds,renderInstrument} from './instruments.js';
 import {mountOriginal,mountPackage,widgetSources} from './original-widgets.js';
 import {titles,layout,readPath,originalKinds} from './model.js';
 import {addBundledDmdPage,ensure,state,current,activate,save,invoke,el,button,num} from './common.js';
-import {loadPackages,nativeViewport,packageInfo} from './packages.js';
+import {loadPackages,nativeViewport,packageInfo,installedPackages} from './packages.js';
+import {syncInstalled} from './widget-catalog.js';
 import {blurFrames,deliverMetrics} from './package-bridge.js';
 import {editPackageSettings,settingValues} from './package-settings.js';
 import {applyTileColors,readPreview,PREVIEW_KEY} from './placement-colors.js';
 const $=s=>document.querySelector(s);
 await loadPackages();
-let config=ensure(),page,tiles=[],timer,metrics={},sample=0;
+let config=ensure();
+syncInstalled(config,[...installedPackages.values()]);
+let page,tiles=[],timer,metrics={},sample=0;
 const history=new Map(),feeds=new Map();
 function appendSeries(key,value){
   const a=history.get(key)||[];a.push(Number.isFinite(value)?value:null);
@@ -129,6 +132,11 @@ function renderTile(t){
   if(kind==='shortcuts'){t.dispose??=mountShortcuts(box,s,items=>saveSection(t,'shortcuts',{shortcutPins:items}));return}
   if(kind==='spotify'){renderSpotify(box);return}
   if(kind==='rundmd'){t.dispose??=mountDmd(box);return}
+  if(custom?.disabled){
+    const note=el('div','package-disabled');
+    note.append(el('strong','',title+' is turned off'),el('p','','The Marketplace pulled this version: '+custom.disabled+' Update or remove it in Widget Studio.'));
+    box.replaceChildren(note);return;
+  }
   // A widget alone on its page renders at the display's real size if its manifest asks.
   const solo=config.pages.find(p=>p.id===t.pageId)?.slots.length===1;
   if(originalKinds.includes(kind)){

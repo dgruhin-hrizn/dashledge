@@ -7,7 +7,7 @@
 const KEY = 'edge.packageChoices';
 const REFRESH = 'edge.packageChoicesRefresh';
 const CHANGED = 'packagechoices';
-// Mirrors choice_value() and MAX_CHOICES in src-tauri/src/package_manifest.rs.
+// Mirrors choice_value() and MAX_CHOICES in src-tauri/package-core/src/manifest.rs.
 export const CHOICE_VALUE = /^[A-Za-z0-9._:@/-]{1,128}$/;
 export const MAX_CHOICES = 64;
 

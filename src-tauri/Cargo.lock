@@ -534,6 +534,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "dashledge-package-core"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "ring",
+ "semver",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "url",
+ "zip",
+]
+
+[[package]]
 name = "dbus"
 version = "0.9.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -777,6 +791,7 @@ dependencies = [
  "chrono",
  "core-foundation",
  "core-graphics",
+ "dashledge-package-core",
  "dirs 6.0.0",
  "objc2",
  "reqwest 0.12.28",

@@ -6,11 +6,13 @@ import {registerCatalog} from './widget-catalog.js';
 import {invoke} from './common.js';
 
 export const packageInfo = new Map();
+// Installed and unpacked packages as Rust lists them, pulled versions included.
+export const installedPackages = new Map();
 
 export function registerPackages(list) {
   for (const info of list) {
     // Bundled packages, with a collector or view-only (Reminders reads EventKit through the bridge).
-    if (info.origin !== 'bundled') continue;
+    if (info.origin !== 'bundled') { installedPackages.set(info.id, info); continue; }
     packageInfo.set(info.id, info);
     titles[info.id] = info.title;
     if (!originalKinds.includes(info.id)) originalKinds.push(info.id);

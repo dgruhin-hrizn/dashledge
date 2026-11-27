@@ -186,6 +186,25 @@ test('the install sheet lists capabilities and marks new ones on update', () => 
   assert.ok(update.includes('Has settings you choose for each placement.'));
 });
 
+test('an update marks every grant Rust says it adds, not only capabilities', () => {
+  const manifest = {
+    sources: {min: 1, max: 1, auth: 'bearer'}, data: [{id: 's', path: 'api/s'}],
+    connector: {entry: 'connector.js', hosts: ['https://old.example.com', 'https://new.example.com']},
+    permissions: ['images', 'settings'],
+    added: [{kind: 'host', value: 'https://new.example.com'}, {kind: 'auth', value: 'bearer'},
+      {kind: 'command', value: 'search'}, {kind: 'image', value: 'api/cover/*.jpg'}],
+  };
+  const lines = permissionSummary(manifest, {permissions: []});
+  assert.ok(lines.includes('Can also connect to: https://old.example.com.'), lines.join(' | '));
+  assert.ok(lines.includes('New: Can also connect to: https://new.example.com.'));
+  assert.ok(lines.includes('New: Changes how it sends your saved key or sign-in to that connection.'));
+  assert.ok(lines.includes('New: Adds commands its view can run: search.'));
+  assert.ok(lines.includes('New: Loads more kinds of images from that connection.'));
+  assert.ok(lines.includes('Has settings you choose for each placement.'), 'Rust’s list wins over the layout entry');
+  assert.ok(lines.includes('Reads 1 route from that connection.'));
+  assert.ok(!permissionSummary({...manifest, added: []}).some(line => line.startsWith('New: ')), 'an update that adds nothing marks nothing');
+});
+
 test('the catalog entry carries permissions and settings to the dashboard', () => {
   const entry = packageEntry({...fixture, settings: schema, tier: 'view'});
   assert.deepEqual(entry.permissions, ['settings', 'keyboard', 'ui', 'mac.metrics']);

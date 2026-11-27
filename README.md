@@ -94,6 +94,8 @@ Packages can also ask for Dashledge capabilities, listed at install:
 - **stream**: live WebSocket data such as camera video;
 - this Mac’s CPU, GPU, memory and network readings (**mac.metrics**).
 
+**Settings → Marketplace** lists plugins that passed the registry's checks and a maintainer's review. Updates that ask for nothing new install on their own; the rest wait for your approval. Packages installed from a file show as Unverified. To publish your own, see [Publish to the Marketplace](widgets/README.md#publish-to-the-marketplace).
+
 For widget authors, **Load unpacked package** runs a package straight from its folder and reloads it when files change. A connector widget’s page in Widget Studio shows its recent console output. `dashledge.d.ts` in the example declares the view and connector APIs for TypeScript.
 
 ## Development

@@ -9,13 +9,11 @@
 //! like an installed package but served from where it is, and a watcher reloads its
 //! views and connector when its files change.
 use crate::package_manifest::{self, Manifest, Origin, Tier};
-use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::Serialize;
 use serde_json::Value;
 use std::{
     collections::BTreeMap,
     fs,
-    io::{Cursor, Read},
     path::{Path, PathBuf},
     collections::HashMap,
     hash::{Hash, Hasher},
@@ -23,15 +21,10 @@ use std::{
     time::Duration,
 };
 use tauri::Manager;
-use zip::ZipArchive;
 
-pub const MAX_PACKAGE: usize = 8 * 1024 * 1024;
-const MAX_FILE: u64 = 4 * 1024 * 1024;
-const MAX_FILES: usize = 256;
-const EXTENSIONS: &[&str] = &[
-    "html", "js", "mjs", "css", "json", "png", "jpg", "jpeg", "gif", "webp", "svg", "ttf", "otf",
-    "woff", "woff2", "txt", "md", "ts",
-];
+pub use dashledge_package_core::archive::{check, extract, icon_data, Files, MAX_PACKAGE};
+use dashledge_package_core::archive::{allowed_name, MAX_FILE, MAX_FILES};
+use dashledge_package_core::grants;
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -44,107 +37,17 @@ pub struct PackageInfo {
     /// The folder an unpacked package is loaded from.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
+    /// Why this installed version doesn't run: the Marketplace pulled it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub disabled: Option<String>,
 }
 
-/// Files of a package, keyed by their path relative to `widget.json`.
-pub type Files = BTreeMap<String, Vec<u8>>;
-
-fn allowed_name(name: &str) -> bool {
-    let lower = name.to_ascii_lowercase();
-    let file = lower.rsplit('/').next().unwrap_or("");
-    file.starts_with("license")
-        || file.starts_with("notice")
-        || lower.rsplit_once('.').is_some_and(|(_, ext)| EXTENSIONS.contains(&ext))
-}
-
-/// Read a package ZIP. Rejects traversal, links, oversized or unexpected files, and
-/// anything outside the folder that holds `widget.json`.
-pub fn extract(bytes: &[u8]) -> Result<(Value, Files), String> {
-    if bytes.len() > MAX_PACKAGE {
-        return Err("Packages must be 8 MiB or smaller.".into());
-    }
-    let mut zip = ZipArchive::new(Cursor::new(bytes)).map_err(|_| "Choose a widget package ZIP.")?;
-    let names: Vec<String> = zip.file_names().map(str::to_owned).collect();
-    let manifests: Vec<_> = names
-        .iter()
-        .filter(|n| !n.starts_with("__MACOSX/") && (*n == "widget.json" || n.ends_with("/widget.json")))
-        .collect();
-    let [manifest_name] = manifests.as_slice() else {
-        return Err("Include one widget.json in the ZIP.".into());
-    };
-    let prefix = manifest_name.trim_end_matches("widget.json").to_string();
-    if zip.len() > MAX_FILES + 16 {
-        return Err(format!("Packages may contain at most {MAX_FILES} files."));
-    }
-    let mut files = Files::new();
-    let mut total = 0u64;
-    for index in 0..zip.len() {
-        let mut file = zip.by_index(index).map_err(|_| "Unreadable ZIP entry")?;
-        let name = file.name().to_string();
-        if name.starts_with("__MACOSX/") || name.ends_with("/.DS_Store") || name == ".DS_Store" {
-            continue;
-        }
-        if file.enclosed_name().is_none() || name.contains('\\') {
-            return Err(format!("“{name}” points outside the package."));
-        }
-        if file.unix_mode().is_some_and(|mode| mode & 0o170000 == 0o120000) {
-            return Err(format!("“{name}” is a link. Packages can’t contain links."));
-        }
-        if file.is_dir() {
-            continue;
-        }
-        let Some(relative) = name.strip_prefix(&prefix) else {
-            return Err(format!("“{name}” is outside the folder that holds widget.json."));
-        };
-        package_manifest::package_path(relative, "Package file")?;
-        if !allowed_name(relative) {
-            return Err(format!("“{relative}” isn’t a file type packages can include."));
-        }
-        if file.size() > MAX_FILE {
-            return Err(format!("“{relative}” is larger than 4 MiB."));
-        }
-        let mut data = Vec::new();
-        (&mut file).take(MAX_FILE + 1).read_to_end(&mut data).map_err(|e| e.to_string())?;
-        total += data.len() as u64;
-        if data.len() as u64 > MAX_FILE || total > MAX_PACKAGE as u64 * 2 {
-            return Err("The package expands to more than its limits allow.".into());
-        }
-        if files.insert(relative.to_string(), data).is_some() {
-            return Err(format!("“{relative}” appears twice."));
-        }
-        if files.len() > MAX_FILES {
-            return Err(format!("Packages may contain at most {MAX_FILES} files."));
-        }
-    }
-    let manifest = serde_json::from_slice(files.get("widget.json").ok_or("Missing widget.json")?)
-        .map_err(|_| "Invalid widget.json")?;
-    Ok((manifest, files))
-}
-
-/// Validate an installed package's manifest and check the files it names exist.
-pub fn check(raw: &Value, files: &Files) -> Result<Manifest, String> {
-    let manifest = package_manifest::validate(raw, Origin::Installed)?;
-    let mut needed = vec![manifest.icon.as_str(), manifest.view.entry.as_str()];
-    if let Some(connector) = &manifest.connector {
-        needed.push(&connector.entry);
-    }
-    for file in needed {
-        if !files.contains_key(file) {
-            return Err(format!("widget.json names “{file}”, which isn’t in the package."));
-        }
-    }
+/// `check`, plus the package's `minAppVersion` against this build. Listing what is
+/// already installed skips this, so an app downgrade never hides a package silently.
+pub fn check_for_this_app(raw: &Value, files: &Files) -> Result<Manifest, String> {
+    let manifest = check(raw, files)?;
+    manifest.runs_on(env!("CARGO_PKG_VERSION"))?;
     Ok(manifest)
-}
-
-pub fn icon_data(path: &str, bytes: &[u8]) -> Option<String> {
-    let png = bytes.starts_with(b"\x89PNG\r\n\x1a\n");
-    let svg = path.to_ascii_lowercase().ends_with(".svg")
-        && std::str::from_utf8(bytes).is_ok_and(|s| s.contains("<svg"));
-    if bytes.len() > 256 * 1024 || !(png || svg) {
-        return None;
-    }
-    let mime = if png { "image/png" } else { "image/svg+xml" };
-    Some(format!("data:{mime};base64,{}", STANDARD.encode(bytes)))
 }
 
 fn info(manifest: Manifest, origin: Origin, dir: &Path) -> PackageInfo {
@@ -155,6 +58,7 @@ fn info(manifest: Manifest, origin: Origin, dir: &Path) -> PackageInfo {
         icon_data,
         manifest,
         path: None,
+        disabled: None,
     }
 }
 
@@ -204,7 +108,7 @@ pub fn read_folder(root: &Path) -> Result<(Value, Files), String> {
 /// Check an unpacked folder and describe it as a package served from that folder.
 pub fn unpacked_info(dir: &Path) -> Result<PackageInfo, String> {
     let (raw, files) = read_folder(dir)?;
-    let manifest = check(&raw, &files)?;
+    let manifest = check_for_this_app(&raw, &files)?;
     let mut package = info(manifest, Origin::Installed, dir);
     package.origin = "unpacked";
     package.path = Some(dir.to_string_lossy().into_owned());
@@ -388,9 +292,11 @@ pub fn all() -> Vec<(PackageInfo, PathBuf)> {
         }
     }
     if let Some(installed) = installed {
-        for package in read_root(&installed, Origin::Installed) {
+        let disabled = read_disabled(&installed);
+        for mut package in read_root(&installed, Origin::Installed) {
             if !list.iter().any(|(p, _)| p.manifest.id == package.manifest.id) {
                 let dir = installed.join(&package.manifest.id);
+                package.disabled = disabled_reason(&disabled, &package.manifest);
                 list.push((package, dir));
             }
         }
@@ -399,8 +305,52 @@ pub fn all() -> Vec<(PackageInfo, PathBuf)> {
     list
 }
 
-/// A package and its folder by ID.
+/// An installed version the Marketplace pulled, kept in `<packages>/.disabled.json` by ID.
+#[derive(Clone, Debug, Default, serde::Deserialize, Serialize, PartialEq)]
+pub struct Disabled {
+    pub version: String,
+    pub reason: String,
+}
+
+pub fn disabled_path(root: &Path) -> PathBuf {
+    root.join(".disabled.json")
+}
+
+pub fn read_disabled(root: &Path) -> BTreeMap<String, Disabled> {
+    fs::read(disabled_path(root)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+}
+
+/// Record which installed versions are pulled, and reload the packages whose state changed.
+pub fn write_disabled(root: &Path, disabled: &BTreeMap<String, Disabled>) -> Result<(), String> {
+    let before = read_disabled(root);
+    if &before == disabled {
+        return Ok(());
+    }
+    fs::create_dir_all(root).map_err(|e| e.to_string())?;
+    let tmp = root.join(".disabled.json.tmp");
+    fs::write(&tmp, serde_json::to_vec_pretty(disabled).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    fs::rename(&tmp, disabled_path(root)).map_err(|e| e.to_string())?;
+    refresh();
+    for id in before.keys().chain(disabled.keys()) {
+        if before.get(id) != disabled.get(id) {
+            bump(id);
+        }
+    }
+    Ok(())
+}
+
+/// A pulled entry applies only to the version it names; an update lifts it.
+pub fn disabled_reason(disabled: &BTreeMap<String, Disabled>, manifest: &Manifest) -> Option<String> {
+    disabled.get(&manifest.id).filter(|d| manifest.version.as_deref() == Some(d.version.as_str())).map(|d| d.reason.clone())
+}
+
+/// A package that may run: bundled, unpacked or installed, and not pulled.
 pub fn lookup(id: &str) -> Option<(PackageInfo, PathBuf)> {
+    lookup_any(id).filter(|(p, _)| p.disabled.is_none())
+}
+
+/// Any listed package with this ID, including a pulled one.
+pub fn lookup_any(id: &str) -> Option<(PackageInfo, PathBuf)> {
     all().into_iter().find(|(p, _)| p.manifest.id == id)
 }
 
@@ -408,7 +358,7 @@ pub fn is_bundled(id: &str) -> bool {
     lookup(id).is_some_and(|(p, _)| p.origin == "bundled")
 }
 
-fn settings_only(window: &tauri::WebviewWindow) -> Result<(), String> {
+pub(crate) fn settings_only(window: &tauri::WebviewWindow) -> Result<(), String> {
     if window.label() != "settings" {
         return Err("Open Widget Studio in Settings.".into());
     }
@@ -432,10 +382,26 @@ pub fn inspect_widget_package(window: tauri::WebviewWindow, request: tauri::ipc:
     if raw.get("apiVersion").and_then(Value::as_u64) != Some(package_manifest::API_VERSION) {
         return crate::widget_package::unpack(bytes.to_vec());
     }
-    let manifest = check(&raw, &files)?;
+    let manifest = check_for_this_app(&raw, &files)?;
+    sheet_info(manifest, &files, lookup_installed)
+}
+
+/// The installed or unpacked package with this ID, if any.
+pub(crate) fn lookup_installed(id: &str) -> Option<Manifest> {
+    lookup_any(id).filter(|(p, _)| p.origin != "bundled").map(|(p, _)| p.manifest)
+}
+
+/// What the install sheet shows for a checked package: its info, and `added`, the grants
+/// it declares that the installed version with the same ID doesn't.
+pub fn sheet_info(manifest: Manifest, files: &Files, installed: impl Fn(&str) -> Option<Manifest>) -> Result<Value, String> {
     let icon = icon_data(&manifest.icon, &files[&manifest.icon]).ok_or("The icon must be a PNG or SVG up to 256 KiB.")?;
-    serde_json::to_value(PackageInfo { tier: manifest.tier(), origin: "installed", icon_data: Some(icon), manifest, path: None })
-        .map_err(|e| e.to_string())
+    let added = installed(&manifest.id).map(|old| grants::added_grants(&old, &manifest));
+    let mut value = serde_json::to_value(PackageInfo { tier: manifest.tier(), origin: "installed", icon_data: Some(icon), manifest, path: None, disabled: None })
+        .map_err(|e| e.to_string())?;
+    if let Some(added) = added {
+        value["added"] = serde_json::to_value(added).map_err(|e| e.to_string())?;
+    }
+    Ok(value)
 }
 
 #[tauri::command]
@@ -445,12 +411,23 @@ pub fn install_widget_package(
     request: tauri::ipc::Request<'_>,
 ) -> Result<PackageInfo, String> {
     settings_only(&window)?;
-    let (raw, files) = extract(raw_body(&request)?)?;
-    let manifest = check(&raw, &files)?;
-    let root = installed_root(&app)?;
-    install_files(&root, &manifest, &files)?;
+    let info = install_bytes(&installed_root(&app)?, raw_body(&request)?)?;
+    // A package installed from a file is no longer the Marketplace's version.
+    crate::marketplace::forget(&app.path().app_data_dir().map_err(|e| e.to_string())?, &info.manifest.id)?;
+    Ok(info)
+}
+
+/// Check a package ZIP and install it under `root`, replacing an earlier version.
+/// Running views and connectors of that package reload. The Marketplace installs its
+/// verified downloads through this too.
+pub fn install_bytes(root: &Path, bytes: &[u8]) -> Result<PackageInfo, String> {
+    let (raw, files) = extract(bytes)?;
+    let manifest = check_for_this_app(&raw, &files)?;
+    install_files(root, &manifest, &files)?;
     refresh();
-    Ok(info(manifest, Origin::Installed, &root.join(&raw["id"].as_str().unwrap_or_default())))
+    bump(&manifest.id);
+    let dir = root.join(&manifest.id);
+    Ok(info(manifest, Origin::Installed, &dir))
 }
 
 #[tauri::command]
@@ -513,6 +490,7 @@ pub fn remove_widget_package(window: tauri::WebviewWindow, app: tauri::AppHandle
         save_unpacked(&paths)?;
         *UNPACKED.lock().unwrap() = paths;
         refresh();
+        bump(&id);
         return Ok(());
     }
     let rest = id.strip_prefix("plugin.").unwrap_or("");
@@ -524,13 +502,15 @@ pub fn remove_widget_package(window: tauri::WebviewWindow, app: tauri::AppHandle
         _ => Ok(()),
     };
     refresh();
+    bump(&id);
+    crate::marketplace::forget(&app.path().app_data_dir().map_err(|e| e.to_string())?, &id)?;
     result
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
+    use std::io::{Cursor, Write};
     use zip::{write::FileOptions, ZipWriter};
 
     const PNG: &[u8] = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\0\x10\0\0\0\x10";
@@ -622,6 +602,33 @@ mod tests {
         assert!(listed[0].icon_data.as_deref().unwrap().starts_with("data:image/png;base64,"));
         let names: Vec<_> = fs::read_dir(root.path()).unwrap().flatten().map(|e| e.file_name()).collect();
         assert_eq!(names, ["plugin.status"], "no staging or previous folders are left behind");
+    }
+
+    #[test]
+    fn the_install_sheet_lists_grants_an_update_adds() {
+        let (raw, files) = extract(&good("")).unwrap();
+        let old = check(&raw, &files).unwrap();
+        let fresh = sheet_info(old.clone(), &files, |_| None).unwrap();
+        assert!(fresh.get("added").is_none(), "a first install has nothing to compare");
+        let mut newer = old.clone();
+        newer.images = vec!["https://api.example.com/*.png".into()];
+        let sheet = sheet_info(newer, &files, |id| (id == "plugin.status").then(|| old.clone())).unwrap();
+        assert_eq!(sheet["added"], serde_json::json!([{"kind": "image", "value": "https://api.example.com/*.png"}]));
+        let same = sheet_info(old.clone(), &files, |_| Some(old.clone())).unwrap();
+        assert_eq!(same["added"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn installing_reloads_running_views_and_connectors() {
+        let root = tempfile::tempdir().unwrap();
+        let before = revision("plugin.status");
+        let installed = install_bytes(root.path(), &good("")).unwrap();
+        assert_eq!(installed.manifest.id, "plugin.status");
+        assert!(root.path().join("plugin.status/widget.json").is_file());
+        assert!(revision("plugin.status") > before, "an install raises the revision views and connectors watch");
+        let again = revision("plugin.status");
+        install_bytes(root.path(), &good("")).unwrap();
+        assert!(revision("plugin.status") > again, "an update reloads them again");
     }
 
     #[test]

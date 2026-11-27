@@ -29,6 +29,15 @@ pub struct Manifest {
     pub version: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub category: Option<String>,
+    /// The oldest Dashledge version that can run this package, as `major.minor.patch`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_app_version: Option<String>,
+    /// The package's https home page, shown on the install sheet and in the Marketplace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub homepage: Option<String>,
+    /// The package's license, for example an SPDX identifier such as `MIT`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub license: Option<String>,
     pub icon: String,
     pub view: View,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -609,6 +618,17 @@ pub enum Tier {
 }
 
 impl Manifest {
+    /// Refuses a package whose `minAppVersion` is newer than the running app.
+    pub fn runs_on(&self, app_version: &str) -> Result<(), String> {
+        let Some(min) = &self.min_app_version else { return Ok(()) };
+        match (semver::Version::parse(min), semver::Version::parse(app_version)) {
+            (Ok(min), Ok(app)) if app < min => {
+                fail(format!("This widget needs Dashledge {min} or later. Update Dashledge in About, then install it again."))
+            }
+            _ => Ok(()),
+        }
+    }
+
     pub fn tier(&self) -> Tier {
         if self.collector.is_some() {
             Tier::Collector
@@ -729,7 +749,7 @@ pub fn placeholder_names(path: &str) -> Option<Vec<String>> {
 /// A host a connector may reach: `https://host[:port]` or `http://host[:port]`, nothing else.
 pub fn host_origin(host: &str) -> Result<String, String> {
     let invalid = || format!("Connector host “{host}” must be an origin such as https://api.example.com.");
-    let url = reqwest::Url::parse(host).map_err(|_| invalid())?;
+    let url = url::Url::parse(host).map_err(|_| invalid())?;
     if !matches!(url.scheme(), "https" | "http")
         || url.host_str().is_none()
         || !url.username().is_empty()
@@ -790,6 +810,19 @@ pub fn validate(raw: &Value, origin: Origin) -> Result<Manifest, String> {
     optional_text(&manifest.description, "Description", 240)?;
     optional_text(&manifest.version, "Version", 32)?;
     optional_text(&manifest.category, "Category", 40)?;
+    if let Some(min) = &manifest.min_app_version {
+        if semver::Version::parse(min).is_err() {
+            return fail("minAppVersion must be a version such as 0.9.0.");
+        }
+    }
+    if let Some(homepage) = &manifest.homepage {
+        let ok = homepage.len() <= 200
+            && url::Url::parse(homepage).is_ok_and(|u| u.scheme() == "https" && u.host_str().is_some() && u.username().is_empty() && u.password().is_none());
+        if !ok {
+            return fail("homepage must be an https URL of up to 200 characters.");
+        }
+    }
+    optional_text(&manifest.license, "License", 64)?;
     file_with(&manifest.icon, "Icon", &[".png", ".svg"])?;
     file_with(&manifest.view.entry, "View entry", &[".html"])?;
 
@@ -1126,6 +1159,30 @@ mod tests {
             "connector": {"entry": "connector.js", "hosts": ["https://api.example.com"]}
         })
     }
+    #[test]
+    fn listing_fields_are_checked_and_min_app_version_is_enforced() {
+        let mut raw = installed();
+        raw["minAppVersion"] = json!("0.9.0");
+        raw["homepage"] = json!("https://example.com/home-status");
+        raw["license"] = json!("MIT");
+        raw["version"] = json!("1.0");
+        let manifest = validate(&raw, Origin::Installed).expect("a free-form version and listing fields are valid");
+        assert!(manifest.runs_on("0.9.0").is_ok() && manifest.runs_on("1.2.3").is_ok());
+        assert!(manifest.runs_on("0.8.1").unwrap_err().contains("0.9.0"));
+        assert!(validate(&installed(), Origin::Installed).unwrap().runs_on("0.1.0").is_ok());
+        for (field, value) in [
+            ("minAppVersion", "0.9"),
+            ("homepage", "http://example.com"),
+            ("homepage", "https://user:pw@example.com"),
+            ("homepage", "example.com"),
+            ("license", ""),
+        ] {
+            let mut raw = installed();
+            raw[field] = json!(value);
+            assert!(validate(&raw, Origin::Installed).is_err(), "{field} = {value} must be refused");
+        }
+    }
+
     fn bundled() -> Value {
         json!({
             "apiVersion": 2, "id": "emby", "title": "Emby", "icon": "icon.svg",
@@ -1385,7 +1442,7 @@ mod tests {
 
     #[test]
     fn capability_fixture_validates_with_defaults_filled() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/fixtures/capabilities-package/widget.json");
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/capabilities-package/widget.json");
         let raw: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
         let manifest = validate(&raw, Origin::Installed).unwrap();
         assert_eq!(manifest.permissions, [Permission::Settings, Permission::Keyboard, Permission::Ui, Permission::MacMetrics]);
