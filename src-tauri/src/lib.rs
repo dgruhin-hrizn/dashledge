@@ -273,7 +273,7 @@ pub fn run() {
             package_store::choose_unpacked_package, package_store::reload_unpacked_package,
             package_connector::package_logs,
             package_connector::package_open, package_connector::package_read, package_connector::package_ping,
-            package_connector::package_close, package_connector::package_action, package_media::package_image,
+            package_connector::package_close, package_connector::package_action, package_connector::package_command, package_media::package_image,
             package_stream::package_stream_open, package_stream::package_stream_send, package_stream::package_stream_close,
             vault::unlock_connections,
             vault::recover_credential,

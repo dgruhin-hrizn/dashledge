@@ -567,6 +567,10 @@ pub struct Connector {
     /// Bytes of key-value storage.
     #[serde(default = "default_storage")]
     pub storage: u32,
+    /// Commands the view may send with `Dashledge.command(name, args)`; the connector
+    /// answers them with `dashledge.onCommand(name, handler)`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub commands: Vec<String>,
 }
 fn default_storage() -> u32 {
     64 * 1024
@@ -868,6 +872,17 @@ pub fn validate(raw: &Value, origin: Origin) -> Result<Manifest, String> {
         connector.hosts = connector.hosts.iter().map(|h| host_origin(h)).collect::<Result<_, _>>()?;
         if connector.storage > 1024 * 1024 {
             return fail("Connector storage is limited to 1 MiB.");
+        }
+        if connector.commands.len() > 16 {
+            return fail("A connector may declare at most 16 commands.");
+        }
+        unique(connector.commands.iter().map(String::as_str), "Connector command")?;
+        for command in &connector.commands {
+            name(command, "Connector command")?;
+            // The bridge's own command names stay the bridge's.
+            if ["action", "image", "model"].contains(&command.as_str()) {
+                return fail(format!("“{command}” is reserved; choose another command name."));
+            }
         }
     }
     let mut granted = HashSet::new();
@@ -1262,6 +1277,19 @@ mod tests {
             json!({"login": {"path": "login", "fields": {"p": "{key}"}, "session": "cookie", "extra": true}}),
         ] {
             assert!(auth(bad.clone()).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn connector_commands_are_plain_names_and_not_the_bridges_own() {
+        let commands = |list: Value| {
+            let mut p = installed();
+            p["connector"]["commands"] = list;
+            validate(&p, Origin::Installed)
+        };
+        assert_eq!(commands(json!(["load-model", "pause"])).unwrap().connector.unwrap().commands, vec!["load-model", "pause"]);
+        for bad in [json!(["image"]), json!(["Pause"]), json!(["a", "a"]), json!(["settings.open"])] {
+            assert!(commands(bad.clone()).is_err(), "{bad}");
         }
     }
 

@@ -98,6 +98,8 @@ pub(crate) struct Output {
 
 struct Feed {
     kind: String,
+    /// The connector runtime's handle, for a connector-tier package.
+    connector: Option<usize>,
     /// The placement's connections, the one it chose first.
     connections: Vec<Connection>,
     view: PathBuf,
@@ -284,6 +286,8 @@ pub(crate) struct Request {
     pub method: String,
     pub headers: Vec<(String, String)>,
     pub body: Option<Vec<u8>>,
+    /// How long to wait for the reply; 15 seconds unless a connector asks for longer.
+    pub timeout: Option<Duration>,
 }
 
 /// A response as packages may see it: `set-cookie` and `www-authenticate` removed and
@@ -349,7 +353,7 @@ async fn deliver(client: &reqwest::Client, credential: Option<Credential>, auth:
     let mut url = request.url.clone();
     let header = credential.as_ref().and_then(|c| c.apply(&mut url));
     let method = reqwest::Method::from_bytes(request.method.as_bytes()).map_err(|_| "Unsupported method")?;
-    let mut builder = client.request(method, url).timeout(Duration::from_secs(15));
+    let mut builder = client.request(method, url).timeout(request.timeout.unwrap_or(Duration::from_secs(15)));
     for (name, value) in &request.headers {
         if !forbidden_header(name, auth) {
             builder = builder.header(name.as_str(), value.as_str());
@@ -425,7 +429,7 @@ fn run_declarative(kind: String, manifest: Manifest, target: Target, auth: Auth,
                     continue;
                 }
                 due.insert(poll.id.clone(), Instant::now() + Duration::from_secs(poll.every.into()));
-                let request = Request { url: route_url(&target.base, &poll.path), method: "GET".into(), headers: vec![("Accept".into(), "application/json".into())], body: None };
+                let request = Request { url: route_url(&target.base, &poll.path), method: "GET".into(), headers: vec![("Accept".into(), "application/json".into())], body: None, timeout: None };
                 let result = tauri::async_runtime::block_on(send(&kind, Some(&target), &auth, request)).and_then(|r| {
                     let status = r["status"].as_u64().unwrap_or(0);
                     if !(200..300).contains(&status) {
@@ -453,7 +457,12 @@ fn run_declarative(kind: String, manifest: Manifest, target: Target, auth: Auth,
 enum Event {
     Fetch { id: i64, result: Result<Value, String> },
     Socket { id: i64, kind: String, data: String },
+    Command { id: i64, name: String, args: Value },
 }
+
+/// How long a view waits for a connector to answer a command.
+const COMMAND_TIMEOUT: Duration = Duration::from_secs(660);
+static NEXT_COMMAND: AtomicI64 = AtomicI64::new(1);
 
 struct Timer {
     id: i64,
@@ -473,6 +482,7 @@ struct Runtime {
     storage_file: Option<PathBuf>,
     storage_limit: usize,
     sockets: Mutex<HashMap<i64, i64>>, // global socket → connector's own id
+    commands: Mutex<HashMap<i64, mpsc::Sender<Result<Value, String>>>>, // waiting views
 }
 static RUNTIMES: LazyLock<Mutex<HashMap<usize, Arc<Runtime>>>> = LazyLock::new(Default::default);
 static NEXT_HANDLE: AtomicU64 = AtomicU64::new(1);
@@ -510,12 +520,14 @@ fn host_op(rt: &Runtime, op: &str, args: Value) -> Result<Value, String> {
             let headers = args["headers"].as_object().map(|h| {
                 h.iter().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_string()))).take(32).collect()
             }).unwrap_or_default();
+            // Up to 10 minutes for slow operations such as loading a model.
+            let timeout = args["timeout"].as_f64().filter(|t| *t > 0.0).map(|t| Duration::from_secs_f64(t.min(600.0)));
             let index = args["connection"].as_u64().map(|i| i as usize);
             let link = link_for(&rt.links, &url, index)?.cloned();
             let (kind, tx) = (rt.kind.clone(), rt.tx.clone());
             tauri::async_runtime::spawn(async move {
                 let (target, auth) = link.map_or((None, Auth::None), |l| (Some(l.target), l.auth));
-                let result = send(&kind, target.as_ref(), &auth, Request { url, method, headers, body }).await;
+                let result = send(&kind, target.as_ref(), &auth, Request { url, method, headers, body, timeout }).await;
                 let _ = tx.send(Event::Fetch { id, result });
             });
             Ok(Value::Null)
@@ -570,6 +582,24 @@ fn host_op(rt: &Runtime, op: &str, args: Value) -> Result<Value, String> {
                 std::fs::write(file, &encoded).map_err(|e| e.to_string())?;
             }
             *storage = next;
+            Ok(Value::Null)
+        }
+        "commandReply" => {
+            let id = args["id"].as_i64().ok_or("Missing command ID")?;
+            let reply = match args["error"].as_str() {
+                Some(error) => Err(error.chars().take(500).collect()),
+                None => {
+                    let value = args.get("value").cloned().unwrap_or(Value::Null);
+                    if value.to_string().len() > EMIT_LIMIT {
+                        Err("Command replies are limited to 1 MiB.".to_string())
+                    } else {
+                        Ok(value)
+                    }
+                }
+            };
+            if let Some(waiting) = rt.commands.lock().unwrap().remove(&id) {
+                let _ = waiting.send(reply);
+            }
             Ok(Value::Null)
         }
         "log" => {
@@ -713,15 +743,16 @@ pub(crate) struct ConnectorSetup {
     pub storage_file: Option<PathBuf>,
 }
 
-/// Run a connector on its own thread until `stop` is set.
-pub(crate) fn run_connector(setup: ConnectorSetup, output: Arc<Mutex<Output>>, stop: Arc<AtomicBool>) {
+/// Run a connector on its own thread until `stop` is set. Returns its handle, which
+/// `package_command` uses to reach it.
+pub(crate) fn run_connector(setup: ConnectorSetup, output: Arc<Mutex<Output>>, stop: Arc<AtomicBool>) -> usize {
+    let handle = NEXT_HANDLE.fetch_add(1, Ordering::SeqCst) as usize;
     std::thread::spawn(move || {
         let (tx, rx) = mpsc::channel();
         let storage = setup.storage_file.as_ref()
             .and_then(|f| std::fs::read(f).ok())
             .and_then(|b| serde_json::from_slice::<Map<String, Value>>(&b).ok())
             .unwrap_or_default();
-        let handle = NEXT_HANDLE.fetch_add(1, Ordering::SeqCst) as usize;
         let bases: Vec<&Url> = setup.links.iter().map(|l| &l.target.base).collect();
         let rt = Arc::new(Runtime {
             handle,
@@ -735,6 +766,7 @@ pub(crate) fn run_connector(setup: ConnectorSetup, output: Arc<Mutex<Output>>, s
             storage_file: setup.storage_file.clone(),
             storage_limit: setup.manifest.connector.as_ref().map_or(64 * 1024, |c| c.storage as usize),
             sockets: Mutex::new(HashMap::new()),
+            commands: Mutex::new(HashMap::new()),
         });
         RUNTIMES.lock().unwrap().insert(handle, rt.clone());
         let context = Context(unsafe { connector_new(handle, WATCHDOG_SECONDS) });
@@ -761,6 +793,7 @@ pub(crate) fn run_connector(setup: ConnectorSetup, output: Arc<Mutex<Output>>, s
                     Err(error) => json!({"type": "fetch", "id": id, "error": error}),
                 }),
                 Ok(Event::Socket { id, kind, data }) => context.dispatch(json!({"type": "socket", "id": id, "event": kind, "data": data})),
+                Ok(Event::Command { id, name, args }) => context.dispatch(json!({"type": "command", "id": id, "name": name, "args": args})),
                 Err(mpsc::RecvTimeoutError::Timeout) => {
                     let now = Instant::now();
                     let fired: Vec<i64> = {
@@ -786,6 +819,7 @@ pub(crate) fn run_connector(setup: ConnectorSetup, output: Arc<Mutex<Output>>, s
         RUNTIMES.lock().unwrap().remove(&handle);
         drop(context);
     });
+    handle
 }
 
 // -------------------------------------------------------------------- logs ----
@@ -886,7 +920,7 @@ pub fn package_open(window: tauri::WebviewWindow, app: tauri::AppHandle, kind: S
     if let Some((id, feed)) = feeds.iter_mut().find(|(_, f)| f.kind == kind && f.connections == connections && f.revision == revision) {
         feed.viewers.insert(viewer, window.label().into());
         feed.last_attached = Instant::now();
-        return Ok(json!({"id": id, "entry": entry, "permissions": permission_names(&manifest)}));
+        return Ok(json!({"id": id, "entry": entry, "permissions": permission_names(&manifest), "commands": command_names(&manifest)}));
     }
     let links = connections.iter().map(|c| Ok(Link {
         target: Target::new(&kind, &c.address)?, name: c.name.clone(), source_type: c.source_type.clone(),
@@ -894,16 +928,17 @@ pub fn package_open(window: tauri::WebviewWindow, app: tauri::AppHandle, kind: S
     })).collect::<Result<Vec<_>, String>>()?;
     let output = Arc::new(Mutex::new(Output::default()));
     let stop = Arc::new(AtomicBool::new(false));
+    let mut connector = None;
     match manifest.tier() {
         Tier::Connector => {
             let entry = &manifest.connector.as_ref().unwrap().entry;
             let source = std::fs::read_to_string(dir.join(entry)).map_err(|_| "The connector script is missing.")?;
             let storage_file = app.path().app_data_dir().ok().map(|d| d.join("package-data").join(format!("{kind}.json")));
-            run_connector(ConnectorSetup {
+            connector = Some(run_connector(ConnectorSetup {
                 kind: kind.clone(), package: kind.clone(), source,
                 links: links.clone(),
                 manifest: manifest.clone(), storage_file,
-            }, output.clone(), stop.clone());
+            }, output.clone(), stop.clone()));
         }
         // Declarative polls read the placement's first connection.
         Tier::Declarative => {
@@ -917,8 +952,8 @@ pub fn package_open(window: tauri::WebviewWindow, app: tauri::AppHandle, kind: S
     let mut viewers = HashMap::new();
     viewers.insert(viewer, window.label().to_string());
     let ui = manifest.permissions.contains(&crate::package_manifest::Permission::Ui);
-    feeds.insert(id.clone(), Feed { kind, connections, view, ui, revision, viewers, last_attached: Instant::now(), output, stop });
-    Ok(json!({"id": id, "entry": entry, "permissions": permission_names(&manifest)}))
+    feeds.insert(id.clone(), Feed { kind, connector, connections, view, ui, revision, viewers, last_attached: Instant::now(), output, stop });
+    Ok(json!({"id": id, "entry": entry, "permissions": permission_names(&manifest), "commands": command_names(&manifest)}))
 }
 
 #[tauri::command]
@@ -948,6 +983,42 @@ pub fn package_close(id: String, viewer: String) {
         feed.last_attached = Instant::now();
     }
     crate::package_stream::close_for(&id, Some(&viewer));
+}
+
+/// The connector commands a package declares, for the bridge.
+fn command_names(manifest: &Manifest) -> Value {
+    json!(manifest.connector.as_ref().map(|c| c.commands.clone()).unwrap_or_default())
+}
+
+/// Send a declared command to the feed's connector and wait for its answer.
+#[tauri::command]
+pub async fn package_command(id: String, viewer: String, name: String, args: Option<Value>) -> Result<Value, String> {
+    let (kind, handle) = {
+        let feeds = FEEDS.lock().unwrap();
+        let feed = feeds.get(&id).filter(|f| f.viewers.contains_key(&viewer)).ok_or("Widget disconnected")?;
+        (feed.kind.clone(), feed.connector)
+    };
+    let manifest = installed_manifest(&kind)?;
+    if !manifest.connector.as_ref().is_some_and(|c| c.commands.contains(&name)) {
+        return Err("This widget didn’t declare that command.".into());
+    }
+    let args = args.unwrap_or(Value::Null);
+    if args.to_string().len() > BODY_LIMIT {
+        return Err("Command arguments are limited to 1 MiB.".into());
+    }
+    ask_connector(handle.ok_or("The widget’s connector isn’t running.")?, name, args).await
+}
+
+/// Hand a command to a running connector and wait for its handler's answer.
+async fn ask_connector(handle: usize, name: String, args: Value) -> Result<Value, String> {
+    let rt = runtime(handle).ok_or("The widget’s connector isn’t running.")?;
+    let command = NEXT_COMMAND.fetch_add(1, Ordering::SeqCst);
+    let (reply, answer) = mpsc::channel();
+    rt.commands.lock().unwrap().insert(command, reply);
+    rt.tx.send(Event::Command { id: command, name, args }).map_err(|_| "The widget’s connector stopped.")?;
+    let result = tauri::async_runtime::spawn_blocking(move || answer.recv_timeout(COMMAND_TIMEOUT)).await.map_err(|e| e.to_string())?;
+    rt.commands.lock().unwrap().remove(&command);
+    result.map_err(|_| "The widget’s connector didn’t answer.".to_string())?
 }
 
 /// A running feed's package kind and one of its connections (`index`, else the first),
@@ -983,7 +1054,7 @@ pub async fn package_action(id: String, viewer: String, action: String, args: Ma
         headers.push(("Content-Type".into(), "application/json".into()));
     }
     let auth = manifest.auth_for(connection.source_type.as_deref());
-    let response = send(&kind, Some(&target), &auth, Request { url: route_url(&target.base, &path), method: method.into(), headers, body }).await?;
+    let response = send(&kind, Some(&target), &auth, Request { url: route_url(&target.base, &path), method: method.into(), headers, body, timeout: None }).await?;
     let status = response["status"].as_u64().unwrap_or(0);
     if !(200..300).contains(&status) {
         return Err(format!("Server returned HTTP {status}"));
@@ -1078,7 +1149,7 @@ mod tests {
         let auth: Auth = serde_json::from_value(json!({"login": {"path": "api/v2/auth/login", "fields": {"username": "{user}", "password": "{key}"}, "session": "cookie"}})).unwrap();
         let secret = Secret { user: "admin".into(), key: "pw-secret".into() };
         let request = Request { url: base.join("api/v2/torrents/info").unwrap(), method: "GET".into(),
-            headers: vec![("Cookie".into(), "SID=forged".into())], body: None };
+            headers: vec![("Cookie".into(), "SID=forged".into())], body: None, timeout: None };
         let result = tauri::async_runtime::block_on(to_connection("plugin.retry-test", &target, &auth, &crate::connections::plain_client(), &secret, request)).unwrap();
         assert_eq!(result.status, 200);
         let json = result.into_json();
@@ -1118,7 +1189,7 @@ mod tests {
         let secret = Secret { user: String::new(), key: "sab-test-key".into() };
         let result = tauri::async_runtime::block_on(deliver(
             &crate::connections::plain_client(), Credential::for_auth(&auth, &secret), &auth, &secret,
-            Request { url: base.join("api?mode=queue").unwrap(), method: "GET".into(), headers: vec![], body: None },
+            Request { url: base.join("api?mode=queue").unwrap(), method: "GET".into(), headers: vec![], body: None, timeout: None },
         )).unwrap().into_json();
         assert!(server.join().unwrap().starts_with("GET /api?mode=queue&apikey=sab-test-key "));
         assert!(!result.to_string().contains("sab-test-key"), "{result}");
@@ -1178,6 +1249,29 @@ mod tests {
         assert_eq!(pick("https://api.example.com/x", None), None, "a declared host is no connection");
         assert_eq!(pick("http://media.local/sonarr/api", Some(0)), Some(Some("radarr".into())), "an explicit index wins");
         assert!(link_for(&links, &Url::parse("http://sab.local:8080/").unwrap(), Some(9)).is_err());
+    }
+
+    #[test]
+    fn a_view_command_reaches_the_connectors_handler_and_its_answer_returns() {
+        let source = r#"
+            dashledge.onCommand('pause', args => ({paused: true, minutes: args.minutes}));
+            dashledge.onCommand('slow', async () => { await new Promise(r => setTimeout(r, 30)); return 'done'; });
+            dashledge.onCommand('broken', () => { throw new Error('queue is locked'); });
+            dashledge.emit({ready: true});
+        "#;
+        let output = Arc::new(Mutex::new(Output::default()));
+        let stop = Arc::new(AtomicBool::new(false));
+        let handle = run_connector(ConnectorSetup {
+            kind: "plugin.test".into(), package: "plugin.test".into(), source: source.into(),
+            links: vec![], manifest: manifest(&[]), storage_file: None,
+        }, output.clone(), stop.clone());
+        assert!(wait_for(&output, |o| o.data.get("ready").is_some()), "{:?}", output.lock().unwrap().error);
+        let ask = |name: &str, args: Value| tauri::async_runtime::block_on(ask_connector(handle, name.into(), args));
+        assert_eq!(ask("pause", json!({"minutes": 30})).unwrap(), json!({"paused": true, "minutes": 30}));
+        assert_eq!(ask("slow", Value::Null).unwrap(), json!("done"), "a handler may answer with a promise");
+        assert_eq!(ask("broken", Value::Null).unwrap_err(), "queue is locked");
+        assert!(ask("missing", Value::Null).unwrap_err().contains("doesn’t handle"));
+        stop.store(true, Ordering::SeqCst);
     }
 
     #[test]

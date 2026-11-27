@@ -154,8 +154,9 @@ async function reminders(entry, name, args) {
 // and `settings(saved)` sends the placement's changed settings to the live view.
 export function registerFrame(frame, {viewer, feed, kind = '', title = '', commands = [], actions = [], permissions = [],
   schema = [], saved = {}, source = '', openSettings = null, colors = null, displayName = '', host = '', serverField = '', native = false,
-  connectionType = ''}) {
+  connectionType = '', connectorCommands = []}) {
   const entry = {frame, viewer, feed, kind, title: clean(title, 64) || 'Widget', commands, actions, permissions, schema, source, connectionType,
+    connectorCommands,
     settings: settingValues(schema, saved), openSettings, colors, displayName, host, serverField, native,
     serverName: '', window: null, data: null, ready: false, metrics: false, keyboard: null, streams: new Set()};
   entries.add(entry);
@@ -299,6 +300,9 @@ export async function handleMessage(entry, message) {
           return reply(await invoke('package_stream_send', {id: entry.feed, viewer: entry.viewer, stream, text: String(message.args?.text ?? '')}) ?? true);
         }
         if (message.name === 'mac.metrics' && granted(entry, 'mac.metrics')) return reply(latestMetrics);
+        // A command the package's connector declares; Rust checks it again and waits for the answer.
+        if (entry.connectorCommands?.includes(message.name))
+          return reply(await invoke('package_command', {id: entry.feed, viewer: entry.viewer, name: message.name, args: message.args ?? null}));
         if (message.name === 'mac.subscribe' && granted(entry, 'mac.metrics')) {
           entry.metrics = true;
           return reply(latestMetrics);

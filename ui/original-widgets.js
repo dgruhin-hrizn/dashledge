@@ -153,7 +153,7 @@ export function mountPackage(box, slot, entry, connections, {native = false, ope
       unregister();
       // Permissions come from the package on disk, as the host validated it.
       unregister = registerFrame(frame, {viewer, feed, kind: slot.kind, title: entry.title, actions: entry.actions || [],
-        permissions: opened.permissions || [], schema: entry.settings || [], saved, source: slot.source || '', openSettings,
+        permissions: opened.permissions || [], connectorCommands: opened.commands || [], schema: entry.settings || [], saved, source: slot.source || '', openSettings,
         displayName: source?.name?.trim() || '', host: hostOf(source?.address), serverField: entry.serverField, native, colors,
         connectionType: source?.type || ''});
       frame.src = '/widget-view/' + encodeURIComponent(feed) + '/' + encodeURIComponent(opened.entry);

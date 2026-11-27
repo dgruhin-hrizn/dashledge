@@ -99,7 +99,7 @@ pub async fn package_image(id: String, viewer: String, path: String, fresh: Opti
         }
     }
     let auth = manifest.auth_for(connection.as_ref().and_then(|c| c.source_type.as_deref()));
-    let request = Request { url, method: "GET".into(), headers: vec![("Accept".into(), "image/*".into())], body: None };
+    let request = Request { url, method: "GET".into(), headers: vec![("Accept".into(), "image/*".into())], body: None, timeout: None };
     let response = package_connector::exchange(&kind, target.as_ref(), &auth, request).await?;
     if !(200..300).contains(&response.status) {
         return Err(format!("Server returned HTTP {}", response.status));

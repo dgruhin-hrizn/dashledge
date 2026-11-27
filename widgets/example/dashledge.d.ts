@@ -155,7 +155,7 @@ declare namespace DashledgeView {
     displayName(serverName?: string): string;
     /** The `sources.types` ID the placement's connection was made for, such as 'jellyfin', or '' when the manifest declares no types. */
     connectionType(): string;
-    /** Low-level: send a host command. Prefer the helpers. */
+    /** Send a command the connector declares in `connector.commands` (it answers with `dashledge.onCommand`), or a low-level host command. Prefer the helpers for host features. */
     command(name: string, args?: unknown): Promise<unknown>;
 
     /** Requires the `settings` permission. */
@@ -226,6 +226,8 @@ declare namespace DashledgeConnector {
     readonly connection: Readonly<Connection> | null;
     /** Every connection the placement holds, its chosen one first, up to `sources.max`. */
     readonly connections: ReadonlyArray<Readonly<Connection>>;
+    /** Answer a command the manifest's `connector.commands` declares. The view sends it with `Dashledge.command(name, args)` and receives what the handler returns (or a promise of it); a thrown error rejects the view's call. */
+    onCommand(name: string, handler: (args: unknown) => unknown): void;
     /** Send data to every view of this connector. Views receive it through `Dashledge.onData`. */
     emit(data: unknown): void;
     /** A small per-package store that survives restarts (`connector.storage` bytes, default 64 KiB). */
@@ -251,6 +253,8 @@ declare namespace DashledgeConnector {
     body?: string | ArrayBuffer | ArrayBufferView;
     /** Which of `dashledge.connections` to send it to. Without it, the connection whose address the URL falls under. */
     connection?: number;
+    /** Seconds to wait for the reply, up to 600 (default 15), for slow operations such as loading a model. */
+    timeout?: number;
   }
 
   /** WebSocket to the connection or a declared host. Text frames arrive as strings, binary frames as ArrayBuffers. */

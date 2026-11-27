@@ -11,7 +11,7 @@
     return reply.ok;
   };
   let next = 1;
-  const fetches = new Map(), timers = new Map(), sockets = new Map();
+  const fetches = new Map(), timers = new Map(), sockets = new Map(), commands = new Map();
 
   // Bytes cross the host call as base64. The context has no TextEncoder or atob.
   const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
@@ -88,6 +88,7 @@
       const headers = init.headers && typeof init.headers === 'object' ? {...init.headers} : {};
       const bytes = init.body == null ? null : bytesOf(init.body);
       const connection = Number.isInteger(init.connection) ? {connection: init.connection} : {};
+      if (Number(init.timeout) > 0) connection.timeout = Number(init.timeout);
       call('fetch', {id, url: String(url), method: init.method || 'GET', headers, ...connection,
         ...(bytes ? {bodyBase64: toBase64(bytes)} : {body: init.body == null ? undefined : String(init.body)})});
       fetches.set(id, {resolve, reject});
@@ -139,6 +140,11 @@
       // The placement's chosen connection, and every one it holds (that one first).
       connection: connections[0] ?? null,
       connections,
+      // Answer a command the manifest declares; the view sends it with Dashledge.command(name, args).
+      onCommand(name, handler) {
+        if (typeof handler !== 'function') throw new Error('onCommand needs a function');
+        commands.set(String(name), handler);
+      },
       emit: data => call('emit', {data}),
       storage,
     });
@@ -156,6 +162,11 @@
       if (!t) return;
       if (!t.repeat) timers.delete(event.id);
       t.fn();
+    } else if (event.type === 'command') {
+      const handler = commands.get(event.name);
+      const answer = (value, error) => call('commandReply', error == null ? {id: event.id, value: value ?? null} : {id: event.id, error: String(error)});
+      if (!handler) return answer(null, 'The connector doesn’t handle “' + event.name + '”.');
+      Promise.resolve().then(() => handler(event.args)).then(value => answer(value), error => answer(null, error?.message || error));
     } else if (event.type === 'socket') {
       const socket = sockets.get(event.id);
       if (!socket) return;

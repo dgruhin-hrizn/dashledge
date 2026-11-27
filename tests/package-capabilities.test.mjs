@@ -131,6 +131,21 @@ test('a stream relays frames into the frame, binary ones by transfer, and closes
   }
 });
 
+test('only commands the connector declares reach it', async () => {
+  const calls = [];
+  const previous = window.__TAURI__.core.invoke;
+  window.__TAURI__.core.invoke = async (cmd, args) => { calls.push([cmd, args]); return {paused: true}; };
+  try {
+    const {entry, posted} = frameFor({connectorCommands: ['pause']});
+    assert.deepEqual((await command(entry, posted, 'pause', {minutes: 30})).value, {paused: true});
+    assert.deepEqual(calls, [['package_command', {id: 'pkg-1', viewer: 'v', name: 'pause', args: {minutes: 30}}]]);
+    assert.equal((await command(entry, posted, 'delete-everything', {})).error, 'Unknown widget command');
+    assert.equal(calls.length, 1, 'an undeclared command never reaches the host');
+  } finally {
+    window.__TAURI__.core.invoke = previous;
+  }
+});
+
 test('the install sheet names the images capability', () => {
   assert.ok(permissionSummary({permissions: ['images'], images: ['api/*.jpg']}).some(line => line.includes('images from that connection')));
 });
