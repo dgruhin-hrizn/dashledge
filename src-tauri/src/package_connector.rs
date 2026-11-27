@@ -195,6 +195,41 @@ fn scrub(text: &str, credential: Option<&Credential>, key: &str) -> String {
     out
 }
 
+/// Open a WebSocket for `handle` (a connector runtime, or `STREAM_HANDLE` for view
+/// streams). On the connection it carries the credential and trusts the saved CA.
+pub(crate) fn open_socket(handle: usize, socket: i64, kind: &str, connection: Option<&Target>, auth: &Auth, url: Url) -> Result<(), String> {
+    let (mut url, mut name, mut value, mut ca) = (url, String::new(), String::new(), String::new());
+    if let Some(t) = connection.filter(|t| *auth != Auth::None && same_origin(&url, Some(&t.base))) {
+        // The connection's saved CA is trusted for wss, as `send` trusts it for https.
+        let (secret, saved_ca) = crate::connections::secret_and_ca(kind, &t.account)?;
+        if let Some((n, v)) = Credential::for_auth(auth, &secret).and_then(|c| c.apply(&mut url)) {
+            (name, value) = (n, v);
+        }
+        ca = saved_ca.unwrap_or_default();
+    }
+    let (url, name, value) = (CString::new(url.as_str()).unwrap(), CString::new(name).unwrap(), CString::new(value).unwrap_or_default());
+    let ca = CString::new(ca).unwrap_or_default();
+    unsafe { connector_ws_open(handle, socket, url.as_ptr(), name.as_ptr(), value.as_ptr(), ca.as_ptr()) };
+    Ok(())
+}
+
+/// The socket handle view streams use; connector runtimes start at 1.
+pub(crate) const STREAM_HANDLE: usize = 0;
+
+pub(crate) fn next_socket() -> i64 {
+    NEXT_SOCKET.fetch_add(1, Ordering::SeqCst)
+}
+
+pub(crate) fn socket_send_text(socket: i64, text: &str) -> Result<(), String> {
+    let text = CString::new(text).map_err(|_| "Invalid message")?;
+    unsafe { connector_ws_send(socket, text.as_ptr()) };
+    Ok(())
+}
+
+pub(crate) fn socket_close(socket: i64) {
+    unsafe { connector_ws_close(socket) };
+}
+
 /// Headers a package may not set itself: the app's own, and the one its credential uses.
 fn forbidden_header(name: &str, auth: &Auth) -> bool {
     let lower = name.to_ascii_lowercase();
@@ -502,20 +537,13 @@ fn host_op(rt: &Runtime, op: &str, args: Value) -> Result<Value, String> {
             if sockets.len() >= 8 {
                 return Err("A connector may keep at most 8 sockets open.".into());
             }
-            let global = NEXT_SOCKET.fetch_add(1, Ordering::SeqCst);
+            let global = next_socket();
             sockets.insert(global, local);
-            let (mut url, mut name, mut value, mut ca) = (url, String::new(), String::new(), String::new());
-            if let Some(t) = rt.connection.as_ref().filter(|t| rt.auth != Auth::None && same_origin(&url, Some(&t.base))) {
-                // The connection's saved CA is trusted for wss, as `send` trusts it for https.
-                let (secret, saved_ca) = crate::connections::secret_and_ca(&rt.kind, &t.account)?;
-                if let Some((n, v)) = Credential::for_auth(&rt.auth, &secret).and_then(|c| c.apply(&mut url)) {
-                    (name, value) = (n, v);
-                }
-                ca = saved_ca.unwrap_or_default();
+            drop(sockets);
+            if let Err(error) = open_socket(rt.handle, global, &rt.kind, rt.connection.as_ref(), &rt.auth, url) {
+                rt.sockets.lock().unwrap().remove(&global);
+                return Err(error);
             }
-            let (url, name, value) = (CString::new(url.as_str()).unwrap(), CString::new(name).unwrap(), CString::new(value).unwrap_or_default());
-            let ca = CString::new(ca).unwrap_or_default();
-            unsafe { connector_ws_open(rt.handle, global, url.as_ptr(), name.as_ptr(), value.as_ptr(), ca.as_ptr()) };
             Ok(Value::Null)
         }
         "wsSend" | "wsClose" => {
@@ -571,6 +599,12 @@ pub extern "C" fn dashledge_connector_free(value: *mut c_char) {
 
 #[no_mangle]
 pub extern "C" fn dashledge_connector_ws_event(handle: usize, socket: i64, kind: *const c_char, data: *const c_char) {
+    if handle == STREAM_HANDLE {
+        let kind = unsafe { CStr::from_ptr(kind) }.to_string_lossy();
+        let data = unsafe { CStr::from_ptr(data) }.to_string_lossy();
+        crate::package_stream::event(socket, &kind, &data);
+        return;
+    }
     let Some(rt) = runtime(handle) else { return };
     let Some(local) = rt.sockets.lock().unwrap().get(&socket).copied() else { return };
     let kind = unsafe { CStr::from_ptr(kind) }.to_string_lossy().into_owned();
@@ -746,6 +780,9 @@ pub fn reap_idle(app: tauri::AppHandle) {
             }
             feed.last_attached.elapsed() < Duration::from_secs(90)
         });
+        // Streams end with their viewer's window, and with their feed.
+        let feeds = FEEDS.lock().unwrap();
+        crate::package_stream::retain(|feed, viewer| feeds.get(feed).is_some_and(|f| f.viewers.contains_key(viewer)));
     });
 }
 
@@ -834,6 +871,7 @@ pub fn package_close(id: String, viewer: String) {
         feed.viewers.remove(&viewer);
         feed.last_attached = Instant::now();
     }
+    crate::package_stream::close_for(&id, Some(&viewer));
 }
 
 /// A running feed's package kind and connection, for a viewer attached to it.

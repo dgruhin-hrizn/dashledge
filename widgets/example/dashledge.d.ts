@@ -12,7 +12,7 @@
 // ---------------------------------------------------------------- views ----
 
 declare namespace DashledgeView {
-  type Permission = 'settings' | 'settings.choices' | 'keyboard' | 'ui' | 'mac.metrics' | 'reminders' | 'images';
+  type Permission = 'settings' | 'settings.choices' | 'keyboard' | 'ui' | 'mac.metrics' | 'reminders' | 'images' | 'stream';
   /** `multi` settings hold a list (`["*"]` is every option, including later ones); `names` settings map option values to names. */
   type SettingValue = string | number | boolean | string[] | Record<string, string>;
 
@@ -124,6 +124,19 @@ declare namespace DashledgeView {
     chip: string | null;
   }
 
+  /** An open stream. Set the handlers right after `open()` resolves; events that arrived earlier follow. */
+  interface Stream {
+    readonly id: number;
+    onopen: ((event: {type: 'open'}) => void) | null;
+    /** Text frames arrive as strings, binary frames (such as fMP4 video segments) as ArrayBuffers. */
+    onmessage: ((event: {type: 'message'; data: string | ArrayBuffer}) => void) | null;
+    onerror: ((event: {type: 'error'; message: string}) => void) | null;
+    onclose: ((event: {type: 'close'; code: number}) => void) | null;
+    /** Send a text frame of up to 64 KiB. */
+    send(text: string): Promise<unknown>;
+    close(): Promise<unknown>;
+  }
+
   interface API {
     /** Called now and whenever theme, names, viewport or settings change. Returns an unsubscribe function. */
     subscribe(callback: (state: State) => void): () => void;
@@ -149,6 +162,11 @@ declare namespace DashledgeView {
     };
     /** Requires the `images` permission. Load an image the manifest's `images` patterns allow: a path under the connection's address (`api/v3/mediacover/12/poster-250.jpg`) or a full URL on a connector host. Resolves with a `blob:` URL for `<img src>` or CSS. The same path reuses its URL; `{fresh: true}` fetches again, as for a camera snapshot, and revokes the previous URL. Only JPEG, PNG, GIF and WebP load. */
     image(path: string, options?: {fresh?: boolean}): Promise<string>;
+    /** Requires the `stream` permission. */
+    stream: {
+      /** Open a WebSocket route the manifest's `streams` declare, on the placement's connection, filling its {placeholders} from `params`. Dashledge adds the credential. At most 4 per widget. */
+      open(id: string, params?: Record<string, string | number>): Promise<Stream>;
+    };
     /** Requires the `keyboard` permission. */
     keyboard: {
       /** Open the shared touch keyboard. Resolves with the text, or null when closed. Opens only while the widget is on screen. */

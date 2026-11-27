@@ -18,6 +18,7 @@ const capabilityLines = {
   'mac.metrics': 'Reads this Mac’s CPU, GPU, memory and network activity.',
   reminders: 'Reads, checks off and adds your Apple Reminders. Bundled widgets only.',
   images: 'Shows images from that connection, such as posters and camera snapshots.',
+  stream: 'Plays live streams from that connection, such as camera video.',
 };
 
 // Plain-language permissions for the install sheet. When `previous` is the installed

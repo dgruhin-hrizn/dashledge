@@ -154,7 +154,7 @@ export function registerFrame(frame, {viewer, feed, kind = '', title = '', comma
   schema = [], saved = {}, source = '', openSettings = null, colors = null, displayName = '', host = '', serverField = '', native = false}) {
   const entry = {frame, viewer, feed, kind, title: clean(title, 64) || 'Widget', commands, actions, permissions, schema, source,
     settings: settingValues(schema, saved), openSettings, colors, displayName, host, serverField, native,
-    serverName: '', window: null, data: null, ready: false, metrics: false, keyboard: null};
+    serverName: '', window: null, data: null, ready: false, metrics: false, keyboard: null, streams: new Set()};
   entries.add(entry);
   // Readiness comes from the view's `ready`, which each new document sends; load fires
   // after it, so it only maps the window.
@@ -163,6 +163,8 @@ export function registerFrame(frame, {viewer, feed, kind = '', title = '', comma
     entries.delete(entry);
     if (entry.window) frames.delete(entry.window);
     entry.keyboard?.dialog.close();
+    for (const stream of entry.streams) invoke('package_stream_close', {id: entry.feed, viewer: entry.viewer, stream}).catch(() => {});
+    entry.streams.clear();
   };
   unregister.colors = next => {
     entry.colors = next || null;
@@ -183,6 +185,37 @@ export function registerFrame(frame, {viewer, feed, kind = '', title = '', comma
   };
   unregister.entry = entry;
   return unregister;
+}
+
+// Bytes from a Tauri channel, whichever form the IPC delivered them in.
+const toBuffer = body => body instanceof ArrayBuffer ? body
+  : ArrayBuffer.isView(body) ? body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength)
+  : Array.isArray(body) ? new Uint8Array(body).buffer : null;
+
+// Open a declared stream. Rust relays its frames on a channel; each reaches the frame as
+// {type: 'stream', stream, event, …}, binary frames by transfer. Events that arrive
+// before Rust returns the stream's ID wait, so the view sees them after its reply.
+async function openStream(entry, args) {
+  const Channel = (window.__TAURI__ || (window.parent !== window && window.parent.__TAURI__))?.core?.Channel;
+  if (!Channel) throw new Error('Open the dashboard in Dashledge');
+  const params = {};
+  for (const [key, value] of Object.entries(args?.params && typeof args.params === 'object' ? args.params : {}))
+    if (['string', 'number'].includes(typeof value)) params[key] = String(value);
+  let stream = null;
+  const early = [];
+  const forward = body => {
+    const buffer = toBuffer(body);
+    if (buffer) return post(entry, {type: 'stream', stream, event: 'binary', data: buffer}, [buffer]);
+    if (!body || typeof body !== 'object') return;
+    if (body.event === 'close') entry.streams.delete(stream);
+    post(entry, {type: 'stream', stream, event: String(body.event), text: body.text, message: body.message, code: body.code});
+  };
+  const channel = new Channel();
+  channel.onmessage = body => (stream === null ? early.length < 256 && early.push(body) : forward(body));
+  stream = await invoke('package_stream_open', {id: entry.feed, viewer: entry.viewer, stream: String(args?.stream ?? ''), params, channel});
+  entry.streams.add(stream);
+  queueMicrotask(() => early.splice(0).forEach(forward));
+  return stream;
 }
 
 export async function handleMessage(entry, message) {
@@ -244,6 +277,17 @@ export async function handleMessage(entry, message) {
           const bytes = await invoke('package_image', {id: entry.feed, viewer: entry.viewer, path, fresh: message.args?.fresh === true});
           const buffer = bytes instanceof ArrayBuffer ? bytes : new Uint8Array(bytes).buffer;
           return post(entry, {type: 'reply', id: message.id, value: {type: imageType(buffer), bytes: buffer}}, [buffer]);
+        }
+        // stream: a WebSocket the manifest declares, opened by Rust on the connection.
+        if (message.name === 'stream.open' && granted(entry, 'stream')) return reply(await openStream(entry, message.args));
+        if ((message.name === 'stream.send' || message.name === 'stream.close') && granted(entry, 'stream')) {
+          const stream = message.args?.stream;
+          if (!entry.streams.has(stream)) return reply(undefined, 'That stream is closed');
+          if (message.name === 'stream.close') {
+            entry.streams.delete(stream);
+            return reply(await invoke('package_stream_close', {id: entry.feed, viewer: entry.viewer, stream}) ?? true);
+          }
+          return reply(await invoke('package_stream_send', {id: entry.feed, viewer: entry.viewer, stream, text: String(message.args?.text ?? '')}) ?? true);
         }
         if (message.name === 'mac.metrics' && granted(entry, 'mac.metrics')) return reply(latestMetrics);
         if (message.name === 'mac.subscribe' && granted(entry, 'mac.metrics')) {

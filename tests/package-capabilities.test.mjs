@@ -88,6 +88,45 @@ test('images load only with the permission and move into the frame by transfer',
   }
 });
 
+test('a stream relays frames into the frame, binary ones by transfer, and closes with it', async () => {
+  const refused = frameFor({permissions: []});
+  assert.equal((await command(refused.entry, refused.posted, 'stream.open', {stream: 'live'})).error, 'Unknown widget command');
+
+  const calls = [], sent = [];
+  let channel = null;
+  const previous = window.__TAURI__.core;
+  window.__TAURI__.core = {
+    Channel: class { constructor() { channel = this; this.onmessage = null; } },
+    invoke: async (cmd, args) => { calls.push([cmd, args]); return cmd === 'package_stream_open' ? 41 : null; },
+  };
+  try {
+    const frame = new EventTarget();
+    frame.contentWindow = {postMessage: (message, _origin, transfer) => sent.push({message, transfer})};
+    const registered = registerFrame(frame, {viewer: 'v', feed: 'pkg-3', kind: 'plugin.cameras', permissions: ['stream']});
+    frame.dispatchEvent(new Event('load'));
+    const entry = registered.entry;
+    await handleMessage(entry, {dashledge: 1, type: 'command', id: 1, name: 'stream.open', args: {stream: 'live', params: {camera: 'front', bad: {x: 1}}}});
+    assert.deepEqual(calls[0].slice(0, 1), ['package_stream_open']);
+    assert.deepEqual(calls[0][1].params, {camera: 'front'}, 'only string and number params pass');
+    assert.equal(sent.at(-1).message.value, 41);
+    const segment = new Uint8Array([0, 0, 0, 24, 102, 116, 121, 112]).buffer;
+    channel.onmessage({event: 'open'});
+    channel.onmessage(segment);
+    const [open, binary] = sent.slice(-2);
+    assert.deepEqual([open.message.type, open.message.stream, open.message.event], ['stream', 41, 'open']);
+    assert.equal(binary.message.event, 'binary');
+    assert.equal(binary.transfer[0], segment, 'video segments move by transfer');
+    await handleMessage(entry, {dashledge: 1, type: 'command', id: 2, name: 'stream.send', args: {stream: 41, text: '{"type":"mse"}'}});
+    assert.deepEqual(calls.at(-1), ['package_stream_send', {id: 'pkg-3', viewer: 'v', stream: 41, text: '{"type":"mse"}'}]);
+    await handleMessage(entry, {dashledge: 1, type: 'command', id: 3, name: 'stream.send', args: {stream: 99, text: 'x'}});
+    assert.equal(sent.at(-1).message.error, 'That stream is closed', 'a view can only use streams it opened');
+    registered();
+    assert.deepEqual(calls.at(-1), ['package_stream_close', {id: 'pkg-3', viewer: 'v', stream: 41}], 'removing the frame closes its streams');
+  } finally {
+    window.__TAURI__.core = previous;
+  }
+});
+
 test('the install sheet names the images capability', () => {
   assert.ok(permissionSummary({permissions: ['images'], images: ['api/*.jpg']}).some(line => line.includes('images from that connection')));
 });

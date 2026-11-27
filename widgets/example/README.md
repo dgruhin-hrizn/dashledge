@@ -118,6 +118,10 @@ Dashledge.mac.onMetrics(({cpu, gpu, memory, network, chip}) => { /* … */ });
 // images: a poster or snapshot your manifest's `images` patterns allow.
 poster.src = await Dashledge.image('api/v3/mediacover/12/poster-250.jpg');
 snapshot.src = await Dashledge.image('api/front_door/latest.jpg?h=360', {fresh: true});
+
+// stream: a WebSocket your manifest's `streams` declare, opened on the connection.
+const live = await Dashledge.stream.open('live', {camera: 'front_door'});
+live.onmessage = ({data}) => typeof data === 'string' ? handshake(data) : append(data);
 ```
 
 - **settings** are per placement and reach only the view. A connector serves every placement on the same connection, so it doesn't see them.
@@ -127,6 +131,7 @@ snapshot.src = await Dashledge.image('api/front_door/latest.jpg?h=360', {fresh: 
 - **reminders** is for bundled widgets only; an installed package that declares it is refused. It reads, checks off and adds Apple Reminders, and asks macOS for access, or changes a reminder, only while the widget is on screen.
 - **mac.metrics** reports CPU, per-core load, GPU, memory, network throughput, uptime and the chip name. It never includes the Mac's name, volumes or network interfaces.
 - **images** needs `"images"` in the manifest: up to 16 patterns, each a path under the connection's address or a full URL on a connector host, where `*` matches within one path segment. For example `["api/v3/mediacover/*/*.jpg", "https://image.tmdb.org/t/p/*/*"]`. Dashledge fetches the image (with the connection's credential only on the connection), accepts only JPEG, PNG, GIF and WebP, caches it for 10 minutes, and resolves with a `blob:` URL. A query such as `?h=360` may follow the path. Pass `{fresh: true}` for images that change, like camera snapshots. Paths are relative to the address, so strip a leading `/` and any URL base the server includes.
+- **stream** needs `"streams"` in the manifest: up to 8 `{"id", "path"}` routes on the connection, with `{placeholders}` in the path or query, such as `{"id": "live", "path": "live/mse/api/ws?src={camera}"}` for Frigate. Dashledge opens them as `ws`/`wss` with the connection's credential and saved certificate, and a widget may keep 4 open. Text frames arrive as strings, binary frames as ArrayBuffers; `send()` takes text up to 64 KiB. Streams close when the widget leaves the screen. To play fMP4 video, attach a `MediaSource` with `video.srcObject = mediaSource`: a `blob:` media URL doesn't play in the widget's sandboxed frame. `samples/mse-player.js` does this for go2rtc.
 
 ## Develop with an unpacked folder
 

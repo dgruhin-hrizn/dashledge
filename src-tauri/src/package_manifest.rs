@@ -44,6 +44,9 @@ pub struct Manifest {
     /// characters within one path segment.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub images: Vec<String>,
+    /// WebSocket routes on the connection a view may open with the `stream` permission.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub streams: Vec<StreamRoute>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub connector: Option<Connector>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -91,6 +94,10 @@ pub enum Permission {
     /// the view as `blob:` URLs by `Dashledge.image()`.
     #[serde(rename = "images")]
     Images,
+    /// Live WebSocket streams the manifest's `streams` declare, relayed to the view by
+    /// `Dashledge.stream.open()`: camera video (MSE fMP4), event feeds.
+    #[serde(rename = "stream")]
+    Stream,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -367,6 +374,15 @@ pub enum Method {
     Post,
     Put,
     Delete,
+}
+
+/// A WebSocket route on the connection, opened as ws/wss. `{name}` placeholders in the
+/// path or query are filled from the view's arguments, as for actions.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StreamRoute {
+    pub id: String,
+    pub path: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -678,6 +694,24 @@ pub fn validate(raw: &Value, origin: Origin) -> Result<Manifest, String> {
             return fail("A permission is declared twice.");
         }
     }
+    if granted.contains(&Permission::Stream) != !manifest.streams.is_empty() {
+        return fail("Declare the stream permission together with at least one stream.");
+    }
+    if manifest.streams.len() > 8 {
+        return fail("Declare at most 8 streams.");
+    }
+    if !manifest.streams.is_empty() && manifest.sources.is_none() {
+        return fail("Streams open on the connection, so they need sources.");
+    }
+    unique(manifest.streams.iter().map(|s| s.id.as_str()), "Stream ID")?;
+    for stream in &manifest.streams {
+        name(&stream.id, "Stream ID")?;
+        let (path, query) = stream.path.split_once('?').unwrap_or((&stream.path, ""));
+        route(path, "Stream route", true, false)?;
+        if !query.bytes().all(|b| b.is_ascii_alphanumeric() || b"-_.=&,:%{}".contains(&b)) || placeholder_names(query).is_none() {
+            return fail(format!("Stream route “{}” has an invalid query.", stream.path));
+        }
+    }
     if granted.contains(&Permission::Images) != !manifest.images.is_empty() {
         return fail("Declare the images permission together with at least one image route.");
     }
@@ -976,6 +1010,28 @@ mod tests {
         assert!(!image_matches("api/*/latest.jpg", "api/../latest.jpg"));
         assert_eq!(split_origin("https://api.example.com/t/p/*"), Some(("https://api.example.com", "t/p/*")));
         assert!(image_query("h=360&bbox=1") && !image_query("x=<script>"));
+    }
+
+    #[test]
+    fn streams_need_the_permission_a_connection_and_relative_routes() {
+        let mut p = installed();
+        p["permissions"] = json!(["stream"]);
+        p["streams"] = json!([{"id": "live", "path": "live/mse/api/ws?src={camera}"}, {"id": "events", "path": "ws"}]);
+        assert_eq!(validate(&p, Origin::Installed).unwrap().streams.len(), 2);
+        let mut missing = p.clone();
+        missing["permissions"] = json!([]);
+        assert!(validate(&missing, Origin::Installed).is_err());
+        for bad in [json!([{"id": "a", "path": "../ws"}]), json!([{"id": "a", "path": "wss://other/ws"}]), json!([{"id": "a", "path": "ws?src={x"}]),
+                    json!([{"id": "Live", "path": "ws"}]), json!([{"id": "a", "path": "ws"}, {"id": "a", "path": "ws2"}])] {
+            let mut q = p.clone();
+            q["streams"] = bad.clone();
+            assert!(validate(&q, Origin::Installed).is_err(), "{bad}");
+        }
+        let mut no_sources = p.clone();
+        no_sources.as_object_mut().unwrap().remove("sources");
+        no_sources.as_object_mut().unwrap().remove("data");
+        no_sources.as_object_mut().unwrap().remove("actions");
+        assert!(validate(&no_sources, Origin::Installed).is_err());
     }
 
     #[test]

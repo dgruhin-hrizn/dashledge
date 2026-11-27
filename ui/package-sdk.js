@@ -100,6 +100,38 @@
       () => { if (images.get(key) === next) images.delete(key); });
     return next;
   };
+  // stream: a WebSocket the manifest's `streams` declare, opened by Dashledge on the
+  // connection. The handle works like a WebSocket: onopen, onmessage (data is a string
+  // or an ArrayBuffer), onerror, onclose, send(text) and close().
+  const streams = new Map(), waiting = new Map();
+  function deliverStream(handle, m) {
+    if (m.event === 'open') handle.onopen?.({type: 'open'});
+    else if (m.event === 'binary') handle.onmessage?.({type: 'message', data: m.data});
+    else if (m.event === 'message') handle.onmessage?.({type: 'message', data: m.text});
+    else if (m.event === 'error') handle.onerror?.({type: 'error', message: m.message || 'Stream error'});
+    else if (m.event === 'close') { streams.delete(handle.id); handle.onclose?.({type: 'close', code: Number(m.code) || 1006}); }
+  }
+  function streamMessage(m) {
+    const handle = streams.get(m.stream);
+    if (handle) return deliverStream(handle, m);
+    const queue = waiting.get(m.stream) || [];
+    if (queue.length < 256) queue.push(m);
+    waiting.set(m.stream, queue);
+  }
+  api.stream = {
+    async open(id, params = {}) {
+      const n = await api.command('stream.open', {stream: id, params});
+      const handle = {id: n, onopen: null, onmessage: null, onerror: null, onclose: null,
+        send: text => api.command('stream.send', {stream: n, text: String(text)}),
+        close() { streams.delete(n); return api.command('stream.close', {stream: n}).catch(() => {}); }};
+      streams.set(n, handle);
+      // Events that came before this handle existed, once the caller has set its handlers.
+      const early = waiting.get(n) || [];
+      waiting.delete(n);
+      if (early.length) setTimeout(() => early.forEach(m => deliverStream(handle, m)), 0);
+      return handle;
+    },
+  };
   // keyboard: the shared touch keyboard. Resolves with the text, or null when closed.
   api.keyboard = {open: (options = {}) => api.command('keyboard.open', options)};
   // mac.metrics: this Mac's CPU, GPU, memory and network readings, about once a second.
@@ -269,6 +301,8 @@
       emitMetrics(message.metrics);
     } else if (message.type === 'refresh') {
       for (const callback of refreshListeners) callback();
+    } else if (message.type === 'stream') {
+      streamMessage(message);
     } else if (message.type === 'blur') {
       window.dispatchEvent(new Event('blur'));
     } else if (message.type === 'reply') {
