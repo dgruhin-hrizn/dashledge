@@ -2,6 +2,8 @@
 
 This ZIP is a working package: a weather widget that shows current conditions and today's temperatures from Open-Meteo. Install it as it is from **Widget Studio → Install package**, then add **Weather (example)** to a page. Edit the files to make your own widget.
 
+This file is the reference for the manifest and the APIs. For a step-by-step walkthrough, see "Build widgets for Dashledge" in the `widgets` folder of the Dashledge repository on GitHub (github.com/dgruhin-hrizn/dashledge).
+
 ## What's in a package
 
 | File | Purpose |
@@ -82,7 +84,11 @@ Every view runs isolated. It can't reach the network, other widgets, Dashledge's
     {"id": "nzbget", "label": "NZBGet", "auth": "basic", "test": ["jsonrpc/version"], "usernameLabel": "Username", "credentialLabel": "Password"}
   ]}
   ```
- Your code never sees either value: a package can't set the credential's header, Dashledge replaces any query parameter of the same name, and an echoed credential (in a redirect's `Location` or a response body) reaches your connector as `[credential]`.
+
+  Your code never sees the username, the key or a sign-in session:
+  - A package can't set the credential's header.
+  - Dashledge replaces any query parameter with the same name.
+  - A credential the server echoes back, in a redirect's `Location` or in a response body, reaches your connector as `[credential]`.
 - **`displayName.serverField`** is a dot path into your data where the server reports its own name. Dashledge shows the name the user typed for the connection, else this, else the address's host.
 - **`data`** routes are relative to the connection address, polled every 2–3600 seconds. They must return JSON.
 - **`actions`** are `POST`, `PUT` or `DELETE` routes. `{name}` placeholders, in the route or as whole string values in `body`, take 1–128 letters, digits, `.`, `_`, `:` or `-` from the view.
@@ -106,7 +112,9 @@ Dashledge.onData(({rev, data, error}) => {
   // error is set when the connector stopped.
 });
 Dashledge.displayName(serverName);          // the name to show for this placement's server
+Dashledge.connectionType();                 // the connection's type id from sources.types, or ''
 await Dashledge.action('restart', {service: 'web'}); // runs a declared action
+await Dashledge.command('pause', {minutes: 30});    // asks your connector (connector.commands)
 ```
 
 Use ordinary buttons, links and scrolling containers. Dashledge replays touches from the Edge inside the view: taps, vertical and horizontal scrolling, and range sliders marked `data-edge-range`. A horizontal swipe turns the page when it starts at the bezel or when nothing under the finger can scroll sideways. Keep hit areas at least 44 × 44 CSS pixels.
@@ -208,16 +216,24 @@ Dashledge.onData<{temperature: number}>(({data}) => render(data.temperature));
 ## The connector API
 
 ```js
-dashledge.connection;               // {address, name} of the chosen connection, or null
-const r = await fetch(url, {method, headers, body}); // r.ok, r.status, r.headers.get(), await r.json(), await r.text()
+dashledge.connection;               // {address, name, type} of the chosen connection, or null
+dashledge.connections;              // every connection the placement holds; connections[0] is dashledge.connection
+const r = await fetch(url, {method, headers, body, timeout, connection});
+                                     // r.ok, r.status, r.headers.get(), await r.json(), r.text(), r.arrayBuffer()
 const socket = new WebSocket('wss://…'); // onopen, onmessage, onclose, onerror, send(), close()
-setTimeout(fn, ms); setInterval(fn, ms); clearTimeout(id);
+dashledge.onCommand(name, handler); // answer Dashledge.command(name, args) from the view
+setTimeout(fn, ms); setInterval(fn, ms); clearTimeout(id); clearInterval(id); queueMicrotask(fn);
 dashledge.storage.get(key); dashledge.storage.set(key, value); // persists across restarts
 dashledge.emit(data);               // send JSON-compatible data (up to 1 MiB) to the view
 console.log(...);                    // also info, warn, error and debug; shown in the connector log
 ```
 
-Requests can't set `Authorization`, `Cookie`, `Host` or `X-Emby-Token`; Dashledge adds the connection's credential to requests for that connection only. Redirects aren't followed. Responses are limited to 8 MiB. A connector that runs for more than two seconds without returning is stopped, and the view receives the error.
+- **`connection.address`** is the resolved address, the same one Test uses. It ends in `/` (just the origin when the manifest sets `"address": "origin"`), so append relative paths: `address + 'api/status'`.
+- **`fetch`** takes `GET`, `HEAD`, `POST`, `PUT`, `PATCH` and `DELETE`. `body` is a string, an `ArrayBuffer` or a typed array, up to 1 MiB. Requests time out after 15 seconds, and `timeout` asks for up to 600. `connection` picks a connection by index; otherwise Dashledge uses the one whose address the URL falls under.
+- **`WebSocket`** messages arrive as strings or `ArrayBuffer`s, and `send()` takes either. A connector keeps up to 8 sockets open.
+- **Requests can't set** `Authorization`, `Cookie`, `Host`, `X-Emby-Token`, `Proxy-Authorization`, `Content-Length` or the header your `auth` uses. Dashledge adds the connection's credential or session itself, to requests for that connection only. Set `Content-Type`, `Accept` and other headers as you need.
+- **Redirects aren't followed. Responses are limited to 8 MiB.**
+- **A connector that runs for more than two seconds without returning is stopped**, and the view receives the error. Waiting on `fetch` or a timer doesn't count.
 
 ## Legacy single-value widgets
 

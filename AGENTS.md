@@ -12,14 +12,33 @@ Merge every widget PR intended for a release before signing. Sync a clean `main`
 
 Every widget with its own view is a package. The host reads all of its per-widget details from the package’s `widget.json`, which `src-tauri/src/package_manifest.rs` validates as the only validator.
 
-Read [`docs/widget-packages.md`](docs/widget-packages.md) before building a widget or changing how packages load, talk to Dashledge or store placement state. It maps the code, the data flow, the trust tiers, the bridge and per-placement state, and lists the rules and recipes. The author guide for third-party packages is [`widgets/example/README.md`](widgets/example/README.md).
+Read [`docs/widget-packages.md`](docs/widget-packages.md) before building a widget or changing how packages load, talk to Dashledge or store placement state. It maps the code, the data flow, the trust tiers, the bridge and per-placement state, and lists the rules and recipes. For widget authors outside the project, [`widgets/README.md`](widgets/README.md) walks through building a package, and [`widgets/example/README.md`](widgets/example/README.md) is the reference that ships in the downloadable example. Keep both current when the manifest, the SDK or a capability changes.
+
+### Plugins first
+
+Dashledge is moving every widget to a true plugin system. A plugin is a package with a `plugin.` ID that Dashledge runs sandboxed. The user installs it, gives it a host address and a credential, and nothing outside its manifest is trusted.
+
+- **Build each new widget that talks to a server as a plugin.** Make it declarative (`data`/`actions`), or give it a connector if it needs joins, WebSockets, state or long operations. Don't write a new Node collector for it. Collectors are only for widgets that need this Mac itself, such as its files, its CLIs or a native API.
+- **Extend the platform instead of working around it.** When a plugin can't do something a collector could, add it to the host as a manifest field or capability, with its validation, tests and docs. Examples are a new auth form, a binary format or a capability. Don't reach for a collector.
+- **The platform gives plugins these pieces. Reuse them:**
+  - **Auth forms:** `bearer`, a custom header with an optional format, a query key, `basic` with a username, `emby-token`, `pve-token`, and `login` sessions (cookie or token).
+  - **`sources.types`:** one widget for several products, such as SABnzbd, NZBGet and qBittorrent, or Emby and Jellyfin, each with its own auth and Test.
+  - **Several connections per placement.**
+  - **The `images` capability:** posters and snapshots.
+  - **The `stream` capability:** a WebSocket relayed to the view. Play live MSE video with `video.srcObject`, never a `blob:` URL.
+  - **Connector commands:** `Dashledge.command` from the view to the connector.
+  - **Binary connector I/O.**
+- **Credentials stay in Rust.** Rust adds every credential and sign-in session, only on the connection's own origin. It scrubs any echo of it in replies, so connectors and views never see it. A package can't set `Authorization`, `Cookie`, `Host`, `X-Emby-Token`, `Proxy-Authorization`, `Content-Length` or its own credential header.
+- **Migrating a bundled widget to a plugin** is its own branch and PR, like any widget. The PR says what happens to existing placements and saved connections.
+
+### Package layout and the host
 
 - Bundled widgets live in `widgets/packages/<kind>/` with `widget.json`, `view/`, and a Node `collector/`. Shared collector code lives in `widgets/packages/_shared/`. Installed packages are extracted to `<app_data>/packages/<id>/` and may not declare a collector.
 - A package may carry its own design rules in `DESIGN.md` (for example `widgets/packages/omlx/DESIGN.md`). They apply only to that widget; follow them when changing it.
 - To add or change a bundled widget, edit its package. Its title, category, icon, connection count, auth header, address label, Test routes, collector outputs and commands, display-name field, and native viewport come from the manifest. Don’t add per-kind cases to `widget_host.rs`, `connections.rs`, `model.js`, `widget-catalog.js`, `dashboard.js` or `editor.js`.
 - Package views run in `sandbox="allow-scripts"` frames with an opaque origin. Never give a view same-origin access or reach into its document from the dashboard. Everything a view needs passes through the message bridge: `ui/package-bridge.js` on the host and `ui/package-sdk.js` in the frame. The bridge refuses commands and capabilities that the manifest doesn’t declare. Serve view files with the explicit `tauri://localhost` CSP from `widget_host.rs`; `'self'` blocks scripts in an opaque-origin frame.
 - Views name a server with `Dashledge.displayName()`: the connection name the user typed, else what the server reports at `displayName.serverField`, else the address’s host. Never hardcode a server or host name in a view or collector.
-- A new capability needs a `Permission` in the manifest, a line in the install sheet (`ui/package-manifest.js`), a gated command in the bridge, an SDK entry, and declarations in `widgets/example/dashledge.d.ts`. `tests/package-dev-tools.test.mjs` checks that the declarations match the SDK.
+- A new capability needs a `Permission` in the manifest, a line in the install sheet (`ui/package-manifest.js`), a gated command in the bridge, an SDK entry, declarations in `widgets/example/dashledge.d.ts`, and a section in `widgets/example/README.md`. `tests/package-dev-tools.test.mjs` checks that the declarations match the SDK.
 
 ## Widget design principles
 
