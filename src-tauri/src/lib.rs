@@ -25,6 +25,7 @@ mod markets;
 mod photos;
 mod reminders;
 mod voice;
+mod kokoro;
 mod general;
 mod updater;
 mod touch;
@@ -306,10 +307,13 @@ pub fn run() {
             reminders::reminders_create,
             reminders::reminders_privacy,
             reminders::reminders_changes,
-            voice::reminders_voice,
-            voice::reminders_voice_set,
-            voice::reminders_voice_test,
-            voice::reminders_voice_more,
+            voice::voice_settings,
+            voice::voice_update,
+            voice::voice_test,
+            voice::voice_install,
+            voice::voice_remove,
+            voice::speech_line,
+            voice::speech_stop_all,
             google_desk::desk_open,
             widget_host::markets_watch,
             widget_host::widget_command,

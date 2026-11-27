@@ -106,13 +106,13 @@
       if (!changeTimer) changeTimer = setTimeout(pollChanges, 0);
       return () => changeListeners.delete(callback);
     },
-    // Spoken reminders, one setting for all of Dashledge: {settings, voices}.
+    // Spoken reminders and Dashledge's voice: {settings, voices, natural}. set() changes
+    // only the reminder fields (enabled, lead) and mute; the rest is in Settings › Voice.
     voice: {
       get: () => api.command('reminders.voice'),
       set: settings => api.command('reminders.voice.set', {settings}),
-      test: settings => api.command('reminders.voice.test', settings ? {settings} : {}),
-      // Opens Spoken Content in System Settings, where Siri and Premium voices download.
-      more: () => api.command('reminders.voice.more'),
+      test: () => api.command('reminders.voice.test'),
+      openSettings: () => api.command('reminders.voice.settings'),
     },
   };
   // images: an image the manifest's `images` patterns allow, from the connection or a
@@ -161,6 +161,12 @@
       if (early.length) setTimeout(() => early.forEach(m => deliverStream(handle, m)), 0);
       return handle;
     },
+  };
+  // speech: say a line aloud in the user's Dashledge voice, while the widget is on
+  // screen. Resolves with {spoken: true} or {spoken: false, reason: 'muted'|'quiet'|'busy'}.
+  api.speech = {
+    say: text => api.command('speech.say', {text: String(text ?? '')}),
+    stop: () => api.command('speech.stop'),
   };
   // keyboard: the shared touch keyboard. Resolves with the text, or null when closed.
   api.keyboard = {open: (options = {}) => api.command('keyboard.open', options)};
