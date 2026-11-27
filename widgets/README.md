@@ -240,13 +240,15 @@ Set `sources.auth` to how the server expects its credential:
 
 For sign-in forms, Dashledge signs in when it first needs to and keeps the session in memory. If the server answers 401 or 403 later, it signs in once more. Test always signs in fresh. Add `"usernameLabel"` whenever you use `{user}` or `basic`, so the connection form asks for it.
 
+**Choose Test routes that prove the credential.** Test passes when every route answers 2xx with JSON. Pick a route the server refuses without a valid credential, and one that replies in JSON. SABnzbd answers `mode=version` without checking the key, so use `mode=queue`. qBittorrent's `app/version` replies in plain text, so use `transfer/info`.
+
 **One widget for several products.** A download-client widget can serve SABnzbd, NZBGet and qBittorrent. Declare `sources.types`, each with its own `auth`, `test` and labels. The connection form asks which product it is, and your code branches on `dashledge.connection.type` (connector) or `Dashledge.connectionType()` (view):
 
 ```json
 "sources": {"min": 1, "max": 1, "auth": "none", "types": [
-  {"id": "sabnzbd", "label": "SABnzbd", "auth": {"query": "apikey"}, "test": ["api?mode=version&output=json"], "credentialLabel": "API key"},
+  {"id": "sabnzbd", "label": "SABnzbd", "auth": {"query": "apikey"}, "test": ["api?mode=queue&output=json&limit=1"], "credentialLabel": "API key"},
   {"id": "nzbget", "label": "NZBGet", "auth": "basic", "test": ["jsonrpc/version"], "usernameLabel": "Username", "credentialLabel": "Password"},
-  {"id": "qbittorrent", "label": "qBittorrent", "usernameLabel": "Username", "credentialLabel": "Password", "test": ["api/v2/app/version"],
+  {"id": "qbittorrent", "label": "qBittorrent", "usernameLabel": "Username", "credentialLabel": "Password", "test": ["api/v2/transfer/info"],
    "auth": {"login": {"path": "api/v2/auth/login", "fields": {"username": "{user}", "password": "{key}"}, "session": "cookie"}}}
 ]}
 ```
