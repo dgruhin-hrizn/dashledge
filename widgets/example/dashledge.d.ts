@@ -111,7 +111,7 @@ declare namespace DashledgeView {
     quietEnd: number;
     /** 0–1, relative to the system volume. */
     volume: number;
-    /** 'kokoro:<Name>' for a natural voice, a Mac voice's id, or '' for the best available. */
+    /** 'kokoro:<Name>', or '' for the default natural voice (Bella). */
     voice: string;
   }
   interface RemindersSnapshot {
@@ -212,8 +212,8 @@ declare namespace DashledgeView {
       onChange(callback: () => void): () => void;
       /** Spoken reminders and Dashledge's voice, one setting for all of Dashledge. */
       voice: {
-        get(): Promise<{settings: ReminderVoice; voices: {id: string; name: string; detail?: string; natural: boolean; best: boolean}[]; natural: {status: {state: 'missing' | 'downloading' | 'ready' | 'failed'; progress?: number; detail?: string}; sizeMb: number}}>;
-        /** Change spoken reminders (`enabled`, `lead`) or mute. Voice, volume and quiet hours are set in Dashledge Settings. Only while the widget is on screen. */
+        get(): Promise<{settings: ReminderVoice; voices: {id: string; name: string; accent: 'US' | 'UK'; best: boolean}[]; natural: {status: {state: 'missing' | 'downloading' | 'ready' | 'failed'; progress?: number; detail?: string}; sizeMb: number}; sample: string}>;
+        /** Change spoken reminders (`enabled`, `lead`) or mute. Voice, volume and quiet hours are set in Dashledge Settings › Voice. Only while the widget is on screen. */
         set(settings: Partial<Pick<ReminderVoice, 'enabled' | 'lead' | 'muted'>>): Promise<ReminderVoice>;
         /** Say a sample in the saved voice, even while muted. Only while the widget is on screen. */
         test(): Promise<void>;
@@ -223,8 +223,8 @@ declare namespace DashledgeView {
     };
     /** Requires the `speech` permission. */
     speech: {
-      /** Say `text` (one line, at most 500 characters) in the user's Dashledge voice. Only while the widget is on screen. Not spoken while muted, in quiet hours, or within a second of the last line from any widget. */
-      say(text: string): Promise<{spoken: true} | {spoken: false; reason: 'muted' | 'quiet' | 'busy' | 'empty'}>;
+      /** Say `text` (one line, at most 500 characters) in the user's Dashledge voice. Only while the widget is on screen. Not spoken until the user has downloaded the natural voices (`unavailable`), while muted, in quiet hours, or within a second of the last line from any widget. */
+      say(text: string): Promise<{spoken: true} | {spoken: false; reason: 'unavailable' | 'muted' | 'quiet' | 'busy' | 'empty'}>;
       /** Stop whatever Dashledge is saying. Only while the widget is on screen. */
       stop(): Promise<void>;
     };

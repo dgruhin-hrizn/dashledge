@@ -15,7 +15,7 @@
   let snapshot = null, failure = '', settings = {lists: ['*'], finished: true, group: 'lists'};
   let reading = false, offered = '', toastTimer = 0, rereadAfter = false;
   // Dashledge's voice settings ({enabled, muted, lead, quiet…}) and installed voices.
-  let voice = null, voices = [];
+  let voice = null, voices = [], naturalReady = false;
   // Reminders checked or unchecked here in the last few seconds stay where they were,
   // so the row under a finger doesn't jump away. id → {completed, until}.
   const held = new Map();
@@ -404,6 +404,7 @@
       const result = await host.reminders.voice.get();
       voice = result?.settings || null;
       voices = Array.isArray(result?.voices) ? result.voices : [];
+      naturalReady = result?.natural?.status?.state === 'ready';
     } catch { voice = null; }
     drawVoice();
   }
@@ -413,8 +414,10 @@
     $('voiceLine').hidden = !ready;
     muteButton.hidden = !ready || !voice.enabled;
     if (!ready) return;
-    $('voiceText').textContent = M.voiceSummary(voice);
-    $('voiceLine').dataset.state = !voice.enabled ? 'off' : voice.muted ? 'muted' : 'on';
+    // Dashledge speaks only with its natural voices; until they're installed, say so.
+    const missing = voice.enabled && !naturalReady;
+    $('voiceText').textContent = missing ? 'Get the natural voices in Settings to hear reminders' : M.voiceSummary(voice);
+    $('voiceLine').dataset.state = !voice.enabled ? 'off' : voice.muted || missing ? 'muted' : 'on';
     muteButton.setAttribute('aria-pressed', String(!!voice.muted));
     muteButton.setAttribute('aria-label', voice.muted ? 'Unmute Dashledge’s voice' : 'Mute Dashledge’s voice');
   }
@@ -438,10 +441,9 @@
 
   // The voice everyone hears, as Settings names it.
   function voiceName() {
-    const chosen = voices.find(v => v.id === voice?.voice);
-    const best = voices.find(v => v.best);
-    if (chosen) return chosen.name + (chosen.detail ? ' · ' + chosen.detail : '');
-    return 'Best available' + (best ? ' · ' + best.name + (best.detail ? ' (' + best.detail + ')' : '') : '');
+    if (!naturalReady) return 'Natural voices not installed';
+    const chosen = voices.find(v => v.id === voice?.voice) || voices.find(v => v.best);
+    return chosen ? chosen.name + ' · ' + (chosen.accent === 'UK' ? 'British' : 'American') : 'Bella · American';
   }
 
   function openVoice() {
@@ -464,6 +466,9 @@
       ? 'Quiet ' + M.clockText(voice.quietStart, true) + '–' + M.clockText(voice.quietEnd, true) + ': alerts wait until then'
       : 'No quiet hours';
     voiceSheet.querySelector('.rm-voice-body').dataset.off = String(!d.enabled);
+    $('voiceTest').disabled = !naturalReady;
+    $('voiceHelp').textContent = naturalReady ? 'Choose the voice, volume and quiet hours in Dashledge Settings › Voice.'
+      : 'Dashledge speaks with free natural voices. Download them in Dashledge Settings › Voice to hear your reminders.';
   }
 
   function closeVoice() {

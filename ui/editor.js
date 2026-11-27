@@ -29,7 +29,7 @@ function loadMarketIds(){invoke('marketplace_installed').then(ids=>{marketIds=ne
 loadMarketIds();
 let tab='General',chosen=current(config).id,index=0,undo=[],statusTimer;
 const main=document.querySelector('#editor');
-const links=[['General','General','general'],['Layouts','Pages & layouts','pages'],['Widget Studio','Widget Studio','studio'],['Marketplace','Marketplace','market'],['Preview','Live preview','preview'],['About','About','info']];
+const links=[['General','General','general'],['Layouts','Pages & layouts','pages'],['Widget Studio','Widget Studio','studio'],['Marketplace','Marketplace','market'],['Voice','Voice','voice'],['Preview','Live preview','preview'],['About','About','info']];
 const sourcesStatus=new Map();
 function decorated(label,action,symbol,cls=''){const b=button(label,action,cls);b.prepend(icon(symbol));return b}
 function heading(text,actions){const h=el('header','admin-heading');h.append(el('h1','',text));if(actions)h.append(actions);return h}
@@ -793,62 +793,85 @@ function generalTab(){
   updates.append(el('small','sub','Checks at launch and daily. Dashledge reopens after installing an update.'));
   const grid=el('div','general-grid'),hardware=el('div','general-column'),preferences=el('div','general-column');
   hardware.append(display,touch);
-  preferences.append(appearance,voicePanel(),updates);
+  preferences.append(appearance,updates);
   grid.append(hardware,preferences);main.append(grid);
   restoreUpdate();refresh();
   const poll=setInterval(()=>{if(!display.isConnected){clearInterval(poll);return}refresh();restoreUpdate()},3000);
   cleanupTab=()=>clearInterval(poll);
 }
-// Dashledge's voice, shared by spoken reminders and any widget with the `speech`
-// permission. Natural voices are an optional download; changes apply at once.
-function voicePanel(){
-  const box=panel('Voice'),body=el('div','voice-settings');box.append(body);
+// Voice: Dashledge's natural voice, used by spoken reminders and by any widget with
+// the `speech` permission. Settings apply at once and are the same everywhere.
+function voiceTab(){
+  main.append(heading('Voice'));
+  const intro=el('section','panel voice-intro');
+  intro.append(el('h2','','Dashledge can talk'),
+    el('p','','Dashledge can say your reminders out loud when they’re due, and read out what widgets want you to hear. It speaks with Kokoro, a free, natural-sounding voice that runs entirely on this Mac. What it says is never sent anywhere.'),
+    el('p','sub','Dashledge stays silent until you download the natural voices. Everything on this page applies to the whole app.'));
+  const install=panel('Natural voices'),choose=panel('Voice and volume'),quiet=panel('Quiet hours');
+  const how=panel('How it works'),who=panel('What can speak'),authors=panel('For widget authors');
   let timer=0,data=null;
-  const update=async patch=>{try{data.settings=await invoke('voice_update',{patch});}catch(e){notice(String(e))}};
+  const update=async patch=>{try{data.settings=await invoke('voice_update',{patch});draw()}catch(e){notice(String(e))}};
   const minutes=value=>{const [h,m]=String(value).split(':').map(Number);return h*60+m};
   const clock=total=>String(Math.floor(total/60)).padStart(2,'0')+':'+String(total%60).padStart(2,'0');
-  const draw=()=>{
-    if(!box.isConnected){clearTimeout(timer);return}
-    const {settings:v,voices,natural}=data,status=natural.status;
-    const naturalRow=el('div','voice-natural'),text=el('div','voice-natural-text');
-    text.append(el('strong','','Natural voices'),el('small','sub',
-      status.state==='ready'?'Installed. Eleven natural-sounding voices, made on this Mac.'
-      :status.state==='downloading'?'Downloading… '+Math.round(status.progress*100)+'%'
-      :status.state==='failed'?status.detail
-      :'Natural-sounding voices that run on this Mac. Free, about '+natural.sizeMb+' MB.'));
-    naturalRow.append(text);
-    if(status.state==='downloading'){
-      const bar=el('progress');bar.max=1;bar.value=status.progress;naturalRow.append(bar);
-    }else if(status.state==='ready'){
-      naturalRow.append(button('Remove',async()=>{try{await invoke('voice_remove');await load()}catch(e){notice(String(e))}}));
-    }else{
-      naturalRow.append(button(status.state==='failed'?'Try again':'Download',()=>{
-        invoke('voice_install').then(load).catch(e=>{notice(String(e));load()});setTimeout(load,300);
-      },'primary'));
-    }
-    const best=voices.find(x=>x.best);
-    const options=[['','Best available'+(best?' · '+best.name:'')],...voices.map(x=>[x.id,x.name+' · '+(x.detail||'')])];
-    if(v.voice&&!options.some(([id])=>id===v.voice))options.push([v.voice,'Unavailable voice']);
-    const pick=select(options,v.voice,value=>update({voice:value}));pick.id='voice-choice';
-    const volume=el('input');volume.type='range';volume.min=10;volume.max=100;volume.step=5;volume.id='voice-volume';
+  const toggle=(id,on,write,disabled)=>{const c=el('input');c.type='checkbox';c.id=id;c.checked=on;c.disabled=!!disabled;c.onchange=()=>write(c.checked);return c};
+  const bullets=items=>{const list=el('ul','voice-points');for(const item of items)list.append(el('li','',item));return list};
+  function draw(){
+    if(!install.isConnected){clearTimeout(timer);return}
+    const {settings:v,voices,natural}=data,status=natural.status,ready=status.state==='ready';
+    // Natural voices: download, progress, remove.
+    const state=el('div','voice-natural'),text=el('div','voice-natural-text');
+    text.append(el('strong','',ready?'Installed':status.state==='downloading'?'Downloading…':status.state==='failed'?'Download failed':'Not installed'),
+      el('small','sub',ready?'Eleven voices, US and UK, about '+Math.round(natural.sizeMb*1.5)+' MB on this Mac.'
+        :status.state==='downloading'?Math.round(status.progress*100)+'% of about '+natural.sizeMb+' MB'
+        :status.state==='failed'?status.detail
+        :'A free download of about '+natural.sizeMb+' MB from the open-source sherpa-onnx project.'));
+    state.append(text);
+    if(status.state==='downloading'){const bar=el('progress');bar.max=1;bar.value=status.progress;state.append(bar)}
+    else if(ready)state.append(button('Remove',async()=>{try{await invoke('voice_remove');await load()}catch(e){notice(String(e))}}));
+    else state.append(button(status.state==='failed'?'Try again':'Download',()=>{invoke('voice_install').then(load).catch(e=>{notice(String(e));load()});setTimeout(load,300)},'primary'));
+    install.replaceChildren(el('h2','','Natural voices'),state,
+      el('small','sub','Kokoro-82M and the sherpa-onnx speech engine are open source (Apache 2.0). Dashledge downloads them from the project’s official GitHub releases and checks every file before using it. Remove deletes them all.'));
+    // Voice, volume, mute.
+    const options=voices.map(x=>[x.id,x.name+' · '+(x.accent==='UK'?'British':'American')]);
+    const pick=select([['','Bella · American (default)'],...options.filter(([id])=>id!=='kokoro:Bella')],v.voice==='kokoro:Bella'?'':v.voice,value=>update({voice:value}));
+    pick.id='voice-choice';pick.disabled=!ready;
+    const volume=el('input');volume.type='range';volume.min=10;volume.max=100;volume.step=5;volume.id='voice-volume';volume.disabled=!ready;
     volume.value=Math.round(v.volume*100);volume.onchange=()=>update({volume:volume.valueAsNumber/100});
-    const toggle=(id,on,write)=>{const c=el('input');c.type='checkbox';c.id=id;c.checked=on;c.onchange=()=>write(c.checked);return c};
-    const quietFrom=el('input'),quietUntil=el('input');
-    for(const [input,key] of [[quietFrom,'quietStart'],[quietUntil,'quietEnd']]){
+    const hear=button('Hear it',()=>invoke('voice_test',{patch:null}).catch(e=>notice(String(e))));hear.disabled=!ready;
+    choose.replaceChildren(el('h2','','Voice and volume'),settingRow('Voice',pick),settingRow('Volume',volume,hear),
+      settingRow('Mute Dashledge’s voice',toggle('voice-muted',v.muted,on=>update({muted:on}))),
+      el('small','sub',ready?'Hear it says: “'+data.sample+'” Volume and mute change only Dashledge, never your Mac’s volume.':'Download the natural voices to choose one.'));
+    // Quiet hours.
+    const from=el('input'),until=el('input');
+    for(const [input,key] of [[from,'quietStart'],[until,'quietEnd']]){
       input.type='time';input.step=900;input.value=clock(v[key]);input.disabled=!v.quiet;
       input.onchange=()=>{if(input.value)update({[key]:minutes(input.value)})};
     }
-    const quietTimes=el('div','voice-quiet');quietTimes.append(quietFrom,el('span','','to'),quietUntil);
-    const hear=button('Hear it',()=>invoke('voice_test',{patch:null}).catch(e=>notice(String(e))));
-    body.replaceChildren(naturalRow,settingRow('Voice',pick),settingRow('Volume',volume,hear),
-      settingRow('Mute Dashledge’s voice',toggle('voice-muted',v.muted,on=>update({muted:on}))),
-      settingRow('Quiet hours',toggle('voice-quiet',v.quiet,async on=>{await update({quiet:on});draw()}),quietTimes),
-      el('small','sub','Used by spoken reminders and any widget that speaks. Volume and mute change only Dashledge, not the Mac.'));
+    const times=el('div','voice-quiet');times.append(from,el('span','','to'),until);
+    quiet.replaceChildren(el('h2','','Quiet hours'),settingRow('Keep quiet overnight',toggle('voice-quiet',v.quiet,on=>update({quiet:on})),times),
+      el('small','sub','Reminders that come due in quiet hours wait, then are said together when they end. Widgets can’t speak during quiet hours.'));
     if(status.state==='downloading')timer=setTimeout(load,1000);
-  };
-  const load=async()=>{clearTimeout(timer);try{data=await invoke('voice_settings');draw()}catch(e){body.replaceChildren(el('small','sub',String(e)))}};
+  }
+  how.append(bullets([
+    'Each line is made on this Mac in about a second by the speech engine, which then closes. Nothing stays in memory between lines.',
+    'Longer lines start with their first sentence while the rest is made. Reminders are prepared a minute or two early, so they play right on time.',
+    'Numbers, times, money and symbols are read as words (“9:30 AM” is “nine thirty a m”). Names and words the voice doesn’t know get a pronunciation worked out from their spelling, so nothing is skipped.',
+    'Audio is a few working files that are overwritten each time and cleared when Dashledge starts. No recordings are kept.',
+  ]));
+  who.append(bullets([
+    'Spoken reminders: turn them on with the line under the Reminders widget’s ring, and choose whether it also warns you a few minutes early.',
+    'Widgets with the Speak aloud permission: the install sheet says when a widget asks for it. They can speak only while they’re on screen, at most one line a second, and never while muted or in quiet hours.',
+  ]));
+  const sample=el('pre','voice-code');
+  sample.textContent='// widget.json\n"permissions": ["speech"]\n\n// view\nconst result = await Dashledge.speech.say(\'Your export is ready\');\n// {spoken: true}, or {spoken: false, reason}:\n//   unavailable  natural voices aren’t installed\n//   muted        the user muted Dashledge’s voice\n//   quiet        it’s quiet hours\n//   busy         another line was said in the last second\nDashledge.speech.stop();';
+  authors.append(el('p','','Any widget, bundled or installed, can speak by declaring the speech permission. It speaks in the voice chosen here, at this volume. A widget never picks the voice or volume, and must still show anything important on screen.'),sample,
+    el('small','sub','Details: docs/widget-packages.md (Speaking aloud) and the author guide in widgets/example/README.md.'));
+  const grid=el('div','general-grid'),left=el('div','general-column'),right=el('div','general-column');
+  left.append(install,choose,quiet);right.append(how,who,authors);grid.append(left,right);
+  main.append(intro,grid);
+  const load=async()=>{clearTimeout(timer);try{data=await invoke('voice_settings');draw()}catch(e){install.replaceChildren(el('h2','','Natural voices'),el('small','sub',String(e)))}};
   load();
-  return box;
+  cleanupTab=()=>clearTimeout(timer);
 }
 let cleanupTab;
 function render(){
@@ -875,6 +898,7 @@ function render(){
   if(tab==='Widget Studio'){if(detail&&installed(config,detail))widgetDetail(detail);else plugins()}
   if(tab==='General')generalTab();
   if(tab==='Marketplace')renderMarketplace({main,invoke,el,button,row,heading,notice,installSheet,rerender:()=>{if(tab==='Marketplace')render()}},marketState);
+  if(tab==='Voice')voiceTab();
   if(tab==='Preview'){
     main.append(heading('Live preview',row(button('Edit layout',()=>go('Layouts')),previewButton())));
     const frame=el('section','panel preview-panel'),f=el('iframe','preview');f.title='Current dashboard';f.src='index.html';

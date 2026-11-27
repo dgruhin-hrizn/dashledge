@@ -28,7 +28,7 @@ const paths={
  plus:'M10 4v12 M4 10h12', find:'M13 8a5 5 0 1 1-10 0 5 5 0 0 1 10 0 M12 12l5 5',
  split:'M2 4h16v12H2z M10 4v12', stack:'M2 4h16v12H2z M2 10h16',
  undo:'M7 4 3 8l4 4 M4 8h8c6 0 6 8 0 8',
- check:'M3 10l4 4 10-9', edit:'M4 12 13 3l4 4-9 9-5 1z',
+ check:'M3 10l4 4 10-9', voice:'M3 8h3l4-4v12l-4-4H3z M13.5 7.5a3.5 3.5 0 0 1 0 5 M15.5 5a7 7 0 0 1 0 10', edit:'M4 12 13 3l4 4-9 9-5 1z',
  studioFile:'M4 2h8l4 4v12H4z M12 2v5h4 M7 11h6 M7 14h4',
 };
 const alias={machine:'display',interfaces:'network',volumes:'disk',world:'clock',focus:'clock',json:'connections'};
