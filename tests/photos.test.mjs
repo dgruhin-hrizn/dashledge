@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {normalize,rememberNames,blocker,searchAlbums,fitMode,cropLoss,bestFit,assign,justify,
-  sizeFor,focusPosition,dateCaption,freshFirst,remember,shape} from '../ui/photo-settings.js';
+  sizeFor,focusPosition,dateCaption,freshFirst,remember,shape,heartState,favoriteError,withoutIds} from '../ui/photo-settings.js';
 
 test('saved placements keep their theme and albums across versions',()=>{
   const old=normalize({source:'albums',albums:['a','b','a'],theme:'film',direction:'right',speed:'fast'});
@@ -79,4 +79,23 @@ test('captions, focus and repeat avoidance',()=>{
   const order=freshFirst([{id:'a'},{id:'b'},{id:'c'}],['a']);assert.deepEqual(order.map(a=>a.id),['b','c','a']);
   let seen=[];for(let i=0;i<5;i++)seen=remember(seen,'x'+i,3);seen=remember(seen,'x3',3);
   assert.deepEqual(seen,['x2','x4','x3']);
+});
+
+test('the heart says what tapping it will do',()=>{
+  assert.deepEqual(heartState(true),{pressed:'true',label:'Remove from Favorites'});
+  assert.deepEqual(heartState(false),{pressed:'false',label:'Favorite'});
+  assert.deepEqual(heartState(undefined),heartState(false));
+});
+
+test('a failed heart explains itself',()=>{
+  assert.match(favoriteError(Error('Allow Photos access in System Settings → Privacy & Security → Photos.')),/to change Favorites/);
+  assert.equal(favoriteError('Photos in shared albums can’t be marked as Favorites.'),'Couldn’t update Favorites. Photos in shared albums can’t be marked as Favorites.');
+  assert.equal(favoriteError(null),'Couldn’t update Favorites.');
+});
+
+test('un-hearted photos leave a Favorites deck',()=>{
+  const assets=[{id:'a'},{id:'b'},{id:'c'}];
+  assert.deepEqual(withoutIds(assets,new Set(['b'])).map(a=>a.id),['a','c']);
+  assert.equal(withoutIds(assets,new Set()),assets);
+  assert.equal(withoutIds(assets,null),assets);
 });

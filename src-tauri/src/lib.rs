@@ -300,6 +300,7 @@ pub fn run() {
             widget_host::widget_command,
             markets::markets_connect,
             photos::photos_read,
+            photos::photos_set_favorite,
             mac_shortcuts::mac_shortcuts_list,
             mac_shortcuts::mac_shortcut_run,
             spotify_queue::spotify_connect,

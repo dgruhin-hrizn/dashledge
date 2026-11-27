@@ -141,3 +141,19 @@ export function remember(seen,id,limit=240){
   const next=seen.filter(x=>x!==id);next.push(id);
   return next.length>limit?next.slice(next.length-limit):next;
 }
+
+// ---------- Favorites ----------
+// How the heart on the showing photo reads to sight and to VoiceOver.
+export function heartState(favorite){
+  return favorite?{pressed:'true',label:'Remove from Favorites'}:{pressed:'false',label:'Favorite'};
+}
+// A failed heart, said briefly at the control.
+export function favoriteError(e){
+  const text=String(e?.message||e||'').trim();
+  if(/Allow Photos/.test(text))return 'Allow Photos access in System Settings → Privacy & Security → Photos to change Favorites.';
+  return text?'Couldn’t update Favorites. '+text:'Couldn’t update Favorites.';
+}
+// A Favorites placement stops offering photos that were un-hearted while showing.
+export function withoutIds(assets,ids){
+  return ids?.size?assets.filter(a=>!ids.has(a.id)):assets;
+}

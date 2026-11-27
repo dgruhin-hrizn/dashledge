@@ -124,6 +124,22 @@
 .ph-controls button:focus-visible{outline:3px solid #f6b9cb;outline-offset:2px}
 .ph-controls button[aria-pressed=true]{background:#f6b9cb;color:#2a1820}
 .ph-controls svg{width:22px;height:22px}
+/* The heart on each Cinema photo: top-right, clear of the date and the controls, and shown
+   with the controls so a tap on a hidden heart only reveals it. */
+.tile .ph-fav{position:absolute;z-index:4;top:14px;right:14px;display:grid;place-items:center;width:48px;height:48px;min-height:48px;padding:0;
+  border-radius:50%;background:#141315d9;color:#fff;border:1px solid #ffffff55;backdrop-filter:blur(10px);
+  opacity:0;pointer-events:none;transition:opacity .2s,transform .12s,background-color .2s}
+.ph-widget.ph-revealed .ph-fav,.ph-widget:hover .ph-fav,.tile .ph-fav:focus-visible{opacity:1;pointer-events:auto}
+.tile .ph-fav[aria-pressed=true]{color:#ff91a4}
+.tile .ph-fav:active{transform:scale(.9);background:#2a1820}
+.tile .ph-fav[aria-busy=true]{cursor:progress}
+.ph-fav:focus-visible{outline:3px solid #f6b9cb;outline-offset:2px}
+.ph-fav svg{width:24px;height:24px}
+.ph-toast{position:absolute;z-index:61;top:72px;right:14px;max-width:min(30em,calc(100% - 28px));margin:0;padding:10px 16px;border-radius:14px;
+  background:#141315eb;color:#fff;border:1px solid #ffffff40;font:clamp(14px,2.6cqh,20px)/1.3 system-ui;
+  opacity:0;pointer-events:none;transition:opacity .2s}
+.ph-toast.shown{opacity:1}
+@media (prefers-reduced-motion:reduce){.tile .ph-fav,.ph-toast{transition:none}.tile .ph-fav:active{transform:none}}
 .ph-message:not(:empty){position:absolute;inset:0;z-index:55;display:grid;place-content:center;justify-items:center;text-align:center;gap:14px;
   background:radial-gradient(ellipse at 50% 40%,#2b2830,#151417);color:#fff;padding:18px;font:clamp(15px,3.8cqh,28px) system-ui}
 .ph-message p{max-width:32em;text-wrap:balance}

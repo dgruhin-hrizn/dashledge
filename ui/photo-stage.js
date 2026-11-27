@@ -91,6 +91,8 @@ export function cinema(stage,ctx){
     for(const e of entries){
       const p=picture(e,ratio),text=caption(e.asset,settings);
       if(text)p.append(el('figcaption','ph-caption',text));
+      // Each photo on screen gets its own heart, outside the image so the push-in doesn't move it.
+      if(ctx.heart)p.append(ctx.heart(e.asset));
       layer.append(p);
     }
     return layer;
