@@ -123,45 +123,14 @@
               <span class="rm-field-label">Also say it early</span>
               <div class="rm-choices" id="voiceLead"></div>
             </div>
-            <div class="rm-field">
-              <span class="rm-field-label">Voice</span>
-              <div class="rm-stepper rm-wide-stepper" id="voicePick">
-                <button type="button" class="rm-icon" data-step="-1" aria-label="Previous voice"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.5 6-6 6 6 6"/></svg></button>
-                <span class="rm-stepper-value" id="voiceName">Best available</span>
-                <button type="button" class="rm-icon" data-step="1" aria-label="Next voice"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 6 6 6-6 6"/></svg></button>
-              </div>
-              <p class="rm-voice-hint" id="voiceHint" hidden>Siri and Premium voices sound far more natural. Download one under System voice › Manage Voices.</p>
-              <button type="button" class="rm-button" id="voiceMore">Get more voices…</button>
-            </div>
           </div>
           <div class="rm-voice-col">
-            <button type="button" class="rm-switch" id="voiceQuiet" role="switch" aria-checked="false">
-              <span class="rm-switch-text"><strong>Quiet hours</strong><small>Held until they end, then said together</small></span>
-              <span class="rm-switch-knob" aria-hidden="true"></span>
-            </button>
-            <div class="rm-quiet-times" id="quietTimes">
-              <div class="rm-field"><span class="rm-field-label">From</span>
-                <div class="rm-stepper" id="quietStart">
-                  <button type="button" class="rm-icon" data-step="-1" aria-label="Start quiet hours earlier"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12"/></svg></button>
-                  <span class="rm-stepper-value"></span>
-                  <button type="button" class="rm-icon" data-step="1" aria-label="Start quiet hours later"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6v12M6 12h12"/></svg></button>
-                </div>
-              </div>
-              <div class="rm-field"><span class="rm-field-label">Until</span>
-                <div class="rm-stepper" id="quietEnd">
-                  <button type="button" class="rm-icon" data-step="-1" aria-label="End quiet hours earlier"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12"/></svg></button>
-                  <span class="rm-stepper-value"></span>
-                  <button type="button" class="rm-icon" data-step="1" aria-label="End quiet hours later"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6v12M6 12h12"/></svg></button>
-                </div>
-              </div>
-            </div>
-            <div class="rm-field">
-              <span class="rm-field-label">Volume <small>Dashledge only; system volume stays as it is</small></span>
-              <div class="rm-stepper rm-wide-stepper" id="voiceVolume">
-                <button type="button" class="rm-icon" data-step="-1" aria-label="Quieter"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12"/></svg></button>
-                <span class="rm-stepper-value"><span class="rm-meter"><i id="volumeBar"></i></span><span id="volumeText">80%</span></span>
-                <button type="button" class="rm-icon" data-step="1" aria-label="Louder"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6v12M6 12h12"/></svg></button>
-              </div>
+            <div class="rm-voice-shared">
+              <span class="rm-field-label">Voice for all of Dashledge</span>
+              <strong id="voiceName">Best available</strong>
+              <span id="voiceQuietText"></span>
+              <small>Choose the voice, volume and quiet hours in Dashledge Settings › General › Voice. Natural voices are a free download there.</small>
+              <button type="button" class="rm-button" id="voiceOpenSettings">Open Dashledge Settings</button>
             </div>
           </div>
         </div>

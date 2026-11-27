@@ -12,7 +12,7 @@
 // ---------------------------------------------------------------- views ----
 
 declare namespace DashledgeView {
-  type Permission = 'settings' | 'settings.choices' | 'keyboard' | 'ui' | 'mac.metrics' | 'reminders';
+  type Permission = 'settings' | 'settings.choices' | 'keyboard' | 'ui' | 'mac.metrics' | 'reminders' | 'speech';
   /** `multi` settings hold a list (`["*"]` is every option, including later ones); `names` settings map option values to names. */
   type SettingValue = string | number | boolean | string[] | Record<string, string>;
 
@@ -109,7 +109,7 @@ declare namespace DashledgeView {
     quietEnd: number;
     /** 0–1, relative to the system volume. */
     volume: number;
-    /** An installed voice's id, or '' for the best one installed (a Siri voice when there is one). */
+    /** 'kokoro:<Name>' for a natural voice, a Mac voice's id, or '' for the best available. */
     voice: string;
   }
   interface RemindersSnapshot {
@@ -181,16 +181,23 @@ declare namespace DashledgeView {
       openPrivacy(): Promise<void>;
       /** Called when reminders change anywhere: in this view, the Reminders app, through Siri or on another device. Returns an unsubscribe function. */
       onChange(callback: () => void): () => void;
-      /** Spoken reminders. One setting for all of Dashledge, not per placement. */
+      /** Spoken reminders and Dashledge's voice, one setting for all of Dashledge. */
       voice: {
-        get(): Promise<{settings: ReminderVoice; voices: {id: string; name: string; language: string; quality: 1 | 2 | 3; siri: boolean; best: boolean}[]}>;
-        /** Save the voice settings. Only while the widget is on screen. Resolves with the values as saved. */
-        set(settings: ReminderVoice): Promise<ReminderVoice>;
-        /** Say a sample, even while muted, with `settings` (an unsaved draft) or the saved voice. Only while the widget is on screen. */
-        test(settings?: ReminderVoice): Promise<void>;
-        /** Open Accessibility › Spoken Content in System Settings, where Siri and Premium voices are downloaded. Only while the widget is on screen. */
-        more(): Promise<void>;
+        get(): Promise<{settings: ReminderVoice; voices: {id: string; name: string; detail?: string; natural: boolean; best: boolean}[]; natural: {status: {state: 'missing' | 'downloading' | 'ready' | 'failed'; progress?: number; detail?: string}; sizeMb: number}}>;
+        /** Change spoken reminders (`enabled`, `lead`) or mute. Voice, volume and quiet hours are set in Dashledge Settings. Only while the widget is on screen. */
+        set(settings: Partial<Pick<ReminderVoice, 'enabled' | 'lead' | 'muted'>>): Promise<ReminderVoice>;
+        /** Say a sample in the saved voice, even while muted. Only while the widget is on screen. */
+        test(): Promise<void>;
+        /** Open Dashledge Settings, where the voice, volume and quiet hours are. Only while the widget is on screen. */
+        openSettings(): Promise<void>;
       };
+    };
+    /** Requires the `speech` permission. */
+    speech: {
+      /** Say `text` (one line, at most 500 characters) in the user's Dashledge voice. Only while the widget is on screen. Not spoken while muted, in quiet hours, or within a second of the last line from any widget. */
+      say(text: string): Promise<{spoken: true} | {spoken: false; reason: 'muted' | 'quiet' | 'busy' | 'empty'}>;
+      /** Stop whatever Dashledge is saying. Only while the widget is on screen. */
+      stop(): Promise<void>;
     };
     /** Requires the `mac.metrics` permission. */
     mac: {
