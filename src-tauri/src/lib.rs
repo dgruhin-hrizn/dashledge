@@ -24,6 +24,7 @@ mod mac_shortcuts;
 mod markets;
 mod photos;
 mod reminders;
+mod voice;
 mod general;
 mod updater;
 mod touch;
@@ -300,6 +301,10 @@ pub fn run() {
             reminders::reminders_complete,
             reminders::reminders_create,
             reminders::reminders_privacy,
+            reminders::reminders_changes,
+            voice::reminders_voice,
+            voice::reminders_voice_set,
+            voice::reminders_voice_test,
             google_desk::desk_open,
             widget_host::markets_watch,
             widget_host::widget_command,
@@ -322,6 +327,7 @@ pub fn run() {
             let _ = APP.set(app.handle().clone());
             general::init(app.handle())?;
             package_store::init(app.handle())?;
+            voice::init(app.handle())?;
             widget_host::reap_idle(app.handle().clone());
             package_connector::reap_idle(app.handle().clone());
 

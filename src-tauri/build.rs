@@ -11,6 +11,7 @@ fn main() {
         .file("photos.m")
         .file("desk_calendar.m")
         .file("reminders.m")
+        .file("speech.m")
         .file("apple_music.m")
         .file("native.m")
         .file("spotify_spectrum.m")
@@ -20,11 +21,12 @@ fn main() {
     println!("cargo:rerun-if-changed=photos.m");
     println!("cargo:rerun-if-changed=desk_calendar.m");
     println!("cargo:rerun-if-changed=reminders.m");
+    println!("cargo:rerun-if-changed=speech.m");
     println!("cargo:rerun-if-changed=native.m");
     println!("cargo:rerun-if-changed=spotify_spectrum.m");
     println!("cargo:rerun-if-changed=apple_music.m");
     println!("cargo:rerun-if-changed=connector.m");
-    for name in ["Photos", "Vision", "EventKit", "Foundation", "AppKit", "IOKit", "Metal", "CoreAudio", "Accelerate", "ScriptingBridge", "ImageIO", "LinkPresentation", "JavaScriptCore"] {
+    for name in ["Photos", "Vision", "EventKit", "AVFoundation", "Foundation", "AppKit", "IOKit", "Metal", "CoreAudio", "Accelerate", "ScriptingBridge", "ImageIO", "LinkPresentation", "JavaScriptCore"] {
         println!("cargo:rustc-link-lib=framework={name}");
     }
     tauri_build::build()

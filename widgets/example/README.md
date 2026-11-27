@@ -108,7 +108,7 @@ Dashledge.mac.onMetrics(({cpu, gpu, memory, network, chip}) => { /* … */ });
 - **settings.choices** offers up to 64 options per dynamic setting, each a `value` of 1–128 letters, digits or `._:@/-`, a `label` and an optional `detail`. Dashledge keeps the latest offer for each widget and connection, so the settings editor lists it even when no view is on screen. A saved value that isn't offered right now is kept and shown as not available, never dropped. Offer again only when the list changes.
 - **keyboard** opens only while your widget is on screen, one sheet at a time, and always shows your widget's title.
 - **ui** links Dashledge's `package-ui.css` before your styles. It provides `--dl-*` tokens and the classes `dl-surface`, `dl-panel`, `dl-caption`, `dl-reading` with `dl-unit`, `dl-list` with `dl-row`, `dl-button`, `dl-loading`, `dl-empty` and `dl-error`. Sizes follow `--px-scale`, so they keep their physical size at the native viewport.
-- **reminders** is for bundled widgets only; an installed package that declares it is refused. It reads, checks off and adds Apple Reminders, and asks macOS for access, or changes a reminder, only while the widget is on screen.
+- **reminders** is for bundled widgets only; an installed package that declares it is refused. It reads, checks off and adds Apple Reminders, and asks macOS for access, or changes a reminder, only while the widget is on screen. `onChange` reports changes made anywhere, and `voice` holds Dashledge’s spoken-reminder settings, one set for the whole app.
 - **mac.metrics** reports CPU, per-core load, GPU, memory, network throughput, uptime and the chip name. It never includes the Mac's name, volumes or network interfaces.
 
 ## Develop with an unpacked folder
