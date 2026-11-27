@@ -538,6 +538,7 @@ name = "dashledge-package-core"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "ring",
  "semver",
  "serde",
  "serde_json",

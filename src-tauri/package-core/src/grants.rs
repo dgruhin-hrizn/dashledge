@@ -4,20 +4,20 @@
 //! replaces an installed one, `added_grants` names each grant the installed version
 //! didn't have, and the Marketplace holds back an automatic update that adds any.
 use crate::manifest::Manifest;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
 /// One thing a package may do. `kind` is one of `connections`, `auth`, `connectionType`,
 /// `data`, `action`, `connector`, `host`, `command`, `collector`, `image`, `stream` or
 /// `permission`.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Grant {
-    pub kind: &'static str,
+    pub kind: String,
     pub value: String,
 }
 
 fn grant(kind: &'static str, value: impl Into<String>) -> Grant {
-    Grant { kind, value: value.into() }
+    Grant { kind: kind.into(), value: value.into() }
 }
 
 fn json(value: &impl Serialize) -> String {
