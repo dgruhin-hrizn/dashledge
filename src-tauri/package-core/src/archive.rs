@@ -4,7 +4,9 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use serde_json::Value;
 use std::{
     collections::BTreeMap,
+    fs,
     io::{Cursor, Read},
+    path::Path,
 };
 use zip::ZipArchive;
 
@@ -104,6 +106,49 @@ pub fn check(raw: &Value, files: &Files) -> Result<Manifest, String> {
         }
     }
     Ok(manifest)
+}
+
+/// Files of an unpacked package folder, within the limits of a package ZIP. Hidden
+/// entries, `node_modules` and file types a package can't include (TypeScript sources,
+/// for example) are skipped. Links are refused.
+pub fn read_folder(root: &Path) -> Result<(Value, Files), String> {
+    fn walk(root: &Path, dir: &Path, files: &mut Files, total: &mut u64) -> Result<(), String> {
+        let mut entries: Vec<_> = fs::read_dir(dir).map_err(|e| e.to_string())?.flatten().collect();
+        entries.sort_by_key(|e| e.file_name());
+        for entry in entries {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.starts_with('.') || name == "node_modules" {
+                continue;
+            }
+            let path = entry.path();
+            let relative = path.strip_prefix(root).map_err(|e| e.to_string())?.to_string_lossy().replace('\\', "/");
+            let kind = fs::symlink_metadata(&path).map_err(|e| e.to_string())?;
+            if kind.file_type().is_symlink() {
+                return Err(format!("“{relative}” is a link. Packages can’t contain links."));
+            }
+            if kind.is_dir() {
+                walk(root, &path, files, total)?;
+                continue;
+            }
+            if !allowed_name(&relative) || package_manifest::package_path(&relative, "Package file").is_err() {
+                continue;
+            }
+            if kind.len() > MAX_FILE {
+                return Err(format!("“{relative}” is larger than 4 MiB."));
+            }
+            *total += kind.len();
+            if *total > MAX_PACKAGE as u64 || files.len() >= MAX_FILES {
+                return Err(format!("The folder holds more than a package may: {MAX_FILES} files or 8 MiB."));
+            }
+            files.insert(relative, fs::read(&path).map_err(|e| e.to_string())?);
+        }
+        Ok(())
+    }
+    let mut files = Files::new();
+    walk(root, root, &mut files, &mut 0)?;
+    let raw = serde_json::from_slice(files.get("widget.json").ok_or("The folder has no widget.json.")?)
+        .map_err(|e| format!("Invalid widget.json: {e}"))?;
+    Ok((raw, files))
 }
 
 /// Write a package's files as a ZIP, the same bytes every time for the same files: names
