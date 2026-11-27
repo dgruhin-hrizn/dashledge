@@ -147,7 +147,7 @@ function renderTile(t){
     if(box.querySelector('.add-widget'))return;
     const pageId=t.pageId;
     nodes=[button('+ Add widget',()=>pickWidget(state(),kind=>{
-      if(kind==='photos'){editPhotos(null,photoDisplay=>saveSection(t,'photos',{photoDisplay}));return}
+      if(kind==='photos'){editPhotos(null,photoDisplay=>saveSection(t,'photos',{photoDisplay}),{touch:true});return}
       if(kind==='shortcuts'){editShortcuts([],items=>saveSection(t,'shortcuts',{shortcutPins:items}),{touch:true,title:'Choose shortcuts'});return}
       const latest=state(),target=latest.pages.find(p=>p.id===pageId);
       const i=target?.slots.findIndex(item=>item.id===s.id)??-1;
