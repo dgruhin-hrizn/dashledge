@@ -30,7 +30,10 @@ mod touch;
 mod tray;
 mod widget_host;
 mod widget_package;
-mod package_manifest;
+/// The validator lives in the `package-core` crate so the registry's CLI runs the same rules.
+mod package_manifest {
+    pub use dashledge_package_core::manifest::*;
+}
 mod package_store;
 mod package_connector;
 mod package_media;

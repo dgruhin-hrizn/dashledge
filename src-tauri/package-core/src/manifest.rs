@@ -725,7 +725,7 @@ pub fn placeholder_names(path: &str) -> Option<Vec<String>> {
 /// A host a connector may reach: `https://host[:port]` or `http://host[:port]`, nothing else.
 pub fn host_origin(host: &str) -> Result<String, String> {
     let invalid = || format!("Connector host “{host}” must be an origin such as https://api.example.com.");
-    let url = reqwest::Url::parse(host).map_err(|_| invalid())?;
+    let url = url::Url::parse(host).map_err(|_| invalid())?;
     if !matches!(url.scheme(), "https" | "http")
         || url.host_str().is_none()
         || !url.username().is_empty()
@@ -1381,7 +1381,7 @@ mod tests {
 
     #[test]
     fn capability_fixture_validates_with_defaults_filled() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/fixtures/capabilities-package/widget.json");
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/capabilities-package/widget.json");
         let raw: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
         let manifest = validate(&raw, Origin::Installed).unwrap();
         assert_eq!(manifest.permissions, [Permission::Settings, Permission::Keyboard, Permission::Ui, Permission::MacMetrics]);

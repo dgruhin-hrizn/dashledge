@@ -12,7 +12,11 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+[workspace]
+members = ["package-core"]
+
 [dependencies]
+dashledge-package-core = { path = "package-core" }
 uuid = { version = "1", features = ["serde"] }
 zip = { version = "0.6.6", default-features = false, features = ["deflate"] }
 rfd = { version = "0.15.4", default-features = false }
