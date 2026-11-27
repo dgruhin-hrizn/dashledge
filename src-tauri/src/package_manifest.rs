@@ -187,7 +187,8 @@ pub struct View {
 /// How a connection's saved credential goes on each request. Dashledge adds it; package
 /// code never sees it. In widget.json: `"bearer"`, `"emby-token"`, `"pve-token"`,
 /// `"basic"` (the saved username and key), `"none"`, `{"header": "X-Api-Key"}` with an
-/// optional `"format": "MediaBrowser Token=\"{key}\""`, or `{"query": "apikey"}`.
+/// optional `"format": "MediaBrowser Token=\"{key}\""`, `{"query": "apikey"}`, or
+/// `{"login": {…}}` to sign in with the saved username and key and keep the session.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Auth {
     Bearer,
@@ -197,6 +198,76 @@ pub enum Auth {
     None,
     Header { name: String, format: Option<String> },
     Query { name: String },
+    Login(Login),
+}
+
+/// A sign-in form Dashledge posts with the saved username and key. The session it
+/// returns (cookies, or a token from the JSON reply) goes on later requests to the
+/// connection; a 401 or 403 signs in again once.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Login {
+    /// Relative route of the sign-in form, such as `api/v2/auth/login`.
+    pub path: String,
+    #[serde(default)]
+    pub body: LoginBody,
+    /// Form or JSON fields. `{user}` and `{key}` are replaced by the saved values.
+    pub fields: std::collections::BTreeMap<String, String>,
+    pub session: LoginSession,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum LoginBody {
+    #[default]
+    Form,
+    Json,
+}
+
+/// What the sign-in returns: `"cookie"` (its Set-Cookie values) or a token at a JSON
+/// pointer, sent as `header` with an optional `format` holding `{token}`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LoginSession {
+    Cookie,
+    Token { pointer: String, header: String, format: Option<String> },
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TokenSession {
+    token: String,
+    #[serde(default = "authorization")]
+    header: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    format: Option<String>,
+}
+fn authorization() -> String {
+    "Authorization".into()
+}
+#[derive(Deserialize, Serialize)]
+#[serde(untagged)]
+enum SessionForm {
+    Named(String),
+    Token(TokenSession),
+}
+impl Serialize for LoginSession {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            LoginSession::Cookie => SessionForm::Named("cookie".into()),
+            LoginSession::Token { pointer, header, format } => SessionForm::Token(TokenSession { token: pointer.clone(), header: header.clone(), format: format.clone() }),
+        }
+        .serialize(serializer)
+    }
+}
+impl<'de> Deserialize<'de> for LoginSession {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::Error;
+        match SessionForm::deserialize(deserializer).map_err(|_| D::Error::custom("session must be \"cookie\" or {\"token\": \"/json/pointer\"}"))? {
+            SessionForm::Named(name) if name == "cookie" => Ok(LoginSession::Cookie),
+            SessionForm::Named(other) => Err(D::Error::custom(format!("unknown session “{other}”"))),
+            SessionForm::Token(t) => Ok(LoginSession::Token { pointer: t.token, header: t.header, format: t.format }),
+        }
+    }
 }
 
 #[derive(Deserialize, Serialize)]
@@ -212,11 +283,17 @@ struct QueryAuth {
     query: String,
 }
 #[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct LoginAuth {
+    login: Login,
+}
+#[derive(Deserialize, Serialize)]
 #[serde(untagged)]
 enum AuthForm {
     Named(String),
     Header(HeaderAuth),
     Query(QueryAuth),
+    Login(LoginAuth),
 }
 
 impl Serialize for Auth {
@@ -230,6 +307,7 @@ impl Serialize for Auth {
             Auth::None => named("none"),
             Auth::Header { name, format } => AuthForm::Header(HeaderAuth { header: name.clone(), format: format.clone() }),
             Auth::Query { name } => AuthForm::Query(QueryAuth { query: name.clone() }),
+            Auth::Login(login) => AuthForm::Login(LoginAuth { login: login.clone() }),
         }
         .serialize(serializer)
     }
@@ -239,7 +317,7 @@ impl<'de> Deserialize<'de> for Auth {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         use serde::de::Error;
         let form = AuthForm::deserialize(deserializer)
-            .map_err(|_| D::Error::custom("auth must be bearer, emby-token, pve-token, basic, none, {\"header\": …} or {\"query\": …}"))?;
+            .map_err(|_| D::Error::custom("auth must be bearer, emby-token, pve-token, basic, none, {\"header\": …}, {\"query\": …} or {\"login\": …}"))?;
         Ok(match form {
             AuthForm::Named(name) => match name.as_str() {
                 "bearer" => Auth::Bearer,
@@ -251,6 +329,7 @@ impl<'de> Deserialize<'de> for Auth {
             },
             AuthForm::Header(h) => Auth::Header { name: h.header, format: h.format },
             AuthForm::Query(q) => Auth::Query { name: q.query },
+            AuthForm::Login(l) => Auth::Login(l.login),
         })
     }
 }
@@ -294,15 +373,46 @@ pub fn image_query(query: &str) -> bool {
 /// Request headers the app owns. A package's credential header may not be one of them.
 pub const RESERVED_HEADERS: &[&str] = &["host", "cookie", "content-length", "content-type", "connection", "transfer-encoding", "origin", "proxy-authorization", "upgrade"];
 
+fn credential_header_name(name: &str) -> Result<(), String> {
+    if name.is_empty() || name.len() > 64 || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
+        return fail("An auth header name is 1–64 letters, digits or hyphens.");
+    }
+    if RESERVED_HEADERS.contains(&name.to_ascii_lowercase().as_str()) {
+        return fail(format!("“{name}” can’t carry the credential."));
+    }
+    Ok(())
+}
+
 fn check_auth(auth: &Auth) -> Result<(), String> {
     match auth {
+        Auth::Login(login) => {
+            route(&login.path, "Sign-in route", false, false)?;
+            if login.fields.is_empty() || login.fields.len() > 8 {
+                return fail("A sign-in form has 1–8 fields.");
+            }
+            for (field, value) in &login.fields {
+                if field.is_empty() || field.len() > 40 || !field.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b)) {
+                    return fail("Sign-in field names are 1–40 letters, digits, _ . or -.");
+                }
+                if value.len() > 120 || value.chars().any(char::is_control) {
+                    return fail("Sign-in field values are up to 120 characters.");
+                }
+            }
+            if !login.fields.values().any(|v| v.contains("{key}")) {
+                return fail("A sign-in form must send the saved key as {key}.");
+            }
+            if let LoginSession::Token { pointer, header, format } = &login.session {
+                if !pointer.starts_with('/') || pointer.len() > 100 {
+                    return fail("A session token is a JSON pointer such as /access.");
+                }
+                credential_header_name(header)?;
+                if format.as_ref().is_some_and(|f| f.matches("{token}").count() != 1 || f.len() > 120 || f.chars().any(char::is_control)) {
+                    return fail("A session header format holds {token} once.");
+                }
+            }
+        }
         Auth::Header { name, format } => {
-            if name.is_empty() || name.len() > 64 || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
-                return fail("An auth header name is 1–64 letters, digits or hyphens.");
-            }
-            if RESERVED_HEADERS.contains(&name.to_ascii_lowercase().as_str()) {
-                return fail(format!("“{name}” can’t carry the credential."));
-            }
+            credential_header_name(name)?;
             if let Some(format) = format {
                 text(format, "Auth header format", 120)?;
                 if format.matches("{key}").count() != 1 || format.matches("{user}").count() > 1 {
@@ -1131,6 +1241,28 @@ mod tests {
             assert!(validate(&q, Origin::Installed).is_err(), "{bad}");
         }
         assert_eq!(validate(&installed(), Origin::Installed).unwrap().auth_for(Some("x")), Auth::Bearer, "without types the widget's auth");
+    }
+
+    #[test]
+    fn a_sign_in_form_posts_the_saved_values_and_keeps_its_session() {
+        let auth = |value: Value| validate(&with(installed(), "/sources/auth", value), Origin::Installed).map(|m| m.sources.unwrap().auth);
+        let qbit = json!({"login": {"path": "api/v2/auth/login", "fields": {"username": "{user}", "password": "{key}"}, "session": "cookie"}});
+        let Auth::Login(login) = auth(qbit.clone()).unwrap() else { panic!("login") };
+        assert_eq!((login.body, login.session), (LoginBody::Form, LoginSession::Cookie));
+        let jwt = json!({"login": {"path": "api/accounts/token/", "body": "json", "fields": {"username": "{user}", "password": "{key}"},
+            "session": {"token": "/access", "format": "Bearer {token}"}}});
+        assert!(matches!(auth(jwt.clone()).unwrap(), Auth::Login(Login { session: LoginSession::Token { ref header, .. }, .. }) if header == "Authorization"));
+        assert_eq!(serde_json::to_value(auth(jwt).unwrap()).unwrap()["login"]["session"]["token"], "/access");
+        for bad in [
+            json!({"login": {"path": "/login", "fields": {"p": "{key}"}, "session": "cookie"}}),
+            json!({"login": {"path": "login", "fields": {"u": "{user}"}, "session": "cookie"}}),
+            json!({"login": {"path": "login", "fields": {"p": "{key}"}, "session": "jar"}}),
+            json!({"login": {"path": "login", "fields": {"p": "{key}"}, "session": {"token": "access"}}}),
+            json!({"login": {"path": "login", "fields": {"p": "{key}"}, "session": {"token": "/a", "header": "Cookie"}}}),
+            json!({"login": {"path": "login", "fields": {"p": "{key}"}, "session": "cookie", "extra": true}}),
+        ] {
+            assert!(auth(bad.clone()).is_err(), "{bad}");
+        }
     }
 
     #[test]

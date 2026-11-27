@@ -95,6 +95,7 @@ pub fn set_secret(
         None => crate::vault::set(&kind, &base, secret)?,
     }
     crate::widget_host::invalidate(&kind, &base);
+    crate::sessions::forget(&kind, &base);
     Ok(())
 }
 /// Subject and expiry of the first certificate in a PEM bundle, read with the
@@ -201,8 +202,15 @@ async fn get(kind: &str, source_type: Option<&str>, account: &Url, base: &Url, p
         url.set_path(&format!("{}/{}", base.path().trim_end_matches('/'), route));
         url.set_query(query);
     }
-    // The same credential the widget's connector, declarative routes and actions send.
-    let credential = crate::package_connector::Credential::for_auth(&auth_for(kind, source_type), secret);
+    // The same credential the widget's connector, declarative routes and actions send:
+    // for a sign-in form, a session Test signs in for (source_read forgets the old one).
+    let credential = match auth_for(kind, source_type) {
+        crate::package_manifest::Auth::Login(login) => {
+            let target = crate::package_connector::Target { base: base.clone(), account: account.clone() };
+            Some(crate::sessions::credential(kind, &target, &login, secret, &client, false).await?)
+        }
+        auth => crate::package_connector::Credential::for_auth(&auth, secret),
+    };
     let header = credential.as_ref().and_then(|c| c.apply(&mut url));
     let mut request = client.get(url);
     if let Some((name, value)) = header {
@@ -252,6 +260,8 @@ pub async fn source_read(kind: String, address: String, source_type: Option<Stri
     let base = endpoint(&address)?;
     let key = secret(&kind, &base)?;
     let source_type = source_type.as_deref();
+    // Test signs in afresh, so it checks the saved username and password.
+    crate::sessions::forget(&kind, &base);
     if kind == "json" {
         return get(&kind, None, &base, &base, "", &key).await;
     }

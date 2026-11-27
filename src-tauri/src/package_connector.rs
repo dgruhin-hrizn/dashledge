@@ -150,7 +150,8 @@ impl Credential {
         let (user, key) = (secret.user.as_str(), secret.key.as_str());
         let header = |name: &str, value: String| Some(Credential::Header(name.into(), value));
         match auth {
-            Auth::None => None,
+            // A sign-in session comes from `sessions`, not straight from the vault.
+            Auth::None | Auth::Login(_) => None,
             Auth::Basic if user.is_empty() && key.is_empty() => None,
             Auth::Basic => header("Authorization", format!("Basic {}", base64::engine::general_purpose::STANDARD.encode(format!("{user}:{key}")))),
             _ if key.is_empty() => None,
@@ -200,12 +201,19 @@ fn scrub(text: &str, credential: Option<&Credential>, key: &str) -> String {
 
 /// Open a WebSocket for `handle` (a connector runtime, or `STREAM_HANDLE` for view
 /// streams). On the connection it carries the credential and trusts the saved CA.
-pub(crate) fn open_socket(handle: usize, socket: i64, kind: &str, connection: Option<&Target>, auth: &Auth, url: Url) -> Result<(), String> {
+pub(crate) async fn open_socket(handle: usize, socket: i64, kind: &str, connection: Option<&Target>, auth: &Auth, url: Url) -> Result<(), String> {
     let (mut url, mut name, mut value, mut ca) = (url, String::new(), String::new(), String::new());
     if let Some(t) = connection.filter(|t| *auth != Auth::None && same_origin(&url, Some(&t.base))) {
         // The connection's saved CA is trusted for wss, as `send` trusts it for https.
         let (secret, saved_ca) = crate::connections::secret_and_ca(kind, &t.account)?;
-        if let Some((n, v)) = Credential::for_auth(auth, &secret).and_then(|c| c.apply(&mut url)) {
+        let credential = match auth {
+            Auth::Login(login) => {
+                let client = crate::connections::service_client(kind, &t.account)?;
+                Some(crate::sessions::credential(kind, t, login, &secret, &client, false).await?)
+            }
+            _ => Credential::for_auth(auth, &secret),
+        };
+        if let Some((n, v)) = credential.and_then(|c| c.apply(&mut url)) {
             (name, value) = (n, v);
         }
         ca = saved_ca.unwrap_or_default();
@@ -239,8 +247,10 @@ fn forbidden_header(name: &str, auth: &Auth) -> bool {
     matches!(lower.as_str(), "authorization" | "x-emby-token")
         || package_manifest::RESERVED_HEADERS.contains(&lower.as_str())
         || matches!(auth, Auth::Header { name: own, .. } if own.eq_ignore_ascii_case(name))
+        || matches!(auth, Auth::Login(package_manifest::Login { session: package_manifest::LoginSession::Token { header, .. }, .. }) if header.eq_ignore_ascii_case(name))
 }
 
+#[derive(Clone)]
 pub(crate) struct Request {
     pub url: Url,
     pub method: String,
@@ -270,10 +280,25 @@ pub(crate) async fn exchange(kind: &str, connection: Option<&Target>, auth: &Aut
     match connection {
         Some(t) => {
             let client = crate::connections::service_client(kind, &t.account)?;
-            deliver(&client, true, auth, &crate::connections::secret(kind, &t.account)?, request).await
+            to_connection(kind, t, auth, &client, &crate::connections::secret(kind, &t.account)?, request).await
         }
-        None => deliver(&crate::connections::plain_client(), false, auth, &Secret::default(), request).await,
+        None => deliver(&crate::connections::plain_client(), None, auth, &Secret::default(), request).await,
     }
+}
+
+/// A request to the connection with its saved credential, or its signed-in session:
+/// when the server refuses the session, sign in again once.
+async fn to_connection(kind: &str, t: &Target, auth: &Auth, client: &reqwest::Client, secret: &Secret, request: Request) -> Result<Exchange, String> {
+    let Auth::Login(login) = auth else {
+        return deliver(client, Credential::for_auth(auth, secret), auth, secret, request).await;
+    };
+    let session = crate::sessions::credential(kind, t, login, secret, client, false).await?;
+    let first = deliver(client, Some(session), auth, secret, request.clone()).await?;
+    if !matches!(first.status, 401 | 403) {
+        return Ok(first);
+    }
+    let session = crate::sessions::credential(kind, t, login, secret, client, true).await?;
+    deliver(client, Some(session), auth, secret, request).await
 }
 
 impl Exchange {
@@ -291,9 +316,8 @@ impl Exchange {
     }
 }
 
-/// Send a request; `to_connection` adds the credential, which `exchange` decides by origin.
-async fn deliver(client: &reqwest::Client, to_connection: bool, auth: &Auth, secret: &Secret, request: Request) -> Result<Exchange, String> {
-    let credential = to_connection.then(|| Credential::for_auth(auth, secret)).flatten();
+/// Send a request with `credential`, which `exchange` gives only to the connection.
+async fn deliver(client: &reqwest::Client, credential: Option<Credential>, auth: &Auth, secret: &Secret, request: Request) -> Result<Exchange, String> {
     let mut url = request.url.clone();
     let header = credential.as_ref().and_then(|c| c.apply(&mut url));
     let method = reqwest::Method::from_bytes(request.method.as_bytes()).map_err(|_| "Unsupported method")?;
@@ -542,7 +566,8 @@ fn host_op(rt: &Runtime, op: &str, args: Value) -> Result<Value, String> {
             let global = next_socket();
             sockets.insert(global, local);
             drop(sockets);
-            if let Err(error) = open_socket(rt.handle, global, &rt.kind, rt.connection.as_ref(), &rt.auth, url) {
+            // The connector's thread isn't async: wait here for a sign-in, if any.
+            if let Err(error) = tauri::async_runtime::block_on(open_socket(rt.handle, global, &rt.kind, rt.connection.as_ref(), &rt.auth, url)) {
                 rt.sockets.lock().unwrap().remove(&global);
                 return Err(error);
             }
@@ -983,6 +1008,46 @@ mod tests {
     }
 
     #[test]
+    fn an_expired_session_signs_in_again_once_and_the_session_stays_hidden() {
+        // Sign in (SID=one), the request is refused, sign in again (SID=two), the retry succeeds.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = format!("http://{}/", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let replies = [
+                "HTTP/1.1 200 OK\r\nSet-Cookie: SID=one-session\r\nContent-Length: 3\r\nConnection: close\r\n\r\nOk.",
+                "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                "HTTP/1.1 200 OK\r\nSet-Cookie: SID=two-session\r\nContent-Length: 3\r\nConnection: close\r\n\r\nOk.",
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 26\r\nConnection: close\r\n\r\n{\"echo\":\"SID=two-session\"}",
+            ];
+            let mut requests = Vec::new();
+            for (reply, stream) in replies.iter().zip(listener.incoming()) {
+                let mut stream = stream.unwrap();
+                let mut buffer = [0u8; 4096];
+                let n = stream.read(&mut buffer).unwrap();
+                requests.push(String::from_utf8_lossy(&buffer[..n]).into_owned());
+                stream.write_all(reply.as_bytes()).unwrap();
+            }
+            requests
+        });
+        let base = Url::parse(&address).unwrap();
+        let target = Target { base: base.clone(), account: base.clone() };
+        let auth: Auth = serde_json::from_value(json!({"login": {"path": "api/v2/auth/login", "fields": {"username": "{user}", "password": "{key}"}, "session": "cookie"}})).unwrap();
+        let secret = Secret { user: "admin".into(), key: "pw-secret".into() };
+        let request = Request { url: base.join("api/v2/torrents/info").unwrap(), method: "GET".into(),
+            headers: vec![("Cookie".into(), "SID=forged".into())], body: None };
+        let result = tauri::async_runtime::block_on(to_connection("plugin.retry-test", &target, &auth, &crate::connections::plain_client(), &secret, request)).unwrap();
+        assert_eq!(result.status, 200);
+        let json = result.into_json();
+        assert!(!json.to_string().contains("two-session"), "an echoed session is scrubbed: {json}");
+        let requests = server.join().unwrap();
+        assert!(requests[0].starts_with("POST /api/v2/auth/login "));
+        assert!(requests[1].contains("cookie: SID=one-session") && !requests[1].contains("forged"), "{}", requests[1]);
+        assert!(requests[2].starts_with("POST /api/v2/auth/login "), "a refused session signs in again");
+        assert!(requests[3].contains("cookie: SID=two-session"));
+        crate::sessions::forget("plugin.retry-test", &base);
+    }
+
+    #[test]
     fn an_echoed_credential_is_scrubbed_before_a_package_reads_it() {
         let credential = Credential::Query("apikey".into(), "abc/123+key".into());
         let location = "https://sab.local/api?mode=queue&apikey=abc%2F123%2Bkey";
@@ -1005,8 +1070,10 @@ mod tests {
             String::from_utf8_lossy(&request[..n]).into_owned()
         });
         let base = Url::parse(&format!("{address}/")).unwrap();
+        let auth = Auth::Query { name: "apikey".into() };
+        let secret = Secret { user: String::new(), key: "sab-test-key".into() };
         let result = tauri::async_runtime::block_on(deliver(
-            &crate::connections::plain_client(), true, &Auth::Query { name: "apikey".into() }, &Secret { user: String::new(), key: "sab-test-key".into() },
+            &crate::connections::plain_client(), Credential::for_auth(&auth, &secret), &auth, &secret,
             Request { url: base.join("api?mode=queue").unwrap(), method: "GET".into(), headers: vec![], body: None },
         )).unwrap().into_json();
         assert!(server.join().unwrap().starts_with("GET /api?mode=queue&apikey=sab-test-key "));

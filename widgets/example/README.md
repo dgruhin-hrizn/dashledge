@@ -61,7 +61,18 @@ Every view runs isolated. It can't reach the network, other widgets, Dashledge's
   | `{"query": "apikey"}` | `?apikey=<key>` on every request | SABnzbd |
   | `"basic"` | `Authorization: Basic` with the saved username and key | NZBGet |
   | `"emby-token"`, `"pve-token"` | `X-Emby-Token`, `Authorization: PVEAPIToken=` | Emby, Proxmox |
+  | `{"login": …}` | signs in with the saved username and key, then sends the session | qBittorrent, Frigate (port 8971), Dispatcharr |
   | `"none"` | nothing | |
+
+  A sign-in form names its route, body and fields, and where the session comes back:
+
+  ```json
+  "auth": {"login": {"path": "api/v2/auth/login", "fields": {"username": "{user}", "password": "{key}"}, "session": "cookie"}}
+  "auth": {"login": {"path": "api/accounts/token/", "body": "json", "fields": {"username": "{user}", "password": "{key}"},
+                     "session": {"token": "/access", "format": "Bearer {token}"}}}
+  ```
+
+  `body` is `form` (the default) or `json`. A `cookie` session sends back what the reply set. A `token` session reads the JSON pointer and sends it in `header` (default `Authorization`), shaped by `format`. Dashledge signs in when it first needs to, keeps the session in memory, signs in again once when the server answers 401 or 403, and waits 15 seconds after a refused sign-in. Test always signs in afresh.
 
   Add `"usernameLabel": "Username"` to ask for a username beside the key. One widget can talk to several products with `"types"`: each `{"id", "label"}` may bring its own `auth`, `test` and labels, the connection form asks which one, and your code reads it as `dashledge.connection.type` and `Dashledge.connectionType()`:
 

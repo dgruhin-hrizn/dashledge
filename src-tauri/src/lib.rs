@@ -36,6 +36,7 @@ mod package_connector;
 mod package_media;
 mod package_stream;
 mod vault;
+mod sessions;
 
 use std::{path::PathBuf, sync::OnceLock, time::Duration};
 use tauri::{

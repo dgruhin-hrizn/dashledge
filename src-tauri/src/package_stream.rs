@@ -81,7 +81,7 @@ fn owned(id: &str, viewer: &str, stream: i64) -> Result<(), String> {
 
 /// Open a declared stream. Returns its ID; frames arrive on `channel`.
 #[tauri::command]
-pub fn package_stream_open(id: String, viewer: String, stream: String, params: Map<String, Value>, channel: Channel<InvokeResponseBody>) -> Result<i64, String> {
+pub async fn package_stream_open(id: String, viewer: String, stream: String, params: Map<String, Value>, channel: Channel<InvokeResponseBody>) -> Result<i64, String> {
     let (kind, connection) = package_connector::feed_connection(&id, &viewer)?;
     let manifest = package_connector::installed_manifest(&kind)?;
     if !manifest.permissions.contains(&Permission::Stream) {
@@ -102,7 +102,7 @@ pub fn package_stream_open(id: String, viewer: String, stream: String, params: M
         streams.insert(socket, Stream { feed: id.clone(), viewer: viewer.clone(), channel });
     }
     let auth = manifest.auth_for(connection.source_type.as_deref());
-    if let Err(error) = package_connector::open_socket(package_connector::STREAM_HANDLE, socket, &kind, Some(&target), &auth, url) {
+    if let Err(error) = package_connector::open_socket(package_connector::STREAM_HANDLE, socket, &kind, Some(&target), &auth, url).await {
         STREAMS.lock().unwrap().remove(&socket);
         return Err(error);
     }
