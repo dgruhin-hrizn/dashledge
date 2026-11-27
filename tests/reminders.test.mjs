@@ -108,3 +108,25 @@ test('the hero dial counts today and names what is next', () => {
   assert.deepEqual(M.relative(item('a', 'x', {due: '2026-11-26'}), now), {text: 'today', late: false});
   assert.equal(M.relative(item('a', 'x'), now), null);
 });
+
+test('text on a filled colour picks whichever of near-black and white contrasts more', () => {
+  assert.equal(M.onColor('#f88d4f'), '#120c08', 'default orange highlight');
+  assert.equal(M.onColor('#ffd60a'), '#120c08', 'yellow');
+  assert.equal(M.onColor('#5ac8fa'), '#120c08', 'light blue');
+  assert.equal(M.onColor('#3a1f6b'), '#ffffff', 'dark purple');
+  assert.equal(M.onColor('#0a84ff'), '#120c08', 'Reminders blue: 5.3:1 dark against 3.6:1 white');
+  assert.equal(M.onColor('#5e5ce6'), '#ffffff', 'Reminders indigo');
+  assert.equal(M.onColor('#a2845e'), '#120c08', 'Reminders brown');
+  assert.equal(M.onColor('#000'), '#ffffff');
+  assert.equal(M.onColor('not a colour'), '#120c08', 'falls back to the dark default');
+});
+
+test('a dark colour used as text is lifted toward white until it reads on the cards', () => {
+  assert.equal(M.readable('#f88d4f'), '#f88d4f', 'already readable: unchanged');
+  assert.equal(M.readable('#30d158'), '#30d158');
+  const lifted = M.readable('#3a1f6b');
+  assert.notEqual(lifted, '#3a1f6b');
+  assert.match(lifted, /^#[0-9a-f]{6}$/);
+  assert.ok(parseInt(lifted.slice(5, 7), 16) > parseInt(lifted.slice(1, 3), 16), 'still purple: blue above red');
+  assert.equal(M.readable('nope'), '');
+});

@@ -86,7 +86,7 @@
     const li = el('li', 'rm-row');
     li.dataset.id = item.id;
     li.dataset.done = String(!!item.completed);
-    if (color) li.style.setProperty('--list', color);
+    if (color) { li.style.setProperty('--list', color); li.style.setProperty('--on-list', M.onColor(color)); li.style.setProperty('--list-text', M.readable(color)); }
     const check = el('button', 'rm-check');
     check.type = 'button';
     check.setAttribute('aria-pressed', String(!!item.completed));
@@ -119,7 +119,7 @@
     const box = el('section', 'rm-group');
     box.dataset.id = group.id;
     const color = group.color || (settings.group === 'due' ? DUE_COLORS[group.id] : '') || '';
-    if (color) box.style.setProperty('--list', color);
+    if (color) { box.style.setProperty('--list', color); box.style.setProperty('--on-list', M.onColor(color)); box.style.setProperty('--list-text', M.readable(color)); }
     const head = el('header', 'rm-group-head');
     const badge = el('span', 'rm-badge');
     badge.innerHTML = settings.group === 'due' ? DUE_ICONS[group.id] || DUE_ICONS.later
@@ -298,6 +298,8 @@
   $('gear').onclick = openSettings;
 
   host.subscribe(state => {
+    document.documentElement.style.setProperty('--on-hi', M.onColor(state.theme?.accent));
+    document.documentElement.style.setProperty('--hi-text', M.readable(state.theme?.accent) || 'var(--hi)');
     const s = state.settings || {};
     settings = {lists: Array.isArray(s.lists) ? s.lists : ['*'], finished: s.finished !== false, group: s.group === 'due' ? 'due' : 'lists'};
     widget.dataset.arrange = settings.group;

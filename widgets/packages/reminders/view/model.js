@@ -127,6 +127,41 @@
     return minutes < 0 ? {text: text + ' overdue', late: true} : {text: 'in ' + text, late: false};
   }
 
+  // Text to set on a filled colour: near-black or white, whichever contrasts more
+  // (WCAG relative luminance). Highlight and list colours are #rgb or #rrggbb.
+  const DARK = '#120c08', LIGHT = '#ffffff';
+  const rgb = hex => {
+    const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(hex || '').trim());
+    if (!m) return null;
+    const h = m[1].length === 3 ? [...m[1]].map(c => c + c).join('') : m[1];
+    return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16));
+  };
+  const luminance = ([r, g, b]) => {
+    const lin = v => { const c = v / 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+    return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+  };
+  function onColor(hex) {
+    const c = rgb(hex);
+    if (!c) return DARK;
+    const l = luminance(c);
+    // Contrast with near-black (luminance ≈ 0.004) against contrast with white.
+    return (l + 0.05) / 0.054 >= 1.05 / (l + 0.05) ? DARK : LIGHT;
+  }
+
+  // A colour used as text on the dark cards: itself when it reads at 4.5:1 against
+  // the card, else mixed toward white just until it does. Keeps the hue recognisable.
+  const CARD = luminance([0x13, 0x19, 0x24]);
+  function readable(hex) {
+    const c = rgb(hex);
+    if (!c) return '';
+    for (let t = 0; t <= 1.0001; t += 0.05) {
+      const mixed = c.map(v => Math.round(v + (255 - v) * t));
+      if ((luminance(mixed) + 0.05) / (CARD + 0.05) >= 4.5)
+        return '#' + mixed.map(v => v.toString(16).padStart(2, '0')).join('');
+    }
+    return LIGHT;
+  }
+
   // Options for the placement's Lists setting.
   function listOptions(lists) {
     return lists.slice(0, 64).map(list => ({value: list.id.slice(0, 128), label: String(list.title).slice(0, 64),
@@ -134,7 +169,7 @@
       .filter(option => /^[A-Za-z0-9._:@/-]{1,128}$/.test(option.value));
   }
 
-  const api = {chosenLists, addTarget, compare, dueLabel, dueSection, sections, counts, progress, nextUp, relative, listOptions};
+  const api = {chosenLists, addTarget, compare, dueLabel, dueSection, sections, counts, progress, nextUp, relative, onColor, readable, listOptions};
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.RemindersModel = api;
 })(typeof globalThis === 'object' ? globalThis : this);
