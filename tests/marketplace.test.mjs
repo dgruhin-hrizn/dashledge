@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {marketplaceGroups, pluginStatus, pluginAction, pluginCanRemove, submissionSteps} from '../ui/marketplace.js';
+import {marketplaceGroups, pluginStatus, pluginAction, pluginCanRemove, submissionSteps, isFirstParty, pluginPublisher} from '../ui/marketplace.js';
 
 const plugin = (over = {}) => ({id: 'plugin.alice.queue', title: 'Queue', publisher: 'alice', summary: 'Downloads now.',
   category: 'Music & media', available: '1.1.0', versions: [{version: '1.1.0', published: 0}], ...over});
@@ -63,4 +63,15 @@ test('installed plugins can be removed from the Marketplace, but not an author�
   assert.equal(pluginCanRemove(plugin({installed: '1.0.0', origin: 'marketplace'})), true);
   assert.equal(pluginCanRemove(plugin({installed: '1.0.0', origin: 'installed', pulled: 'x'})), true, 'a pulled or file-installed copy too');
   assert.equal(pluginCanRemove(plugin({installed: '1.0.0', origin: 'unpacked'})), false);
+});
+
+test('Dashledge’s own plugins say so, but only when they come from the Marketplace', () => {
+  const own = plugin({id: 'plugin.dashledge.download-clients', publisher: 'dgruhin-hrizn'});
+  assert.equal(pluginPublisher(own), 'Dashledge');
+  assert.equal(pluginPublisher(plugin()), 'alice', 'everyone else is shown by their GitHub login');
+  assert.equal(isFirstParty('plugin.dashledge.download-clients'), true);
+  assert.equal(isFirstParty('plugin.dashledge.download-clients', 'installed'), false, 'a copy from a file is unverified');
+  assert.equal(isFirstParty('plugin.dashledge.download-clients', 'unpacked'), false, 'so is an author’s folder');
+  assert.equal(isFirstParty('plugin.dashledgex.queue'), false);
+  assert.equal(isFirstParty('plugin.alice.dashledge'), false);
 });

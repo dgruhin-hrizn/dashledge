@@ -299,6 +299,8 @@ Packages are limited to 8 MiB, 4 MiB per file and 256 files. Allowed files are H
 
 The Marketplace lists plugins that passed the registry's checks and a maintainer's review. Its registry is [dgruhin-hrizn/dashledge-plugins](https://github.com/dgruhin-hrizn/dashledge-plugins). The rules and the reviewers' checklist are in its [CONTRIBUTING.md](https://github.com/dgruhin-hrizn/dashledge-plugins/blob/main/CONTRIBUTING.md).
 
+**Your plugin and Dashledge's own.** Plugins Dashledge builds itself have IDs under `plugin.dashledge.` and show as **by Dashledge** in the Marketplace. Only Dashledge maintainers can publish that namespace. Yours shows your GitHub login. Dashledge's plugins all use the `ui` kit, `view.theme: true` and the native viewport, and follow [Designing for the Edge](#designing-for-the-edge). Doing the same makes yours look at home next to them.
+
 **Before you submit:**
 - **ID:** use your namespace, `plugin.<your GitHub login>.<name>`, such as `plugin.alice.radarr-queue`.
 - **Version:** give `widget.json` a version such as `1.0.0`. Each release raises it.
