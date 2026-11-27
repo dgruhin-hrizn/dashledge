@@ -307,7 +307,7 @@ pub fn is_bundled(id: &str) -> bool {
     lookup(id).is_some_and(|(p, _)| p.origin == "bundled")
 }
 
-fn settings_only(window: &tauri::WebviewWindow) -> Result<(), String> {
+pub(crate) fn settings_only(window: &tauri::WebviewWindow) -> Result<(), String> {
     if window.label() != "settings" {
         return Err("Open Widget Studio in Settings.".into());
     }
@@ -336,7 +336,7 @@ pub fn inspect_widget_package(window: tauri::WebviewWindow, request: tauri::ipc:
 }
 
 /// The installed or unpacked package with this ID, if any.
-fn lookup_installed(id: &str) -> Option<Manifest> {
+pub(crate) fn lookup_installed(id: &str) -> Option<Manifest> {
     lookup(id).filter(|(p, _)| p.origin != "bundled").map(|(p, _)| p.manifest)
 }
 
@@ -360,7 +360,10 @@ pub fn install_widget_package(
     request: tauri::ipc::Request<'_>,
 ) -> Result<PackageInfo, String> {
     settings_only(&window)?;
-    install_bytes(&installed_root(&app)?, raw_body(&request)?)
+    let info = install_bytes(&installed_root(&app)?, raw_body(&request)?)?;
+    // A package installed from a file is no longer the Marketplace's version.
+    crate::marketplace::forget(&app.path().app_data_dir().map_err(|e| e.to_string())?, &info.manifest.id)?;
+    Ok(info)
 }
 
 /// Check a package ZIP and install it under `root`, replacing an earlier version.
@@ -449,6 +452,7 @@ pub fn remove_widget_package(window: tauri::WebviewWindow, app: tauri::AppHandle
     };
     refresh();
     bump(&id);
+    crate::marketplace::forget(&app.path().app_data_dir().map_err(|e| e.to_string())?, &id)?;
     result
 }
 
