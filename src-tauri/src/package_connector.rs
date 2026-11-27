@@ -30,7 +30,7 @@ extern "C" {
     fn connector_new(handle: usize, limit: f64) -> *mut c_void;
     fn connector_eval(context: *mut c_void, source: *const c_char, url: *const c_char) -> *mut c_char;
     fn connector_free(context: *mut c_void);
-    fn connector_ws_open(handle: usize, socket: i64, url: *const c_char, name: *const c_char, value: *const c_char);
+    fn connector_ws_open(handle: usize, socket: i64, url: *const c_char, name: *const c_char, value: *const c_char, ca: *const c_char);
     fn connector_ws_send(socket: i64, text: *const c_char);
     fn connector_ws_close(socket: i64);
     fn free(pointer: *mut c_void);
@@ -41,6 +41,21 @@ extern "C" {
 pub struct Connection {
     pub name: String,
     pub address: String,
+}
+
+/// Where a placement's requests start and which saved credential they use. `base` is
+/// the address resolved with the manifest's address mode (the same base Test reads);
+/// `account` is the address as typed, which keys the vault. Both share one origin.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Target {
+    pub base: Url,
+    pub account: Url,
+}
+
+impl Target {
+    pub fn new(kind: &str, address: &str) -> Result<Self, String> {
+        Ok(Target { base: crate::connections::resolve(kind, address)?, account: crate::connections::endpoint(address)? })
+    }
 }
 
 #[derive(Default)]
@@ -136,11 +151,13 @@ struct Request {
     body: Option<String>,
 }
 
-async fn send(kind: &str, connection: Option<&Url>, auth: Auth, request: Request) -> Result<Value, String> {
+async fn send(kind: &str, connection: Option<&Target>, auth: Auth, request: Request) -> Result<Value, String> {
+    // Only an authenticated connection has vault data (its key and any CA). Reading the
+    // vault for one without auth could ask the user to unlock their connections.
+    let connection = connection.filter(|t| auth != Auth::None && same_origin(&request.url, Some(&t.base)));
     let client = match connection {
-        // Only an authenticated connection has vault data (its key and any CA).
-        Some(base) if auth != Auth::None && same_origin(&request.url, Some(base)) => crate::connections::service_client(kind, base)?,
-        _ => crate::connections::plain_client(),
+        Some(t) => crate::connections::service_client(kind, &t.account)?,
+        None => crate::connections::plain_client(),
     };
     let method = reqwest::Method::from_bytes(request.method.as_bytes()).map_err(|_| "Unsupported method")?;
     let mut builder = client.request(method, request.url.clone()).timeout(Duration::from_secs(15));
@@ -149,8 +166,8 @@ async fn send(kind: &str, connection: Option<&Url>, auth: Auth, request: Request
             builder = builder.header(name.as_str(), value.as_str());
         }
     }
-    if let Some(base) = connection.filter(|base| auth != Auth::None && same_origin(&request.url, Some(base))) {
-        let key = crate::connections::credential(kind, base)?;
+    if let Some(t) = connection {
+        let key = crate::connections::credential(kind, &t.account)?;
         if let Some((name, value)) = credential_header(auth, &key) {
             builder = builder.header(name, value);
         }
@@ -212,7 +229,7 @@ fn route_url(base: &Url, route: &str) -> Url {
     url
 }
 
-fn run_declarative(kind: String, manifest: Manifest, base: Url, output: Arc<Mutex<Output>>, stop: Arc<AtomicBool>) {
+fn run_declarative(kind: String, manifest: Manifest, target: Target, output: Arc<Mutex<Output>>, stop: Arc<AtomicBool>) {
     let auth = manifest.sources.as_ref().map_or(Auth::Bearer, |s| s.auth);
     std::thread::spawn(move || {
         let mut due: HashMap<String, Instant> = HashMap::new();
@@ -222,8 +239,8 @@ fn run_declarative(kind: String, manifest: Manifest, base: Url, output: Arc<Mute
                     continue;
                 }
                 due.insert(poll.id.clone(), Instant::now() + Duration::from_secs(poll.every.into()));
-                let request = Request { url: route_url(&base, &poll.path), method: "GET".into(), headers: vec![("Accept".into(), "application/json".into())], body: None };
-                let result = tauri::async_runtime::block_on(send(&kind, Some(&base), auth, request)).and_then(|r| {
+                let request = Request { url: route_url(&target.base, &poll.path), method: "GET".into(), headers: vec![("Accept".into(), "application/json".into())], body: None };
+                let result = tauri::async_runtime::block_on(send(&kind, Some(&target), auth, request)).and_then(|r| {
                     let status = r["status"].as_u64().unwrap_or(0);
                     if !(200..300).contains(&status) {
                         return Err(format!("Server returned HTTP {status}"));
@@ -261,7 +278,7 @@ struct Timer {
 struct Runtime {
     handle: usize,
     kind: String,
-    connection: Option<Url>,
+    connection: Option<Target>,
     auth: Auth,
     origins: Vec<String>,
     tx: mpsc::Sender<Event>,
@@ -383,13 +400,18 @@ fn host_op(rt: &Runtime, op: &str, args: Value) -> Result<Value, String> {
             }
             let global = NEXT_SOCKET.fetch_add(1, Ordering::SeqCst);
             sockets.insert(global, local);
-            let (name, value) = match rt.connection.as_ref().filter(|c| same_origin(&url, Some(c))) {
-                Some(base) => credential_header(rt.auth, &crate::connections::credential(&rt.kind, base)?)
-                    .map_or((String::new(), String::new()), |(n, v)| (n.to_string(), v)),
-                None => (String::new(), String::new()),
-            };
+            let (mut name, mut value, mut ca) = (String::new(), String::new(), String::new());
+            if let Some(t) = rt.connection.as_ref().filter(|t| rt.auth != Auth::None && same_origin(&url, Some(&t.base))) {
+                // The connection's saved CA is trusted for wss, as `send` trusts it for https.
+                let (key, saved_ca) = crate::connections::widget_credentials(&rt.kind, &t.account)?;
+                if let Some((n, v)) = credential_header(rt.auth, &key) {
+                    (name, value) = (n.to_string(), v);
+                }
+                ca = saved_ca.unwrap_or_default();
+            }
             let (url, name, value) = (CString::new(url.as_str()).unwrap(), CString::new(name).unwrap(), CString::new(value).unwrap_or_default());
-            unsafe { connector_ws_open(rt.handle, global, url.as_ptr(), name.as_ptr(), value.as_ptr()) };
+            let ca = CString::new(ca).unwrap_or_default();
+            unsafe { connector_ws_open(rt.handle, global, url.as_ptr(), name.as_ptr(), value.as_ptr(), ca.as_ptr()) };
             Ok(Value::Null)
         }
         "wsSend" | "wsClose" => {
@@ -473,7 +495,7 @@ pub(crate) struct ConnectorSetup {
     pub kind: String,
     pub package: String,
     pub source: String,
-    pub connection: Option<(Url, String)>,
+    pub connection: Option<(Target, String)>,
     pub manifest: Manifest,
     pub storage_file: Option<PathBuf>,
 }
@@ -491,7 +513,7 @@ pub(crate) fn run_connector(setup: ConnectorSetup, output: Arc<Mutex<Output>>, s
         let rt = Arc::new(Runtime {
             handle,
             kind: setup.kind.clone(),
-            origins: allowed_origins(connection_url.as_ref(), &setup.manifest),
+            origins: allowed_origins(connection_url.as_ref().map(|t| &t.base), &setup.manifest),
             auth: setup.manifest.sources.as_ref().map_or(Auth::None, |s| s.auth),
             connection: connection_url,
             tx,
@@ -504,7 +526,7 @@ pub(crate) fn run_connector(setup: ConnectorSetup, output: Arc<Mutex<Output>>, s
         });
         RUNTIMES.lock().unwrap().insert(handle, rt.clone());
         let context = Context(unsafe { connector_new(handle, WATCHDOG_SECONDS) });
-        let connection = setup.connection.as_ref().map(|(u, name)| json!({"address": u.as_str(), "name": name}));
+        let connection = setup.connection.as_ref().map(|(t, name)| json!({"address": t.base.as_str(), "name": name}));
         let fail = |error: String| {
             log_line(&setup.kind, "error", &error);
             let mut out = output.lock().unwrap();
@@ -647,7 +669,7 @@ pub fn package_open(window: tauri::WebviewWindow, app: tauri::AppHandle, kind: S
         feed.last_attached = Instant::now();
         return Ok(json!({"id": id, "entry": entry, "permissions": permission_names(&manifest)}));
     }
-    let base = connection.as_ref().map(|c| crate::connections::endpoint(&c.address)).transpose()?;
+    let target = connection.as_ref().map(|c| Target::new(&kind, &c.address)).transpose()?;
     let output = Arc::new(Mutex::new(Output::default()));
     let stop = Arc::new(AtomicBool::new(false));
     match manifest.tier() {
@@ -657,11 +679,11 @@ pub fn package_open(window: tauri::WebviewWindow, app: tauri::AppHandle, kind: S
             let storage_file = app.path().app_data_dir().ok().map(|d| d.join("package-data").join(format!("{kind}.json")));
             run_connector(ConnectorSetup {
                 kind: kind.clone(), package: kind.clone(), source,
-                connection: base.clone().zip(connection.as_ref().map(|c| c.name.clone())),
+                connection: target.clone().zip(connection.as_ref().map(|c| c.name.clone())),
                 manifest: manifest.clone(), storage_file,
             }, output.clone(), stop.clone());
         }
-        Tier::Declarative => run_declarative(kind.clone(), manifest.clone(), base.clone().ok_or("Choose a connection")?, output.clone(), stop.clone()),
+        Tier::Declarative => run_declarative(kind.clone(), manifest.clone(), target.clone().ok_or("Choose a connection")?, output.clone(), stop.clone()),
         Tier::View | Tier::Collector => {}
     }
     let view = dir.join(std::path::Path::new(&manifest.view.entry).parent().unwrap_or(std::path::Path::new("")));
@@ -711,7 +733,7 @@ pub async fn package_action(id: String, viewer: String, action: String, args: Ma
     };
     let (manifest, _) = installed_package(&kind)?;
     let declared = manifest.actions.iter().find(|a| a.id == action).ok_or("This widget didn’t declare that action.")?;
-    let base = crate::connections::endpoint(&connection.ok_or("Choose a connection")?.address)?;
+    let target = Target::new(&kind, &connection.ok_or("Choose a connection")?.address)?;
     let path = fill(&declared.path, &args)?;
     let body = declared.body.as_ref().map(|b| fill_body(b, &args)).transpose()?.map(|b| b.to_string());
     let method = match declared.method { Method::Post => "POST", Method::Put => "PUT", Method::Delete => "DELETE" };
@@ -720,7 +742,7 @@ pub async fn package_action(id: String, viewer: String, action: String, args: Ma
         headers.push(("Content-Type".into(), "application/json".into()));
     }
     let auth = manifest.sources.as_ref().map_or(Auth::Bearer, |s| s.auth);
-    let response = send(&kind, Some(&base), auth, Request { url: route_url(&base, &path), method: method.into(), headers, body }).await?;
+    let response = send(&kind, Some(&target), auth, Request { url: route_url(&target.base, &path), method: method.into(), headers, body }).await?;
     let status = response["status"].as_u64().unwrap_or(0);
     if !(200..300).contains(&status) {
         return Err(format!("Server returned HTTP {status}"));
@@ -809,7 +831,7 @@ mod tests {
         let stop = Arc::new(AtomicBool::new(false));
         let setup = ConnectorSetup {
             kind: "plugin.test".into(), package: "plugin.test".into(), source: source.into(),
-            connection: connection.map(|u| (u, "Test".to_string())), manifest: manifest(hosts), storage_file: None,
+            connection: connection.map(|u| (Target { base: u.clone(), account: u }, "Test".to_string())), manifest: manifest(hosts), storage_file: None,
         };
         run_connector(setup, output.clone(), stop.clone());
         (output, stop)
@@ -838,6 +860,36 @@ mod tests {
         assert_eq!(data["globals"], json!(["undefined", "undefined", "undefined"]));
         let request = server.join().unwrap();
         assert!(request.starts_with("GET /sensor "));
+        stop.store(true, Ordering::SeqCst);
+    }
+
+    #[test]
+    fn a_connection_resolves_its_base_with_the_address_mode_and_keeps_the_typed_account() {
+        // oMLX uses `address: path`: requests join beneath the prefix, the vault keeps the typed address.
+        let target = Target::new("omlx", "https://proxy.local/omlx").unwrap();
+        assert_eq!(target.base.as_str(), "https://proxy.local/omlx/");
+        assert_eq!(target.account.as_str(), "https://proxy.local/omlx");
+        assert!(Target::new("omlx", "https://proxy.local/?token=x").is_err());
+    }
+
+    #[test]
+    fn a_connector_sees_the_resolved_base_and_requests_go_beneath_it() {
+        let (address, server) = serve_once("{\"ok\": true}");
+        let source = r#"
+            fetch(dashledge.connection.address + 'status').then(r => r.json())
+              .then(body => dashledge.emit({address: dashledge.connection.address, ok: body.ok}));
+        "#;
+        let base = Url::parse(&format!("{address}/api/")).unwrap();
+        let account = Url::parse(&format!("{address}/api")).unwrap();
+        let output = Arc::new(Mutex::new(Output::default()));
+        let stop = Arc::new(AtomicBool::new(false));
+        run_connector(ConnectorSetup {
+            kind: "plugin.test".into(), package: "plugin.test".into(), source: source.into(),
+            connection: Some((Target { base: base.clone(), account }, "Test".into())), manifest: manifest(&[]), storage_file: None,
+        }, output.clone(), stop.clone());
+        assert!(wait_for(&output, |o| o.data.get("ok").is_some()), "error: {:?}", output.lock().unwrap().error);
+        assert_eq!(output.lock().unwrap().data["address"], base.as_str());
+        assert!(server.join().unwrap().starts_with("GET /api/status "));
         stop.store(true, Ordering::SeqCst);
     }
 

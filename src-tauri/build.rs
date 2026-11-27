@@ -24,7 +24,7 @@ fn main() {
     println!("cargo:rerun-if-changed=spotify_spectrum.m");
     println!("cargo:rerun-if-changed=apple_music.m");
     println!("cargo:rerun-if-changed=connector.m");
-    for name in ["Photos", "Vision", "EventKit", "Foundation", "AppKit", "IOKit", "Metal", "CoreAudio", "Accelerate", "ScriptingBridge", "ImageIO", "LinkPresentation", "JavaScriptCore"] {
+    for name in ["Photos", "Vision", "EventKit", "Foundation", "AppKit", "IOKit", "Metal", "CoreAudio", "Accelerate", "ScriptingBridge", "ImageIO", "LinkPresentation", "JavaScriptCore", "Security"] {
         println!("cargo:rustc-link-lib=framework={name}");
     }
     tauri_build::build()

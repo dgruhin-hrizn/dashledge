@@ -186,14 +186,9 @@ async fn get(kind: &str, account: &Url, base: &Url, path: &str, key: &str) -> Re
         url.set_query(query);
     }
     let mut request = client.get(url);
-    if !key.is_empty() {
-        use crate::package_manifest::Auth;
-        request = match auth_for(kind) {
-            Auth::EmbyToken => request.header("X-Emby-Token", key),
-            Auth::PveToken => request.header("Authorization", format!("PVEAPIToken={key}")),
-            Auth::Bearer => request.bearer_auth(key),
-            Auth::None => request,
-        };
+    // The same header the widget's connector, declarative routes and actions send.
+    if let Some((name, value)) = crate::package_connector::credential_header(auth_for(kind), key) {
+        request = request.header(name, value);
     }
     let mut res = request
         .send()
