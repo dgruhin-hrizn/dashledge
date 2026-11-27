@@ -326,7 +326,8 @@ async fn to_connection(kind: &str, t: &Target, auth: &Auth, client: &reqwest::Cl
     };
     let session = crate::sessions::credential(kind, t, login, secret, client, false).await?;
     let first = deliver(client, Some(session), auth, secret, request.clone()).await?;
-    if !matches!(first.status, 401 | 403) {
+    // A fresh session that's refused means this request isn't allowed: don't sign in again.
+    if !matches!(first.status, 401 | 403) || !crate::sessions::renewable(kind, &t.account) {
         return Ok(first);
     }
     let session = crate::sessions::credential(kind, t, login, secret, client, true).await?;
@@ -634,11 +635,19 @@ fn host_op(rt: &Runtime, op: &str, args: Value) -> Result<Value, String> {
                     return Err(error);
                 }
             };
-            let (target, auth) = link.map_or((None, Auth::None), |l| (Some(&l.target), l.auth.clone()));
-            if let Err(error) = tauri::async_runtime::block_on(open_socket(rt.handle, global, &rt.kind, target, &auth, url)) {
-                rt.sockets.lock().unwrap().remove(&global);
-                return Err(error);
-            }
+            let (target, auth) = link.map_or((None, Auth::None), |l| (Some(l.target.clone()), l.auth.clone()));
+            // Open in the background, so a sign-in never holds up the connector's script.
+            // A failure arrives as the socket's error and close events.
+            let (handle, kind, tx) = (rt.handle, rt.kind.clone(), rt.tx.clone());
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = open_socket(handle, global, &kind, target.as_ref(), &auth, url).await {
+                    if let Some(rt) = runtime(handle) {
+                        rt.sockets.lock().unwrap().remove(&global);
+                    }
+                    let _ = tx.send(Event::Socket { id: local, kind: "error".into(), data: error });
+                    let _ = tx.send(Event::Socket { id: local, kind: "close".into(), data: "1006".into() });
+                }
+            });
             Ok(Value::Null)
         }
         "wsSend" | "wsClose" => {
@@ -1124,12 +1133,11 @@ mod tests {
 
     #[test]
     fn an_expired_session_signs_in_again_once_and_the_session_stays_hidden() {
-        // Sign in (SID=one), the request is refused, sign in again (SID=two), the retry succeeds.
+        // An old session (SID=one) is refused, Dashledge signs in again (SID=two), the retry succeeds.
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let address = format!("http://{}/", listener.local_addr().unwrap());
         let server = std::thread::spawn(move || {
             let replies = [
-                "HTTP/1.1 200 OK\r\nSet-Cookie: SID=one-session\r\nContent-Length: 3\r\nConnection: close\r\n\r\nOk.",
                 "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
                 "HTTP/1.1 200 OK\r\nSet-Cookie: SID=two-session\r\nContent-Length: 3\r\nConnection: close\r\n\r\nOk.",
                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 26\r\nConnection: close\r\n\r\n{\"echo\":\"SID=two-session\"}",
@@ -1150,16 +1158,53 @@ mod tests {
         let secret = Secret { user: "admin".into(), key: "pw-secret".into() };
         let request = Request { url: base.join("api/v2/torrents/info").unwrap(), method: "GET".into(),
             headers: vec![("Cookie".into(), "SID=forged".into())], body: None, timeout: None };
+        crate::sessions::seed("plugin.retry-test", &base, Credential::Header("Cookie".into(), "SID=one-session".into()), crate::sessions::RENEW_AFTER);
         let result = tauri::async_runtime::block_on(to_connection("plugin.retry-test", &target, &auth, &crate::connections::plain_client(), &secret, request)).unwrap();
         assert_eq!(result.status, 200);
         let json = result.into_json();
         assert!(!json.to_string().contains("two-session"), "an echoed session is scrubbed: {json}");
         let requests = server.join().unwrap();
-        assert!(requests[0].starts_with("POST /api/v2/auth/login "));
-        assert!(requests[1].contains("cookie: SID=one-session") && !requests[1].contains("forged"), "{}", requests[1]);
-        assert!(requests[2].starts_with("POST /api/v2/auth/login "), "a refused session signs in again");
-        assert!(requests[3].contains("cookie: SID=two-session"));
+        assert!(requests[0].contains("cookie: SID=one-session") && !requests[0].contains("forged"), "{}", requests[0]);
+        assert!(requests[1].starts_with("POST /api/v2/auth/login "), "a refused old session signs in again");
+        assert!(requests[2].contains("cookie: SID=two-session"));
         crate::sessions::forget("plugin.retry-test", &base);
+    }
+
+    #[test]
+    fn a_fresh_session_that_is_refused_does_not_sign_in_again() {
+        // A permission 403 right after signing in must not post the form on every poll.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = format!("http://{}/", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let replies = [
+                "HTTP/1.1 200 OK\r\nSet-Cookie: SID=fresh\r\nContent-Length: 3\r\nConnection: close\r\n\r\nOk.",
+                "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            ];
+            let mut requests = Vec::new();
+            for (reply, stream) in replies.iter().zip(listener.incoming()) {
+                let mut stream = stream.unwrap();
+                let mut buffer = [0u8; 4096];
+                let n = stream.read(&mut buffer).unwrap();
+                requests.push(String::from_utf8_lossy(&buffer[..n]).into_owned());
+                stream.write_all(reply.as_bytes()).unwrap();
+            }
+            requests
+        });
+        let base = Url::parse(&address).unwrap();
+        let target = Target { base: base.clone(), account: base.clone() };
+        let auth: Auth = serde_json::from_value(json!({"login": {"path": "login", "fields": {"password": "{key}"}, "session": "cookie"}})).unwrap();
+        let secret = Secret { user: String::new(), key: "pw".into() };
+        let get = || Request { url: base.join("admin").unwrap(), method: "GET".into(), headers: vec![], body: None, timeout: None };
+        let client = crate::connections::plain_client();
+        for _ in 0..2 {
+            let result = tauri::async_runtime::block_on(to_connection("plugin.forbidden-test", &target, &auth, &client, &secret, get())).unwrap();
+            assert_eq!(result.status, 403);
+        }
+        let requests = server.join().unwrap();
+        assert!(requests[0].starts_with("POST /login "));
+        assert!(requests[1].starts_with("GET /admin ") && requests[2].starts_with("GET /admin "), "one sign-in, then the refusals come straight back");
+        crate::sessions::forget("plugin.forbidden-test", &base);
     }
 
     #[test]

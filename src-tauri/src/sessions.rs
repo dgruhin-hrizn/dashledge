@@ -14,10 +14,14 @@ use std::{
 
 /// After a failed sign-in, wait this long before posting the form again.
 const RETRY_AFTER: Duration = Duration::from_secs(15);
+/// A session younger than this isn't renewed when a request is refused: the refusal is
+/// about that request (a permission), not an expired session. At most one sign-in per
+/// connection in this time, however often a connector polls.
+pub const RENEW_AFTER: Duration = Duration::from_secs(30);
 
 #[derive(Default)]
 struct Store {
-    sessions: HashMap<String, Credential>,
+    sessions: HashMap<String, (Credential, Instant)>,
     failed: HashMap<String, Instant>,
 }
 static STORE: LazyLock<Mutex<Store>> = LazyLock::new(Default::default);
@@ -37,7 +41,19 @@ pub fn forget(kind: &str, account: &reqwest::Url) {
 /// The session already signed in for a connection, if any.
 #[cfg(test)]
 fn cached(kind: &str, account: &reqwest::Url) -> Option<Credential> {
-    STORE.lock().unwrap().sessions.get(&key(kind, account)).cloned()
+    STORE.lock().unwrap().sessions.get(&key(kind, account)).map(|(c, _)| c.clone())
+}
+
+/// Whether a refused request should sign in again: only when the session is old enough
+/// to have expired.
+pub fn renewable(kind: &str, account: &reqwest::Url) -> bool {
+    STORE.lock().unwrap().sessions.get(&key(kind, account)).is_none_or(|(_, at)| at.elapsed() >= RENEW_AFTER)
+}
+
+/// Pretend a session was signed in `age` ago, for tests of renewal.
+#[cfg(test)]
+pub fn seed(kind: &str, account: &reqwest::Url, session: Credential, age: Duration) {
+    STORE.lock().unwrap().sessions.insert(key(kind, account), (session, Instant::now() - age));
 }
 
 /// The form fields with `{user}` and `{key}` filled in.
@@ -72,7 +88,7 @@ pub async fn credential(kind: &str, target: &Target, login: &Login, secret: &Sec
     {
         let store = STORE.lock().unwrap();
         if !renew {
-            if let Some(session) = store.sessions.get(&key) {
+            if let Some((session, _)) = store.sessions.get(&key) {
                 return Ok(session.clone());
             }
         }
@@ -84,7 +100,7 @@ pub async fn credential(kind: &str, target: &Target, login: &Login, secret: &Sec
     let mut store = STORE.lock().unwrap();
     match &result {
         Ok(session) => {
-            store.sessions.insert(key.clone(), session.clone());
+            store.sessions.insert(key.clone(), (session.clone(), Instant::now()));
             store.failed.remove(&key);
         }
         Err(_) => {
