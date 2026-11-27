@@ -10,6 +10,7 @@ fn main() {
         .include(&out)
         .file("photos.m")
         .file("desk_calendar.m")
+        .file("reminders.m")
         .file("apple_music.m")
         .file("native.m")
         .file("spotify_spectrum.m")
@@ -18,6 +19,7 @@ fn main() {
         .compile("edge_native");
     println!("cargo:rerun-if-changed=photos.m");
     println!("cargo:rerun-if-changed=desk_calendar.m");
+    println!("cargo:rerun-if-changed=reminders.m");
     println!("cargo:rerun-if-changed=native.m");
     println!("cargo:rerun-if-changed=spotify_spectrum.m");
     println!("cargo:rerun-if-changed=apple_music.m");

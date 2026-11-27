@@ -78,6 +78,10 @@ pub enum Permission {
     /// `dynamic` settings. The view offers them with `Dashledge.settings.offer()`.
     #[serde(rename = "settings.choices")]
     SettingsChoices,
+    /// Read, check off and add Apple Reminders through EventKit. Bundled widgets only:
+    /// an installed view could pass reminder text to its connection in an action.
+    #[serde(rename = "reminders")]
+    Reminders,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -449,6 +453,9 @@ pub fn validate(raw: &Value, origin: Origin) -> Result<Manifest, String> {
             }
             if !manifest.page {
                 return fail("Only bundled widgets get a page of their own, so `page` applies to them only.");
+            }
+            if manifest.permissions.contains(&Permission::Reminders) {
+                return fail("Only bundled widgets can read Reminders.");
             }
         }
         Origin::Bundled => name(&manifest.id, "Bundled widget ID")?,
@@ -861,6 +868,15 @@ mod tests {
         assert!(validate(&view_only(json!({"permissions": ["camera"]})), Origin::Installed).is_err());
         assert!(validate(&view_only(json!({"permissions": ["keyboard", "keyboard"]})), Origin::Installed).is_err());
         assert!(validate(&view_only(json!({"permissions": ["keyboard", "ui"]})), Origin::Installed).is_ok());
+    }
+
+    #[test]
+    fn only_bundled_widgets_read_reminders() {
+        let raw = view_only(json!({"permissions": ["reminders"]}));
+        assert!(validate(&raw, Origin::Installed).unwrap_err().contains("Only bundled widgets can read Reminders"));
+        let mut bundled = raw.clone();
+        bundled["id"] = json!("reminders");
+        assert_eq!(validate(&bundled, Origin::Bundled).unwrap().permissions, [Permission::Reminders]);
     }
 
     #[test]

@@ -39,7 +39,7 @@ Every widget with its own view is a **package**: a folder with a `widget.json` m
 | **Connector** (`connector`) | Anyone | Package JavaScript in an isolated JavaScriptCore context with no files, processes or modules; a 2-second watchdog | Only the connection origin and the manifest's `hosts`; Rust adds the credential; no redirects; size caps |
 | **Collector** (`collector`) | Bundled packages only | Node with full access to the Mac | Anything |
 
-The validator refuses a collector in an installed or unpacked package. A view on its own (no data) is allowed too.
+The validator refuses a collector in an installed or unpacked package. A view on its own (no data) is allowed too, bundled or installed: a bundled view-only package (Reminders) opens a feed with no collector process, and gets its data through bridge capabilities.
 
 ## How data reaches a view
 
@@ -67,7 +67,7 @@ The validator refuses a collector in an installed or unpacked package. A view on
 - **Commands** run only when the manifest declares them:
   - `model`, and any other command in `collector.commands` (sent to the collector's stdin as `{command, args}` by `widget_command`);
   - `action` for declarative actions, which Rust checks again;
-  - `settings.open`, `settings.offer`, `keyboard.open`, `mac.metrics` and `mac.subscribe` when the matching permission is present.
+  - `settings.open`, `settings.offer`, `keyboard.open`, `mac.metrics`, `mac.subscribe` and `reminders.*` (`read`, `complete`, `add`, `privacy`) when the matching permission is present. `reminders` is bundled-only, and asking macOS for access or changing a reminder needs the widget on screen.
   - Anything else gets `Unknown widget command`. The bridge is the enforcement point; SDK-side checks are convenience only.
 - Touch from the Edge is forwarded into frames. The SDK replays it as pointer events, scrolling and taps, then reports whether a horizontal drag belongs to the page, so page swipes still work.
 - The view CSP names `tauri://localhost` explicitly. `'self'` blocks every script in an opaque-origin frame.

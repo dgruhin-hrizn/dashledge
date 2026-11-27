@@ -23,6 +23,7 @@ The menu-bar icon reopens Settings. You can also run the dashboard in a resizabl
 | Mail & Calendar | Read recent Apple Mail or Spark Desktop inbox headers alongside your upcoming Mac calendar events. Filter individual calendars, swap the panes, and tap a meeting link to join. |
 | Mac Shortcuts | Pin shortcuts from your Mac, choose each button’s color and icon, and arrange them in a different order on each page. Tap to run a shortcut and see when it finishes. |
 | Apple Photos | Show your library, selected albums, or your iCloud Shared Photo Library on supported Macs. Choose Editorial montage, Instant prints, Filmstrip, Panorama gallery, or Daydream, where several photos drift and zoom across the screen. Set the speed and direction or tap to pause. |
+| Reminders | See open Apple Reminders across your lists, by list or by due date, with overdue ones in red. Tap a ring to check one off and **+** to add one with the touch keyboard. Choose which lists each placement shows in **Pages & layouts**; with one list chosen, new reminders go straight to it. macOS asks once for Reminders access. |
 | Mac instruments | Track CPU, GPU, memory, disk space, network throughput, power and thermals. Inspect individual network interfaces, mounted volumes, and Mac hardware details. Available counters depend on the Mac. |
 | Emby | See active streams, artwork, and bitrates, and control playback. |
 | Unraid | Check array health, storage activity, and containers. |

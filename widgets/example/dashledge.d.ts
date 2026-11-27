@@ -12,7 +12,7 @@
 // ---------------------------------------------------------------- views ----
 
 declare namespace DashledgeView {
-  type Permission = 'settings' | 'settings.choices' | 'keyboard' | 'ui' | 'mac.metrics';
+  type Permission = 'settings' | 'settings.choices' | 'keyboard' | 'ui' | 'mac.metrics' | 'reminders';
   /** `multi` settings hold a list (`["*"]` is every option, including later ones); `names` settings map option values to names. */
   type SettingValue = string | number | boolean | string[] | Record<string, string>;
 
@@ -75,6 +75,36 @@ declare namespace DashledgeView {
   }
 
   /** The `mac.metrics` readings, about once a second. Values are null while unavailable. */
+  /** A Reminders list. `color` is `#RRGGBB` or empty. */
+  interface ReminderList {
+    id: string;
+    title: string;
+    color: string;
+    account: string;
+    writable: boolean;
+  }
+  /** One reminder: open, or finished today. `due` is `YYYY-MM-DD`, `dueTime` `HH:MM` (24 h). Priority is Apple's 0 (none), 1 (high) … 9 (low). */
+  interface Reminder {
+    id: string;
+    title: string;
+    listId: string;
+    priority: number;
+    completed: boolean;
+    due?: string;
+    dueTime?: string;
+    notes?: string;
+    completedAt?: string;
+  }
+  interface RemindersSnapshot {
+    permission: 'allowed' | 'request' | 'denied';
+    lists?: ReminderList[];
+    defaultList?: string;
+    items?: Reminder[];
+    /** Why the last read or permission request didn't finish. */
+    error?: string;
+    detail?: string;
+  }
+
   interface MacMetrics {
     /** Milliseconds since the epoch. */
     at: number;
@@ -121,6 +151,17 @@ declare namespace DashledgeView {
     keyboard: {
       /** Open the shared touch keyboard. Resolves with the text, or null when closed. Opens only while the widget is on screen. */
       open(options?: KeyboardOptions): Promise<string | null>;
+    };
+    /** Requires the `reminders` permission, which only bundled widgets may declare. */
+    reminders: {
+      /** Lists, open reminders and those finished today. `request: true` asks macOS for access once; it does so only while the widget is on screen. */
+      read(options?: {request?: boolean}): Promise<RemindersSnapshot>;
+      /** Check off or reopen a reminder. Only while the widget is on screen. */
+      setCompleted(id: string, completed: boolean): Promise<{ok: true; item: Reminder}>;
+      /** Add a reminder to `list`, or the default list. Only while the widget is on screen. */
+      add(title: string, options?: {list?: string}): Promise<{ok: true; item: Reminder}>;
+      /** Open Privacy & Security › Reminders in System Settings. */
+      openPrivacy(): Promise<void>;
     };
     /** Requires the `mac.metrics` permission. */
     mac: {

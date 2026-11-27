@@ -8,6 +8,10 @@
 	<string>Show your upcoming meetings on the Dashledge display.</string>
 	<key>NSCalendarsUsageDescription</key>
 	<string>Show your upcoming meetings on the Dashledge display.</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>Show and check off your reminders on the Dashledge display.</string>
+	<key>NSRemindersUsageDescription</key>
+	<string>Show and check off your reminders on the Dashledge display.</string>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>Dashledge reads inbox headers when you enable Apple Mail and controls playback in Spotify or Music.</string>
 	<key>NSAudioCaptureUsageDescription</key>

@@ -641,11 +641,13 @@ mod tests {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../widgets/packages");
         let listed = read_root(&root, Origin::Bundled);
         let ids: Vec<_> = listed.iter().map(|p| p.manifest.id.as_str()).collect();
-        assert_eq!(ids, ["comfy", "ember", "emby", "omlx", "plans", "proxmox", "unraid"]);
+        assert_eq!(ids, ["comfy", "ember", "emby", "omlx", "plans", "proxmox", "reminders", "unraid"]);
         for package in &listed {
             let dir = root.join(&package.manifest.id);
-            let collector = package.manifest.collector.as_ref().unwrap();
-            for file in [&package.manifest.view.entry, &collector.entry, &package.manifest.icon] {
+            // Reminders is view-only: it reads EventKit through the bridge, with no collector.
+            assert_eq!(package.manifest.collector.is_none(), package.manifest.id == "reminders", "{}", package.manifest.id);
+            let collector = package.manifest.collector.as_ref().map(|c| &c.entry);
+            for file in [&package.manifest.view.entry, &package.manifest.icon].into_iter().chain(collector) {
                 assert!(dir.join(file).is_file(), "{} is missing {file}", package.manifest.id);
             }
             assert!(package.icon_data.is_some(), "{} icon", package.manifest.id);

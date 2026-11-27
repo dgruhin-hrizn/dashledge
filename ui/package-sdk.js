@@ -76,6 +76,15 @@
       return () => refreshListeners.delete(callback);
     },
   };
+  // reminders (bundled widgets only): Apple Reminders through EventKit. read() returns
+  // {permission: 'allowed'|'request'|'denied', lists, defaultList, items}; request: true
+  // asks macOS once, while the widget is on screen. Changes resolve with {ok, item}.
+  api.reminders = {
+    read: ({request = false} = {}) => api.command('reminders.read', {request: request === true}),
+    setCompleted: (id, completed) => api.command('reminders.complete', {id, completed: !!completed}),
+    add: (title, {list = ''} = {}) => api.command('reminders.add', {title, list}),
+    openPrivacy: () => api.command('reminders.privacy'),
+  };
   // keyboard: the shared touch keyboard. Resolves with the text, or null when closed.
   api.keyboard = {open: (options = {}) => api.command('keyboard.open', options)};
   // mac.metrics: this Mac's CPU, GPU, memory and network readings, about once a second.

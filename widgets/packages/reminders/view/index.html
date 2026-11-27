@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reminders</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="model.js" defer></script>
+  <script src="widget.js" defer></script>
+</head>
+<body>
+  <main class="rm" id="widget" aria-label="Reminders" data-state="loading">
+    <!-- Hero: today's progress dial, what's left, and the next reminder due. -->
+    <header class="rm-hero" id="hero">
+      <div class="rm-dial" id="dial" role="img" aria-label="Today">
+        <svg viewBox="0 0 120 120" aria-hidden="true">
+          <defs>
+            <linearGradient id="sweep" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" class="rm-stop-a"/><stop offset="1" class="rm-stop-b"/>
+            </linearGradient>
+          </defs>
+          <circle class="rm-dial-track" cx="60" cy="60" r="52"/>
+          <circle class="rm-dial-ticks" cx="60" cy="60" r="44" pathLength="120"/>
+          <circle class="rm-dial-arc" id="arc" cx="60" cy="60" r="52" pathLength="100"/>
+        </svg>
+        <div class="rm-dial-center">
+          <span class="rm-count" id="count">–</span>
+          <span class="rm-count-label" id="countLabel">left today</span>
+        </div>
+      </div>
+      <div class="rm-hero-text">
+        <div class="rm-chips" id="chips"></div>
+        <div class="rm-next" id="next" hidden>
+          <span class="rm-next-label">Next up</span>
+          <span class="rm-next-title" id="nextTitle"></span>
+          <span class="rm-next-when" id="nextWhen"></span>
+        </div>
+      </div>
+      <div class="rm-actions">
+        <button type="button" class="rm-new" id="add" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>New reminder</span>
+        </button>
+        <button type="button" class="rm-icon" id="gear" aria-label="Reminders settings for this placement">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.4M12 18.8v2.4M21.2 12h-2.4M5.2 12H2.8M18.5 5.5l-1.7 1.7M7.2 16.8l-1.7 1.7M18.5 18.5l-1.7-1.7M7.2 7.2 5.5 5.5"/></svg>
+        </button>
+      </div>
+    </header>
+    <section class="rm-body" id="body"></section>
+    <p class="rm-toast" id="toast" role="status" hidden></p>
+  </main>
+</body>
+</html>

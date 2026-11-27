@@ -38,7 +38,8 @@ struct Feed {
     outputs: Vec<String>,
     commands: Vec<String>,
     directory: TempDir,
-    child: Child,
+    /// The collector process; `None` for a bundled view-only package.
+    child: Option<Child>,
     viewers: HashMap<String, String>,
     watchlists: HashMap<String, Vec<String>>,
     last_attached: Instant,
@@ -46,8 +47,19 @@ struct Feed {
 impl Drop for Feed {
     fn drop(&mut self) {
         // Kill before removing the snapshots. The pipe also closes on abnormal app exit.
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        if let Some(child) = &mut self.child {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+impl Feed {
+    /// A view-only feed is always running; a collector feed while its process is.
+    fn running(&mut self) -> bool {
+        self.child.as_mut().map_or(true, |child| child.try_wait().ok() == Some(None))
+    }
+    fn stdin(&mut self) -> Result<&mut std::process::ChildStdin, String> {
+        self.child.as_mut().and_then(|child| child.stdin.as_mut()).ok_or_else(|| "Collector disconnected".to_string())
     }
 }
 static FEEDS: LazyLock<Mutex<HashMap<String, Feed>>> = LazyLock::new(Default::default);
@@ -62,7 +74,7 @@ pub fn reap_idle(app: tauri::AppHandle) {
             feed.watchlists.retain(|v,_| feed.viewers.contains_key(v));
             if before!=feed.watchlists.len(){let _=send_watchlists(feed);}
             if !feed.viewers.is_empty(){feed.last_attached=Instant::now();}
-            feed.last_attached.elapsed()<Duration::from_secs(90) && feed.child.try_wait().is_ok_and(|exit| exit.is_none())
+            feed.last_attached.elapsed()<Duration::from_secs(90) && feed.running()
         });
     });
 }
@@ -101,22 +113,23 @@ fn assets(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf), String> {
     Err("The app is missing its widget runtime.".into())
 }
 
-/// What a feed runs and serves: its collector script, view folder, outputs and commands.
+/// What a feed runs and serves: its collector script (none for a view-only bundled
+/// package), view folder, outputs and commands.
 struct Plan {
-    entry: PathBuf,
+    entry: Option<PathBuf>,
     view: PathBuf,
     outputs: Vec<String>,
     commands: Vec<String>,
 }
 fn plan(kind: &str, assets: &Path) -> Result<Plan, String> {
-    if let Some((info, dir)) = crate::package_store::lookup(kind) {
-        let collector = info.manifest.collector.ok_or("This widget has no collector.")?;
+    if let Some((info, dir)) = crate::package_store::lookup(kind).filter(|(info, _)| info.origin == "bundled") {
         let view_root = Path::new(&info.manifest.view.entry).parent().map(Path::to_path_buf).unwrap_or_default();
+        let collector = info.manifest.collector;
         return Ok(Plan {
-            entry: dir.join(&collector.entry),
+            entry: collector.as_ref().map(|c| dir.join(&c.entry)),
             view: dir.join(view_root),
-            outputs: collector.outputs,
-            commands: collector.commands,
+            outputs: collector.as_ref().map(|c| c.outputs.clone()).unwrap_or_default(),
+            commands: collector.map(|c| c.commands).unwrap_or_default(),
         });
     }
     let outputs: &[&str] = match kind {
@@ -124,11 +137,32 @@ fn plan(kind: &str, assets: &Path) -> Result<Plan, String> {
         _ => return Err("Unknown widget".into()),
     };
     Ok(Plan {
-        entry: assets.join("collectors").join(kind).join("collect.mjs"),
+        entry: Some(assets.join("collectors").join(kind).join("collect.mjs")),
         view: PathBuf::new(),
         outputs: outputs.iter().map(|s| s.to_string()).collect(),
         commands: Vec::new(),
     })
+}
+/// Start a collector and hand it its setup on the first stdin line.
+fn start_collector(entry: &Path, node: &Path, directory: &Path, settings: &[Value]) -> Result<Child, String> {
+    let mut child = Command::new(node)
+        .arg("--disable-warning=ExperimentalWarning")
+        .arg(entry)
+        .env_remove("NODE_OPTIONS")
+        .env_remove("NODE_PATH")
+        .env_remove("NODE_TLS_REJECT_UNAUTHORIZED")
+        .current_dir(directory)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("Could not start the widget collector: {e}"))?;
+    let setup = json!({"directory":directory,"sources":settings});
+    if let Err(e) = writeln!(child.stdin.as_mut().unwrap(), "{setup}") {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(format!("Could not initialize the widget collector: {e}"));
+    }
+    Ok(child)
 }
 fn launch(kind: &str, sources: &[Source], assets: &Path, node: &Path) -> Result<Feed, String> {
     let plan = plan(kind, assets)?;
@@ -147,23 +181,10 @@ fn launch(kind: &str, sources: &[Source], assets: &Path, node: &Path) -> Result<
         // Keep OpenSSH control socket paths below macOS's sockaddr_un limit.
         .tempdir_in("/tmp")
         .map_err(|e| e.to_string())?;
-    let mut child = Command::new(node)
-        .arg("--disable-warning=ExperimentalWarning")
-        .arg(&plan.entry)
-        .env_remove("NODE_OPTIONS")
-        .env_remove("NODE_PATH")
-        .env_remove("NODE_TLS_REJECT_UNAUTHORIZED")
-        .current_dir(directory.path())
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .spawn()
-        .map_err(|e| format!("Could not start the widget collector: {e}"))?;
-    let setup = json!({"directory":directory.path(),"sources":settings});
-    if let Err(e) = writeln!(child.stdin.as_mut().unwrap(), "{setup}") {
-        let _ = child.kill();
-        let _ = child.wait();
-        return Err(format!("Could not initialize the widget collector: {e}"));
-    }
+    let child = match &plan.entry {
+        Some(entry) => Some(start_collector(entry, node, directory.path(), &settings)?),
+        None => None,
+    };
     Ok(Feed {
         kind: kind.into(),
         sources: sources.to_vec(),
@@ -180,7 +201,7 @@ fn launch(kind: &str, sources: &[Source], assets: &Path, node: &Path) -> Result<
 fn attach_existing(kind: &str, sources: &[Source], viewer: &str, label: &str) -> Option<String> {
     let mut feeds = FEEDS.lock().unwrap();
     for (id, feed) in feeds.iter_mut() {
-        if feed.kind == kind && feed.sources == sources && feed.child.try_wait().ok() == Some(None)
+        if feed.kind == kind && feed.sources == sources && feed.running()
         {
             feed.viewers.insert(viewer.to_string(),label.into());
             feed.last_attached=Instant::now();
@@ -198,10 +219,12 @@ pub async fn widget_open(
     viewer: String,
 ) -> Result<String, String> {
     let count = match crate::package_store::lookup(&kind) {
-        Some((info, _)) if info.manifest.collector.is_some() => {
+        // A bundled package, with a collector or view-only. Installed packages open
+        // through package_open instead.
+        Some((info, _)) if info.origin == "bundled" => {
             info.manifest.sources.map_or(0..=0, |s| (s.min as usize)..=(s.max as usize))
         }
-        Some(_) => return Err("This widget has no collector.".into()),
+        Some(_) => return Err("This widget opens as an installed package.".into()),
         None if kind == "markets" => 0..=0,
         None => return Err("Unknown widget".into()),
     };
@@ -236,7 +259,7 @@ pub fn widget_ping(id: String, viewer: String) -> bool {
     let mut feeds = FEEDS.lock().unwrap();
     if let Some(feed) = feeds.get_mut(&id) {
         if feed.viewers.contains_key(&viewer) {
-            return feed.child.try_wait().ok() == Some(None);
+            return feed.running();
         }
     }
     false
@@ -244,7 +267,8 @@ pub fn widget_ping(id: String, viewer: String) -> bool {
 fn send_watchlists(feed: &mut Feed) -> Result<(), String> {
     let symbols: std::collections::BTreeSet<_> = feed.watchlists.values().flatten().collect();
     if symbols.len() > 30 {return Err("Alpaca Basic supports 30 distinct symbols across open placements.".into());}
-    writeln!(feed.child.stdin.as_mut().ok_or("Collector disconnected")?, "{}", json!({"symbols":symbols}))
+    let message = json!({"symbols":symbols});
+    writeln!(feed.stdin()?, "{message}")
         .map_err(|_| "Collector disconnected".to_string())
 }
 
@@ -286,7 +310,7 @@ pub fn widget_command(id: String, viewer: String, name: String, args: Option<Val
     if message.to_string().len() > 4096 {
         return Err("Widget command too large".into());
     }
-    writeln!(feed.child.stdin.as_mut().ok_or("Collector disconnected")?, "{message}")
+    writeln!(feed.stdin()?, "{message}")
         .map_err(|_| "Collector disconnected".into())
 }
 #[tauri::command]
@@ -298,7 +322,7 @@ pub fn widget_model_action(id: String, viewer: String, command: Value) -> Result
         .ok_or("Model controls disconnected")?;
     let message = json!({"instance":format!("omlx-dashboard@{viewer}"),"command":command});
     writeln!(
-        feed.child.stdin.as_mut().ok_or("Collector disconnected")?,
+        feed.stdin()?,
         "{message}"
     )
     .map_err(|_| "Collector disconnected".into())
