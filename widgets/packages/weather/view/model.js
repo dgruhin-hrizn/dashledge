@@ -84,6 +84,37 @@
     return (k === 'clear' || k === 'partly') && isDay === false ? k + '-night' : k;
   }
 
-  globalThis.weatherModel = {cleanQuery, keyOf, units, temperature, degrees, hourLabel, precipText, ago, placeLines, status, icon,
+  // Colour helpers for the Dashledge highlight, which the user (or a placement) picks.
+  const rgb = hex => {
+    const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(hex || '').trim());
+    if (!m) return null;
+    const h = m[1].length === 3 ? [...m[1]].map(c => c + c).join('') : m[1];
+    return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16));
+  };
+  const luminance = ([r, g, b]) => {
+    const lin = v => { const c = v / 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+    return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+  };
+  // Text on a filled highlight: near-black or white, whichever contrasts more (WCAG).
+  function onColor(hex) {
+    const c = rgb(hex);
+    if (!c) return '#0b1019';
+    const l = luminance(c);
+    return (l + 0.05) / (luminance([11, 16, 25]) + 0.05) >= 1.05 / (l + 0.05) ? '#0b1019' : '#ffffff';
+  }
+  // The highlight used as text on the dark background: itself when it reads at 4.5:1,
+  // else mixed toward white just until it does, keeping its hue.
+  function readable(hex) {
+    const c = rgb(hex);
+    if (!c) return '';
+    const base = luminance([11, 16, 25]);
+    for (let t = 0; t <= 1.0001; t += 0.05) {
+      const mixed = c.map(v => Math.round(v + (255 - v) * t));
+      if ((luminance(mixed) + 0.05) / (base + 0.05) >= 4.5) return '#' + mixed.map(v => v.toString(16).padStart(2, '0')).join('');
+    }
+    return '#ffffff';
+  }
+
+  globalThis.weatherModel = {onColor, readable, cleanQuery, keyOf, units, temperature, degrees, hourLabel, precipText, ago, placeLines, status, icon,
     STALE_AFTER, OFFLINE_AFTER};
 })();

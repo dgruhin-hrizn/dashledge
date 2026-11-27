@@ -6,7 +6,7 @@ html,body{height:100%;margin:0;background:#0b1019}
 body{container-type:size}
 .sprites{position:absolute;width:0;height:0;overflow:hidden}
 .wx{
-  --ink:var(--text,#edf0e6);--hi:var(--accent,#f88d4f);--muted:color-mix(in srgb,var(--ink) 68%,#0b1019);
+  --ink:var(--text,#edf0e6);--hi:var(--accent,#f88d4f);--on-hi:#0b1019;--hi-text:var(--hi);--muted:color-mix(in srgb,var(--ink) 68%,#0b1019);
   --soft:color-mix(in srgb,var(--ink) 9%,transparent);
   position:relative;box-sizing:border-box;height:100%;overflow:hidden;
   display:grid;grid-template-columns:minmax(0,40fr) minmax(0,60fr);gap:clamp(12px,2.5cqw,64px);align-items:stretch;
@@ -27,7 +27,7 @@ body{container-type:size}
 .wx-temp{display:flex;align-items:flex-start;margin:0;line-height:.9;letter-spacing:-.05em}
 /* Room for "-12" or "104" so the reading never shifts its neighbours as it changes. */
 #temp-value{display:inline-block;min-width:2.3ch;text-align:right;font-size:clamp(64px,min(36cqh,13cqw),280px);font-weight:300}
-#temp-unit{margin-top:.18em;color:var(--hi);font-size:clamp(20px,min(9cqh,3.4cqw),68px);font-weight:500;letter-spacing:0}
+#temp-unit{margin-top:.18em;color:var(--hi-text);font-size:clamp(20px,min(9cqh,3.4cqw),68px);font-weight:500;letter-spacing:0}
 .wx-summary{display:grid;gap:.25em;min-width:0}
 #condition{font-size:clamp(20px,6cqh,46px);font-weight:600;letter-spacing:-.015em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .wx-facts{display:flex;flex-wrap:wrap;gap:0 1.1em;color:var(--muted);font-size:clamp(16px,4cqh,30px);white-space:pre}
@@ -58,7 +58,7 @@ body{container-type:size}
 .wx:not([data-state=ready]):not([data-state=stale]) .wx-hours{display:none}
 .wx-action{
   min-width:max(44px,calc(44px*var(--px-scale,1)));min-height:max(44px,calc(48px*var(--px-scale,1)));
-  padding:0 1.2em;border:0;border-radius:999px;background:var(--hi);color:#0b1019;
+  padding:0 1.2em;border:0;border-radius:999px;background:var(--hi);color:var(--on-hi);
   font:inherit;font-size:clamp(16px,4cqh,28px);font-weight:650;cursor:pointer
 }
 .wx-action[hidden]{display:none}
@@ -69,7 +69,7 @@ body{container-type:size}
 }
 .wx-gear svg{width:55%;height:55%}
 .wx[data-state=empty] .wx-gear{display:none}
-.wx-action:focus-visible,.wx-gear:focus-visible{outline:3px solid var(--hi);outline-offset:3px}
+.wx-action:focus-visible,.wx-gear:focus-visible{outline:3px solid var(--hi-text);outline-offset:3px}
 .wx-action.edge-pressed,.wx-action:active{filter:brightness(.85)}
 .wx-gear.edge-pressed,.wx-gear:active{background:var(--soft);color:var(--ink)}
 

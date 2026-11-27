@@ -117,6 +117,9 @@
   $('gear').addEventListener('click', () => host.settings.open().catch(() => {}));
 
   host.subscribe(state => {
+    // Readable text on and in the highlight, whatever colour this placement uses.
+    document.documentElement.style.setProperty('--on-hi', M.onColor(state.theme?.accent));
+    document.documentElement.style.setProperty('--hi-text', M.readable(state.theme?.accent) || 'var(--hi)');
     // The first call carries the SDK's defaults; wait for the placement's own settings
     // so a configured placement never flashes "Choose a location".
     if (!state.settings) return;

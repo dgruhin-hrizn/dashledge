@@ -176,3 +176,13 @@ test('the view tells empty, loading, not found, failure, fresh and stale apart',
   assert.equal(M.ago(now - 2 * 3600e3, now), 'Updated 2 hours ago');
   assert.equal(M.keyOf('  Portland,  OR '), 'portland, or');
 });
+
+test('text on and in the highlight stays readable for any placement colour', () => {
+  assert.equal(M.onColor('#f88d4f'), '#0b1019', 'default orange keeps dark text');
+  assert.equal(M.onColor('#3a1f6b'), '#ffffff', 'dark purple gets white text');
+  assert.equal(M.onColor('bad'), '#0b1019');
+  assert.equal(M.readable('#f88d4f'), '#f88d4f', 'already readable as text');
+  const lifted = M.readable('#3a1f6b');
+  assert.notEqual(lifted, '#3a1f6b');
+  assert.ok(parseInt(lifted.slice(5, 7), 16) > parseInt(lifted.slice(1, 3), 16), 'still purple');
+});
