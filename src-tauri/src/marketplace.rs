@@ -21,9 +21,14 @@ use std::{
 use tauri::Manager;
 
 /// Where the registry publishes, and the public keys its catalog may be signed with.
-/// More than one key lets the registry rotate without breaking older apps.
+/// More than one key lets the registry rotate without breaking older apps. These are
+/// public keys: they only verify. The private key lives in the registry's CI secret
+/// `CATALOG_SIGNING_KEY` and never in this repository.
 const REGISTRY: &str = "https://dgruhin-hrizn.github.io/dashledge-plugins/v1/";
-const KEYS: &[&str] = &[];
+const KEYS: &[&str] = &[
+    // 2026-11-27, generated with `dashledge-package keygen`.
+    "gBAtUvk7+SzrYp1+tWNfGXRFI94wqe0BJx5+RbnyWNo=",
+];
 
 const MAX_CATALOG: usize = 4 * 1024 * 1024;
 const MAX_IMAGE: usize = 1024 * 1024;
@@ -755,6 +760,18 @@ pub mod tests {
         for (id, version, message) in [("plugin.queue", "1.0.0", "plugin.<your GitHub login>"), ("plugin.alice.queue", "1.0", "1.0.0")] {
             let (raw, files) = package_store::extract(&fixtures::package(id, version, json!({}))).unwrap();
             assert!(submission(&raw, &files).unwrap_err().contains(message), "{id} {version}");
+        }
+    }
+
+    #[test]
+    fn the_pinned_registry_is_https_with_ed25519_public_keys() {
+        use base64::{engine::general_purpose::STANDARD, Engine};
+        let registry = Registry::pinned().unwrap();
+        assert_eq!(registry.base.scheme(), "https");
+        assert!(registry.base.as_str().ends_with("/v1/"));
+        assert!(!registry.keys.is_empty());
+        for key in &registry.keys {
+            assert_eq!(STANDARD.decode(key).unwrap().len(), 32, "an Ed25519 public key, never a private key");
         }
     }
 
