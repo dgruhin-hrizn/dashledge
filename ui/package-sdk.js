@@ -82,11 +82,38 @@
   // reminders (bundled widgets only): Apple Reminders through EventKit. read() returns
   // {permission: 'allowed'|'request'|'denied', lists, defaultList, items}; request: true
   // asks macOS once, while the widget is on screen. Changes resolve with {ok, item}.
+  // onChange fires when reminders change anywhere: here, in Reminders, through Siri.
+  const changeListeners = new Set();
+  let changeTimer = 0, lastChange = null;
+  async function pollChanges() {
+    if (!changeListeners.size) { changeTimer = 0; return; }
+    if (!document.hidden) {
+      try {
+        const count = await api.command('reminders.changes');
+        if (lastChange !== null && count !== lastChange) for (const callback of changeListeners) callback();
+        lastChange = count;
+      } catch {}
+    }
+    changeTimer = setTimeout(pollChanges, 1500);
+  }
   api.reminders = {
     read: ({request = false} = {}) => api.command('reminders.read', {request: request === true}),
     setCompleted: (id, completed) => api.command('reminders.complete', {id, completed: !!completed}),
-    add: (title, {list = ''} = {}) => api.command('reminders.add', {title, list}),
+    add: (title, {list = '', due = '', time = '', priority = 0} = {}) => api.command('reminders.add', {title, list, due, time, priority}),
     openPrivacy: () => api.command('reminders.privacy'),
+    onChange(callback) {
+      changeListeners.add(callback);
+      if (!changeTimer) changeTimer = setTimeout(pollChanges, 0);
+      return () => changeListeners.delete(callback);
+    },
+    // Spoken reminders, one setting for all of Dashledge: {settings, voices}.
+    voice: {
+      get: () => api.command('reminders.voice'),
+      set: settings => api.command('reminders.voice.set', {settings}),
+      test: settings => api.command('reminders.voice.test', settings ? {settings} : {}),
+      // Opens Spoken Content in System Settings, where Siri and Premium voices download.
+      more: () => api.command('reminders.voice.more'),
+    },
   };
   // images: an image the manifest's `images` patterns allow, from the connection or a
   // declared host. Resolves with a blob: URL for <img src> or CSS. The same path reuses

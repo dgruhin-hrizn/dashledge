@@ -198,7 +198,7 @@ test('Reminders reach only views that declare them, with checked arguments', asy
   window.__TAURI__.core.invoke = async (name, args) => { calls.push([name, args]); return {permission: 'allowed', items: []}; };
   try {
     const bystander = frameFor({permissions: []});
-    for (const name of ['reminders.read', 'reminders.complete', 'reminders.add', 'reminders.privacy'])
+    for (const name of ['reminders.read', 'reminders.changes', 'reminders.complete', 'reminders.add', 'reminders.privacy', 'reminders.voice', 'reminders.voice.set', 'reminders.voice.test', 'reminders.voice.more'])
       assert.equal((await command(bystander.entry, bystander.posted, name, {})).error, 'Unknown widget command', name);
     assert.equal(calls.length, 0, 'nothing reaches EventKit without the permission');
 
@@ -214,9 +214,21 @@ test('Reminders reach only views that declare them, with checked arguments', asy
 
     assert.equal((await command(entry, posted, 'reminders.add', {title: '   '})).error, 'Error: Type a reminder first');
     await command(entry, posted, 'reminders.add', {title: 'x'.repeat(400)});
-    assert.deepEqual(calls.at(-1), ['reminders_create', {title: 'x'.repeat(400), list: null}], 'Rust caps the length by character');
-    await command(entry, posted, 'reminders.add', {title: 'Milk', list: 'LIST-1'});
-    assert.deepEqual(calls.at(-1), ['reminders_create', {title: 'Milk', list: 'LIST-1'}]);
+    assert.deepEqual(calls.at(-1), ['reminders_create', {title: 'x'.repeat(400), list: null, due: null, time: null, priority: 0}], 'Rust caps the length by character');
+    await command(entry, posted, 'reminders.add', {title: 'Milk', list: 'LIST-1', due: '2026-11-28', time: '09:30', priority: 1});
+    assert.deepEqual(calls.at(-1), ['reminders_create', {title: 'Milk', list: 'LIST-1', due: '2026-11-28', time: '09:30', priority: 1}]);
+    await command(entry, posted, 'reminders.add', {title: 'Milk', due: 7, priority: 3});
+    assert.deepEqual(calls.at(-1), ['reminders_create', {title: 'Milk', list: null, due: null, time: null, priority: 0}], 'odd values are dropped');
+
+    await command(entry, posted, 'reminders.changes');
+    assert.deepEqual(calls.at(-1), ['reminders_changes', {}]);
+    await command(entry, posted, 'reminders.voice.set', {settings: {enabled: true, muted: 'yes', lead: 15, volume: 0.5, voice: 42, extra: 1}});
+    assert.deepEqual(calls.at(-1), ['reminders_voice_set', {settings: {enabled: true, muted: false, lead: 15, quiet: false,
+      quietStart: 1320, quietEnd: 420, volume: 0.5, voice: ''}}], 'only known fields, typed, reach Rust');
+    await command(entry, posted, 'reminders.voice.test');
+    assert.deepEqual(calls.at(-1), ['reminders_voice_test', {}]);
+    await command(entry, posted, 'reminders.voice.more');
+    assert.deepEqual(calls.at(-1), ['reminders_voice_more', {}]);
   } finally {
     window.__TAURI__.core.invoke = original;
   }

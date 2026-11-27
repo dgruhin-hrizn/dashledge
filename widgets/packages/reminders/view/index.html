@@ -35,10 +35,18 @@
           <span class="rm-next-title" id="nextTitle"></span>
           <span class="rm-next-when" id="nextWhen"></span>
         </div>
+        <button type="button" class="rm-voice-line" id="voiceLine" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></svg>
+          <span id="voiceText">Spoken reminders are off</span>
+        </button>
       </div>
       <div class="rm-actions">
         <button type="button" class="rm-new" id="add" hidden>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>New reminder</span>
+        </button>
+        <button type="button" class="rm-icon" id="mute" aria-pressed="false" aria-label="Mute Dashledge’s voice" hidden>
+          <svg class="rm-on" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></svg>
+          <svg class="rm-off" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="m16 9.5 5 5M21 9.5l-5 5"/></svg>
         </button>
         <button type="button" class="rm-icon" id="gear" aria-label="Reminders settings for this placement">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.4M12 18.8v2.4M21.2 12h-2.4M5.2 12H2.8M18.5 5.5l-1.7 1.7M7.2 16.8l-1.7 1.7M18.5 18.5l-1.7-1.7M7.2 7.2 5.5 5.5"/></svg>
@@ -47,6 +55,124 @@
     </header>
     <section class="rm-body" id="body"></section>
     <p class="rm-toast" id="toast" role="status" hidden></p>
+
+    <!-- New reminder: the title from the touch keyboard, then when, how important, where. -->
+    <div class="rm-sheet" id="addSheet" role="dialog" aria-modal="true" aria-labelledby="addHeading" hidden>
+      <div class="rm-sheet-card">
+        <header class="rm-sheet-head">
+          <h2 id="addHeading">New reminder</h2>
+          <button type="button" class="rm-icon" id="addClose" aria-label="Cancel new reminder">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+          </button>
+        </header>
+        <div class="rm-sheet-body rm-add-body">
+          <div class="rm-add-main">
+            <button type="button" class="rm-title-field" id="addTitle" aria-label="Edit the reminder’s title"></button>
+            <div class="rm-when-now" id="addWhen" aria-live="polite">No date</div>
+            <div class="rm-field" id="addListField">
+              <span class="rm-field-label">List</span>
+              <div class="rm-choices" id="addLists"></div>
+            </div>
+            <div class="rm-field">
+              <span class="rm-field-label">Priority</span>
+              <div class="rm-choices" id="addPriority"></div>
+            </div>
+          </div>
+          <div class="rm-add-when">
+            <span class="rm-field-label">When</span>
+            <div class="rm-choices" id="addPicks"></div>
+            <div class="rm-steppers" id="addSteppers">
+              <div class="rm-stepper" id="dayStepper">
+                <button type="button" class="rm-icon" data-step="-1" aria-label="Day before"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.5 6-6 6 6 6"/></svg></button>
+                <span class="rm-stepper-value" id="dayValue"></span>
+                <button type="button" class="rm-icon" data-step="1" aria-label="Day after"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 6 6 6-6 6"/></svg></button>
+              </div>
+              <div class="rm-stepper" id="timeStepper">
+                <button type="button" class="rm-icon" data-step="-1" aria-label="15 minutes earlier"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12"/></svg></button>
+                <span class="rm-stepper-value" id="timeValue"></span>
+                <button type="button" class="rm-icon" data-step="1" aria-label="15 minutes later"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6v12M6 12h12"/></svg></button>
+              </div>
+              <button type="button" class="rm-button rm-toggle" id="allDay" aria-pressed="false">All day</button>
+            </div>
+          </div>
+        </div>
+        <footer class="rm-sheet-foot">
+          <button type="button" class="rm-button" id="addCancel">Cancel</button>
+          <button type="button" class="rm-button rm-primary" id="addSave">Add reminder</button>
+        </footer>
+      </div>
+    </div>
+
+    <!-- Spoken reminders: one setting for all of Dashledge, edited as a draft. -->
+    <div class="rm-sheet" id="voiceSheet" role="dialog" aria-modal="true" aria-labelledby="voiceHeading" hidden>
+      <div class="rm-sheet-card">
+        <header class="rm-sheet-head">
+          <h2 id="voiceHeading">Spoken reminders</h2>
+          <span class="rm-scope">All of Dashledge, on every page</span>
+          <button type="button" class="rm-icon" id="voiceClose" aria-label="Cancel voice changes">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+          </button>
+        </header>
+        <div class="rm-sheet-body rm-voice-body">
+          <div class="rm-voice-col">
+            <button type="button" class="rm-switch" id="voiceEnabled" role="switch" aria-checked="false">
+              <span class="rm-switch-text"><strong>Say reminders when they’re due</strong><small>Reminders with a due time, from every list</small></span>
+              <span class="rm-switch-knob" aria-hidden="true"></span>
+            </button>
+            <div class="rm-field">
+              <span class="rm-field-label">Also say it early</span>
+              <div class="rm-choices" id="voiceLead"></div>
+            </div>
+            <div class="rm-field">
+              <span class="rm-field-label">Voice</span>
+              <div class="rm-stepper rm-wide-stepper" id="voicePick">
+                <button type="button" class="rm-icon" data-step="-1" aria-label="Previous voice"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.5 6-6 6 6 6"/></svg></button>
+                <span class="rm-stepper-value" id="voiceName">Best available</span>
+                <button type="button" class="rm-icon" data-step="1" aria-label="Next voice"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 6 6 6-6 6"/></svg></button>
+              </div>
+              <p class="rm-voice-hint" id="voiceHint" hidden>Siri and Premium voices sound far more natural. Download one under System voice › Manage Voices.</p>
+              <button type="button" class="rm-button" id="voiceMore">Get more voices…</button>
+            </div>
+          </div>
+          <div class="rm-voice-col">
+            <button type="button" class="rm-switch" id="voiceQuiet" role="switch" aria-checked="false">
+              <span class="rm-switch-text"><strong>Quiet hours</strong><small>Held until they end, then said together</small></span>
+              <span class="rm-switch-knob" aria-hidden="true"></span>
+            </button>
+            <div class="rm-quiet-times" id="quietTimes">
+              <div class="rm-field"><span class="rm-field-label">From</span>
+                <div class="rm-stepper" id="quietStart">
+                  <button type="button" class="rm-icon" data-step="-1" aria-label="Start quiet hours earlier"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12"/></svg></button>
+                  <span class="rm-stepper-value"></span>
+                  <button type="button" class="rm-icon" data-step="1" aria-label="Start quiet hours later"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6v12M6 12h12"/></svg></button>
+                </div>
+              </div>
+              <div class="rm-field"><span class="rm-field-label">Until</span>
+                <div class="rm-stepper" id="quietEnd">
+                  <button type="button" class="rm-icon" data-step="-1" aria-label="End quiet hours earlier"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12"/></svg></button>
+                  <span class="rm-stepper-value"></span>
+                  <button type="button" class="rm-icon" data-step="1" aria-label="End quiet hours later"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6v12M6 12h12"/></svg></button>
+                </div>
+              </div>
+            </div>
+            <div class="rm-field">
+              <span class="rm-field-label">Volume <small>Dashledge only; system volume stays as it is</small></span>
+              <div class="rm-stepper rm-wide-stepper" id="voiceVolume">
+                <button type="button" class="rm-icon" data-step="-1" aria-label="Quieter"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12"/></svg></button>
+                <span class="rm-stepper-value"><span class="rm-meter"><i id="volumeBar"></i></span><span id="volumeText">80%</span></span>
+                <button type="button" class="rm-icon" data-step="1" aria-label="Louder"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6v12M6 12h12"/></svg></button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <footer class="rm-sheet-foot">
+          <button type="button" class="rm-button" id="voiceTest">Hear it</button>
+          <span class="rm-foot-gap"></span>
+          <button type="button" class="rm-button" id="voiceCancel">Cancel</button>
+          <button type="button" class="rm-button rm-primary" id="voiceSave">Save</button>
+        </footer>
+      </div>
+    </div>
   </main>
 </body>
 </html>

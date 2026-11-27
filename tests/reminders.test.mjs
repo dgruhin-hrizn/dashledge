@@ -130,3 +130,42 @@ test('a dark colour used as text is lifted toward white until it reads on the ca
   assert.ok(parseInt(lifted.slice(5, 7), 16) > parseInt(lifted.slice(1, 3), 16), 'still purple: blue above red');
   assert.equal(M.readable('nope'), '');
 });
+
+test('Quick due-date picks skip what has passed and land on the right days', () => {
+  const thu = new Date(2026, 10, 26, 14, 7); // Thursday
+  const picks = Object.fromEntries(M.quickPicks(thu).map(p => [p.id, p]));
+  assert.deepEqual(picks.none, {id: 'none', label: 'No date', due: '', time: ''});
+  assert.deepEqual([picks.later.due, picks.later.time], ['2026-11-26', '15:15'], 'the next quarter hour an hour out');
+  assert.deepEqual([picks.tonight.due, picks.tonight.time], ['2026-11-26', '20:00']);
+  assert.deepEqual([picks.tomorrow.due, picks.tomorrow.time], ['2026-11-27', '09:00']);
+  assert.equal(picks.weekend.due, '2026-11-28', 'Saturday');
+  assert.equal(picks.nextweek.due, '2026-11-30', 'Monday');
+  const late = M.quickPicks(new Date(2026, 10, 26, 23, 0)).map(p => p.id);
+  assert.ok(!late.includes('tonight') && !late.includes('later'), 'nothing left today at 11 PM');
+  const saturday = Object.fromEntries(M.quickPicks(new Date(2026, 10, 28, 9, 0)).map(p => [p.id, p]));
+  assert.equal(saturday.weekend.due, '2026-12-05', 'on a Saturday, the next weekend');
+  const sunday = Object.fromEntries(M.quickPicks(new Date(2026, 10, 29, 9, 0)).map(p => [p.id, p]));
+  assert.equal(sunday.weekend.due, '2026-12-05');
+  assert.equal(sunday.nextweek.due, '2026-11-30');
+});
+
+test('Day and time steppers stay in range', () => {
+  const thu = new Date(2026, 10, 26, 14, 7);
+  assert.equal(M.shiftDay('', 0, thu), '2026-11-26');
+  assert.equal(M.shiftDay('2026-11-26', -1, thu), '2026-11-26', 'never before today');
+  assert.equal(M.shiftDay('2026-11-30', 2, thu), '2026-12-02');
+  assert.equal(M.shiftTime('', 0), '09:00');
+  assert.equal(M.shiftTime('23:45', 1), '00:00');
+  assert.equal(M.shiftTime('00:00', -1), '23:45');
+  assert.equal(M.shiftTime('09:10', 1), '09:30', 'snaps to quarter hours');
+  assert.equal(M.whenText('', '', thu), 'No date');
+  assert.match(M.whenText('2026-11-27', '09:00', thu), /^Tomorrow, 9:00/);
+});
+
+test('The voice line says what will be spoken', () => {
+  assert.equal(M.voiceSummary(null), 'Spoken reminders are off');
+  assert.equal(M.voiceSummary({enabled: true, muted: true}), 'Voice muted');
+  assert.equal(M.voiceSummary({enabled: true, lead: 0, quiet: false}), 'Says reminders when due');
+  assert.match(M.voiceSummary({enabled: true, lead: 15, quiet: true, quietStart: 1320, quietEnd: 420}), /^Says reminders 15 min early and when due · Quiet 10.PM–7.AM$/);
+  assert.match(M.voiceSummary({enabled: true, lead: 60, quiet: true, quietStart: 60, quietEnd: 60}), /an hour early and when due$/);
+});
