@@ -793,11 +793,62 @@ function generalTab(){
   updates.append(el('small','sub','Checks at launch and daily. Dashledge reopens after installing an update.'));
   const grid=el('div','general-grid'),hardware=el('div','general-column'),preferences=el('div','general-column');
   hardware.append(display,touch);
-  preferences.append(appearance,updates);
+  preferences.append(appearance,voicePanel(),updates);
   grid.append(hardware,preferences);main.append(grid);
   restoreUpdate();refresh();
   const poll=setInterval(()=>{if(!display.isConnected){clearInterval(poll);return}refresh();restoreUpdate()},3000);
   cleanupTab=()=>clearInterval(poll);
+}
+// Dashledge's voice, shared by spoken reminders and any widget with the `speech`
+// permission. Natural voices are an optional download; changes apply at once.
+function voicePanel(){
+  const box=panel('Voice'),body=el('div','voice-settings');box.append(body);
+  let timer=0,data=null;
+  const update=async patch=>{try{data.settings=await invoke('voice_update',{patch});}catch(e){notice(String(e))}};
+  const minutes=value=>{const [h,m]=String(value).split(':').map(Number);return h*60+m};
+  const clock=total=>String(Math.floor(total/60)).padStart(2,'0')+':'+String(total%60).padStart(2,'0');
+  const draw=()=>{
+    if(!box.isConnected){clearTimeout(timer);return}
+    const {settings:v,voices,natural}=data,status=natural.status;
+    const naturalRow=el('div','voice-natural'),text=el('div','voice-natural-text');
+    text.append(el('strong','','Natural voices'),el('small','sub',
+      status.state==='ready'?'Installed. Eleven natural-sounding voices, made on this Mac.'
+      :status.state==='downloading'?'Downloading… '+Math.round(status.progress*100)+'%'
+      :status.state==='failed'?status.detail
+      :'Natural-sounding voices that run on this Mac. Free, about '+natural.sizeMb+' MB.'));
+    naturalRow.append(text);
+    if(status.state==='downloading'){
+      const bar=el('progress');bar.max=1;bar.value=status.progress;naturalRow.append(bar);
+    }else if(status.state==='ready'){
+      naturalRow.append(button('Remove',async()=>{try{await invoke('voice_remove');await load()}catch(e){notice(String(e))}}));
+    }else{
+      naturalRow.append(button(status.state==='failed'?'Try again':'Download',()=>{
+        invoke('voice_install').then(load).catch(e=>{notice(String(e));load()});setTimeout(load,300);
+      },'primary'));
+    }
+    const best=voices.find(x=>x.best);
+    const options=[['','Best available'+(best?' · '+best.name:'')],...voices.map(x=>[x.id,x.name+' · '+(x.detail||'')])];
+    if(v.voice&&!options.some(([id])=>id===v.voice))options.push([v.voice,'Unavailable voice']);
+    const pick=select(options,v.voice,value=>update({voice:value}));pick.id='voice-choice';
+    const volume=el('input');volume.type='range';volume.min=10;volume.max=100;volume.step=5;volume.id='voice-volume';
+    volume.value=Math.round(v.volume*100);volume.onchange=()=>update({volume:volume.valueAsNumber/100});
+    const toggle=(id,on,write)=>{const c=el('input');c.type='checkbox';c.id=id;c.checked=on;c.onchange=()=>write(c.checked);return c};
+    const quietFrom=el('input'),quietUntil=el('input');
+    for(const [input,key] of [[quietFrom,'quietStart'],[quietUntil,'quietEnd']]){
+      input.type='time';input.step=900;input.value=clock(v[key]);input.disabled=!v.quiet;
+      input.onchange=()=>{if(input.value)update({[key]:minutes(input.value)})};
+    }
+    const quietTimes=el('div','voice-quiet');quietTimes.append(quietFrom,el('span','','to'),quietUntil);
+    const hear=button('Hear it',()=>invoke('voice_test',{patch:null}).catch(e=>notice(String(e))));
+    body.replaceChildren(naturalRow,settingRow('Voice',pick),settingRow('Volume',volume,hear),
+      settingRow('Mute Dashledge’s voice',toggle('voice-muted',v.muted,on=>update({muted:on}))),
+      settingRow('Quiet hours',toggle('voice-quiet',v.quiet,async on=>{await update({quiet:on});draw()}),quietTimes),
+      el('small','sub','Used by spoken reminders and any widget that speaks. Volume and mute change only Dashledge, not the Mac.'));
+    if(status.state==='downloading')timer=setTimeout(load,1000);
+  };
+  const load=async()=>{clearTimeout(timer);try{data=await invoke('voice_settings');draw()}catch(e){body.replaceChildren(el('small','sub',String(e)))}};
+  load();
+  return box;
 }
 let cleanupTab;
 function render(){

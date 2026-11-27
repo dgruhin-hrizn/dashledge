@@ -246,3 +246,13 @@
 .live-screen[data-state="elsewhere"] .stage-note {display:grid}
 .live-screen[data-state="loading"]::after {content:"Loading the live page…";position:absolute;inset:0;display:grid;place-items:center;color:var(--sub);font-size:13px;pointer-events:none}
 
+
+/* Voice: natural-voice download, voice, volume, mute and quiet hours */
+.voice-settings{display:grid;gap:2px}
+.voice-natural{display:flex;align-items:center;gap:12px;padding:10px 12px;margin-bottom:8px;border:1px solid var(--border);border-radius:10px}
+.voice-natural-text{display:grid;gap:2px;flex:1;min-width:0}
+.voice-natural progress{width:120px}
+.voice-quiet{display:flex;align-items:center;gap:8px}
+.voice-quiet input{padding:4px 6px}
+.voice-quiet input:disabled{opacity:.45}
+#voice-volume{flex:1 1 140px;accent-color:var(--accent,#8baf72)}

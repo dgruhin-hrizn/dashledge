@@ -49,6 +49,9 @@ static AVSpeechSynthesisVoice *bestVoice(void) {
     return best;
 }
 
+// The natural voice's audio: a WAV the runtime wrote, played at Dashledge's volume.
+static AVAudioPlayer *player;
+
 static AVSpeechSynthesizer *synth(void) {
     static AVSpeechSynthesizer *shared;
     static dispatch_once_t once;
@@ -62,6 +65,8 @@ void speech_say(const char *text, const char *identifier, float volume) {
     NSString *voiceId = [NSString stringWithUTF8String:identifier];
     if (!words.length) return;
     dispatch_async(dispatch_get_main_queue(), ^{
+        [player stop];
+        [synth() stopSpeakingAtBoundary:AVSpeechBoundaryImmediate];
         AVSpeechUtterance *utterance = [AVSpeechUtterance speechUtteranceWithString:words];
         AVSpeechSynthesisVoice *voice = voiceId.length ? [AVSpeechSynthesisVoice voiceWithIdentifier:voiceId] : nil;
         utterance.voice = voice ?: bestVoice() ?: [AVSpeechSynthesisVoice voiceWithLanguage:[AVSpeechSynthesisVoice currentLanguageCode]];
@@ -70,8 +75,24 @@ void speech_say(const char *text, const char *identifier, float volume) {
     });
 }
 
+
+void speech_play_file(const char *path, float volume) {
+    NSURL *url = [NSURL fileURLWithPath:[NSString stringWithUTF8String:path]];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [synth() stopSpeakingAtBoundary:AVSpeechBoundaryImmediate];
+        [player stop];
+        NSError *error = nil;
+        player = [[AVAudioPlayer alloc] initWithContentsOfURL:url error:&error];
+        player.volume = MAX(0.f, MIN(1.f, volume));
+        [player play];
+    });
+}
+
 void speech_stop(void) {
-    dispatch_async(dispatch_get_main_queue(), ^{ [synth() stopSpeakingAtBoundary:AVSpeechBoundaryImmediate]; });
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [synth() stopSpeakingAtBoundary:AVSpeechBoundaryImmediate];
+        [player stop];
+    });
 }
 
 // Installed voices in the system language, best first: [{id, name, language, quality,

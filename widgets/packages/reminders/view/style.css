@@ -206,7 +206,7 @@ button{font:inherit;color:inherit;-webkit-tap-highlight-color:transparent}
 
 .rm-voice-body{grid-template-columns:1fr 1fr;align-items:start}
 .rm-voice-col{display:grid;gap:calc(14px*var(--s));min-width:0}
-.rm-voice-body[data-off=true] .rm-voice-col > :not(#voiceEnabled){opacity:.4;pointer-events:none}
+.rm-voice-body[data-off=true] .rm-voice-col > :not(#voiceEnabled):not(.rm-voice-shared){opacity:.4;pointer-events:none}
 .rm-switch{display:flex;align-items:center;gap:calc(14px*var(--s));width:100%;min-height:calc(64px*var(--s));padding:calc(8px*var(--s)) calc(14px*var(--s)) calc(8px*var(--s)) calc(16px*var(--s));
   border-radius:calc(16px*var(--s));border:1px solid var(--line);background:color-mix(in srgb,var(--ink) 5%,transparent);cursor:pointer;text-align:left}
 .rm-switch-text{flex:1;display:grid;gap:calc(2px*var(--s));min-width:0}
@@ -216,8 +216,11 @@ button{font:inherit;color:inherit;-webkit-tap-highlight-color:transparent}
 .rm-switch-knob::after{content:"";position:absolute;top:calc(3px*var(--s));left:calc(3px*var(--s));width:calc(28px*var(--s));height:calc(28px*var(--s));border-radius:50%;background:#fff;box-shadow:0 2px 6px #0006}
 .rm-switch[aria-checked=true] .rm-switch-knob{background:var(--hi)}
 .rm-switch[aria-checked=true] .rm-switch-knob::after{left:calc(29px*var(--s))}
-#voiceMore{justify-self:start}
-.rm-voice-hint{margin:0;color:#e5cf92;font-size:calc(15px*var(--s))}
+.rm-voice-shared{display:grid;gap:calc(6px*var(--s));padding:calc(14px*var(--s)) calc(16px*var(--s));border-radius:calc(16px*var(--s));border:1px solid var(--line);background:color-mix(in srgb,var(--ink) 4%,transparent)}
+.rm-voice-shared strong{font-size:calc(20px*var(--s))}
+.rm-voice-shared span:not(.rm-field-label){color:var(--hi-text);font-weight:600;font-size:calc(16px*var(--s))}
+.rm-voice-shared small{color:var(--dim);font-size:calc(15px*var(--s))}
+.rm-voice-shared .rm-button{justify-self:start;margin-top:calc(4px*var(--s))}
 .rm-quiet-times{display:flex;flex-wrap:wrap;gap:calc(14px*var(--s))}
 .rm-quiet-times[data-off=true]{opacity:.4;pointer-events:none}
 .rm-meter{display:inline-block;width:calc(120px*var(--s));height:calc(8px*var(--s));border-radius:999px;background:color-mix(in srgb,var(--ink) 14%,transparent);overflow:hidden}

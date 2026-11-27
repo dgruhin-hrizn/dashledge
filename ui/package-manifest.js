@@ -31,6 +31,7 @@ const capabilityLines = {
   reminders: 'Reads, checks off and adds your Apple Reminders, and can say them aloud when they’re due. Bundled widgets only.',
   images: 'Shows images from that connection, such as posters and camera snapshots.',
   stream: 'Plays live streams from that connection, such as camera video.',
+  speech: 'Can say things aloud in your Dashledge voice while it’s on screen.',
 };
 
 // Plain-language permissions for the install sheet. When the package replaces an

@@ -419,9 +419,10 @@
     muteButton.setAttribute('aria-label', voice.muted ? 'Unmute Dashledge’s voice' : 'Mute Dashledge’s voice');
   }
 
-  async function saveVoice(next) {
-    const saved = await host.reminders.voice.set(next);
-    voice = saved || next;
+  // Sends only what changed; Dashledge answers with the whole saved settings.
+  async function saveVoice(patch) {
+    const saved = await host.reminders.voice.set(patch);
+    voice = saved || {...voice, ...patch};
     drawVoice();
   }
 
@@ -431,18 +432,16 @@
     const muted = !voice.muted;
     voice = {...voice, muted};
     drawVoice();
-    try { await saveVoice(voice); }
+    try { await saveVoice({muted}); }
     catch (error) { voice = {...voice, muted: !muted}; drawVoice(); say('Couldn’t change mute: ' + String(error?.message || error).replace(/^Error: /, '')); }
   };
 
-  // Installed voices, best first as Dashledge sorts them, after the automatic choice ''.
-  const QUALITY = {2: 'Enhanced', 3: 'Premium'};
-  const voiceLabel = v => v.siri ? 'Siri · ' + v.name : v.name + (QUALITY[v.quality] ? ' · ' + QUALITY[v.quality] : '');
-  function voiceChoices() {
+  // The voice everyone hears, as Settings names it.
+  function voiceName() {
+    const chosen = voices.find(v => v.id === voice?.voice);
     const best = voices.find(v => v.best);
-    // One entry per name: Siri can ship the same voice twice; the first is the better.
-    const seen = new Set(), unique = voices.filter(v => !seen.has(voiceLabel(v)) && seen.add(voiceLabel(v)));
-    return [{id: '', label: 'Best available' + (best ? ' (' + voiceLabel(best) + ')' : '')}, ...unique.map(v => ({id: v.id, label: voiceLabel(v)}))];
+    if (chosen) return chosen.name + (chosen.detail ? ' · ' + chosen.detail : '');
+    return 'Best available' + (best ? ' · ' + best.name + (best.detail ? ' (' + best.detail + ')' : '') : '');
   }
 
   function openVoice() {
@@ -458,19 +457,12 @@
   function drawVoiceSheet() {
     const d = voiceDraft;
     if (!d) return;
-    const flip = (id, on) => $(id).setAttribute('aria-checked', String(!!on));
-    flip('voiceEnabled', d.enabled);
-    flip('voiceQuiet', d.quiet);
+    $('voiceEnabled').setAttribute('aria-checked', String(!!d.enabled));
     $('voiceLead').replaceChildren(...M.LEADS.map(lead => choice(lead.label, d.lead === lead.value, () => { d.lead = lead.value; drawVoiceSheet(); })));
-    const pick = voiceChoices().find(v => v.id === d.voice) || voiceChoices()[0];
-    $('voiceName').textContent = pick.label;
-    // No Siri or Premium voice installed: point at where they download.
-    $('voiceHint').hidden = voices.some(v => v.siri || v.quality === 3);
-    $('quietTimes').dataset.off = String(!d.quiet);
-    $('quietStart').querySelector('.rm-stepper-value').textContent = M.clockText(d.quietStart);
-    $('quietEnd').querySelector('.rm-stepper-value').textContent = M.clockText(d.quietEnd);
-    $('volumeText').textContent = Math.round(d.volume * 100) + '%';
-    $('volumeBar').style.width = Math.round(d.volume * 100) + '%';
+    $('voiceName').textContent = voiceName();
+    $('voiceQuietText').textContent = voice?.quiet && voice.quietStart !== voice.quietEnd
+      ? 'Quiet ' + M.clockText(voice.quietStart, true) + '–' + M.clockText(voice.quietEnd, true) + ': alerts wait until then'
+      : 'No quiet hours';
     voiceSheet.querySelector('.rm-voice-body').dataset.off = String(!d.enabled);
   }
 
@@ -480,26 +472,13 @@
   }
 
   $('voiceEnabled').onclick = () => { voiceDraft.enabled = !voiceDraft.enabled; drawVoiceSheet(); };
-  $('voiceQuiet').onclick = () => { voiceDraft.quiet = !voiceDraft.quiet; drawVoiceSheet(); };
-  for (const [id, key] of [['quietStart', 'quietStart'], ['quietEnd', 'quietEnd']])
-    for (const button of $(id).querySelectorAll('[data-step]'))
-      button.onclick = () => { voiceDraft[key] = ((voiceDraft[key] + Number(button.dataset.step) * 30) % 1440 + 1440) % 1440; drawVoiceSheet(); };
-  for (const button of $('voiceVolume').querySelectorAll('[data-step]'))
-    button.onclick = () => { voiceDraft.volume = Math.max(0.1, Math.min(1, Math.round((voiceDraft.volume + Number(button.dataset.step) * 0.1) * 10) / 10)); drawVoiceSheet(); };
-  for (const button of $('voicePick').querySelectorAll('[data-step]'))
-    button.onclick = () => {
-      const all = voiceChoices();
-      const at = Math.max(0, all.findIndex(v => v.id === voiceDraft.voice));
-      voiceDraft.voice = all[(at + Number(button.dataset.step) + all.length) % all.length].id;
-      drawVoiceSheet();
-    };
-  $('voiceTest').onclick = () => host.reminders.voice.test(voiceDraft).catch(error => say(String(error?.message || error).replace(/^Error: /, '')));
+  $('voiceTest').onclick = () => host.reminders.voice.test().catch(error => say(String(error?.message || error).replace(/^Error: /, '')));
+  $('voiceOpenSettings').onclick = () => host.reminders.voice.openSettings().catch(error => say(String(error?.message || error).replace(/^Error: /, '')));
   $('voiceSave').onclick = async () => {
-    try { await saveVoice(voiceDraft); closeVoice(); }
+    try { await saveVoice({enabled: voiceDraft.enabled, lead: voiceDraft.lead}); closeVoice(); }
     catch (error) { say('Couldn’t save: ' + String(error?.message || error).replace(/^Error: /, '')); }
   };
   $('voiceCancel').onclick = closeVoice;
-  $('voiceMore').onclick = () => host.reminders.voice.more().catch(error => say(String(error?.message || error).replace(/^Error: /, '')));
   $('voiceClose').onclick = closeVoice;
   $('voiceLine').onclick = openVoice;
 
