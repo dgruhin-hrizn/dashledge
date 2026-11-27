@@ -2,7 +2,7 @@
   "apiVersion": 2,
   "id": "weather",
   "title": "Weather",
-  "description": "Current conditions, today's high and low and the next 12 hours from Open-Meteo, for a place you choose.",
+  "description": "Current conditions, the next 24 hours and 7 days from Open-Meteo, for a place you choose.",
   "version": "1.0.0",
   "category": "Productivity",
   "icon": "view/icon.svg",
@@ -42,6 +42,19 @@
         {"value": "celsius", "label": "Celsius (°C)"}
       ],
       "default": "fahrenheit"
+    },
+    {
+      "id": "show",
+      "label": "Show",
+      "type": "choice",
+      "options": [
+        {"value": "auto", "label": "Automatic for the space"},
+        {"value": "hourly", "label": "Next 24 hours"},
+        {"value": "week", "label": "Next 7 days"},
+        {"value": "now", "label": "Just now"}
+      ],
+      "default": "auto",
+      "help": "The full Edge shows everything. Smaller placements pick what fits, or what you choose here."
     }
   ]
 }

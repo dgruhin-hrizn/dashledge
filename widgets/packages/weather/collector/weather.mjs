@@ -4,7 +4,8 @@
 export const GEOCODE_URL = 'https://geocoding-api.open-meteo.com/v1/search';
 export const FORECAST_URL = 'https://api.open-meteo.com/v1/forecast';
 export const MAX_QUERY = 80;
-const HOURS = 12;
+const HOURS = 24;
+const DAYS = 7;
 
 // WMO weather interpretation codes, as Open-Meteo reports them, to an icon kind and a label.
 export function describe(code) {
@@ -104,11 +105,11 @@ export function forecastUrl({latitude, longitude}) {
   const url = new URL(FORECAST_URL);
   url.search = new URLSearchParams({
     latitude: String(latitude), longitude: String(longitude),
-    current: 'temperature_2m,apparent_temperature,weather_code,is_day',
+    current: 'temperature_2m,apparent_temperature,weather_code,is_day,relative_humidity_2m,wind_speed_10m,wind_direction_10m,wind_gusts_10m,surface_pressure,uv_index',
     hourly: 'temperature_2m,precipitation_probability,weather_code,is_day',
-    daily: 'temperature_2m_max,temperature_2m_min',
-    // Celsius with a decimal: the view converts, so changing units needs no new request.
-    timezone: 'auto', forecast_days: '2',
+    daily: 'temperature_2m_max,temperature_2m_min,weather_code,precipitation_probability_max,sunrise,sunset,uv_index_max',
+    // Celsius and km/h with a decimal: the view converts, so changing units needs no new request.
+    timezone: 'auto', forecast_days: String(DAYS + 1),
   }).toString();
   return url.toString();
 }
@@ -161,13 +162,29 @@ export function parseForecast(json) {
       isDay: h.is_day?.[i] !== 0,
     });
   }
+  // Seven days from today: the day's icon, range, wettest hour and sun times.
+  const dates = Array.isArray(d?.time) ? d.time : [];
+  const days = [];
+  for (let i = 0; i < dates.length && days.length < DAYS; i++) {
+    const high = num(d.temperature_2m_max?.[i]), low = num(d.temperature_2m_min?.[i]);
+    if (typeof dates[i] !== 'string' || high === null || low === null) continue;
+    days.push({
+      date: dates[i], high, low, kind: describe(d.weather_code?.[i])?.kind || 'cloudy',
+      precip: num(d.precipitation_probability_max?.[i]),
+      sunrise: typeof d.sunrise?.[i] === 'string' ? d.sunrise[i] : '',
+      sunset: typeof d.sunset?.[i] === 'string' ? d.sunset[i] : '',
+      uv: num(d.uv_index_max?.[i]),
+    });
+  }
   return {
     time: typeof c.time === 'string' ? c.time : '',
     temp, feelsLike: num(c.apparent_temperature),
     kind: now.kind, label: now.label, isDay: c.is_day !== 0,
     high: num(d?.temperature_2m_max?.[0]), low: num(d?.temperature_2m_min?.[0]),
+    humidity: num(c.relative_humidity_2m), wind: num(c.wind_speed_10m), gusts: num(c.wind_gusts_10m),
+    windFrom: num(c.wind_direction_10m), pressure: num(c.surface_pressure), uv: num(c.uv_index),
     timezone: typeof json.timezone === 'string' ? json.timezone : '',
-    hours,
+    hours, days,
   };
 }
 
