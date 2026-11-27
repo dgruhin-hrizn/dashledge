@@ -42,6 +42,9 @@ extern "C" {
 pub struct Connection {
     pub name: String,
     pub address: String,
+    /// The manifest's connection type this connection was made for, if it has types.
+    #[serde(default, rename = "type")]
+    pub source_type: Option<String>,
 }
 
 /// Where a placement's requests start and which saved credential they use. `base` is
@@ -361,8 +364,7 @@ pub(crate) fn route_url(base: &Url, route: &str) -> Url {
     url
 }
 
-fn run_declarative(kind: String, manifest: Manifest, target: Target, output: Arc<Mutex<Output>>, stop: Arc<AtomicBool>) {
-    let auth = manifest.sources.as_ref().map_or(Auth::Bearer, |s| s.auth.clone());
+fn run_declarative(kind: String, manifest: Manifest, target: Target, auth: Auth, output: Arc<Mutex<Output>>, stop: Arc<AtomicBool>) {
     std::thread::spawn(move || {
         let mut due: HashMap<String, Instant> = HashMap::new();
         while !stop.load(Ordering::SeqCst) {
@@ -643,6 +645,8 @@ pub(crate) struct ConnectorSetup {
     pub package: String,
     pub source: String,
     pub connection: Option<(Target, String)>,
+    /// The connection's type, which picks its auth and reaches the connector.
+    pub source_type: Option<String>,
     pub manifest: Manifest,
     pub storage_file: Option<PathBuf>,
 }
@@ -661,7 +665,7 @@ pub(crate) fn run_connector(setup: ConnectorSetup, output: Arc<Mutex<Output>>, s
             handle,
             kind: setup.kind.clone(),
             origins: allowed_origins(connection_url.as_ref().map(|t| &t.base), &setup.manifest),
-            auth: setup.manifest.sources.as_ref().map_or(Auth::None, |s| s.auth.clone()),
+            auth: setup.manifest.auth_for(setup.source_type.as_deref()),
             connection: connection_url,
             tx,
             output: output.clone(),
@@ -673,7 +677,7 @@ pub(crate) fn run_connector(setup: ConnectorSetup, output: Arc<Mutex<Output>>, s
         });
         RUNTIMES.lock().unwrap().insert(handle, rt.clone());
         let context = Context(unsafe { connector_new(handle, WATCHDOG_SECONDS) });
-        let connection = setup.connection.as_ref().map(|(t, name)| json!({"address": t.base.as_str(), "name": name}));
+        let connection = setup.connection.as_ref().map(|(t, name)| json!({"address": t.base.as_str(), "name": name, "type": setup.source_type}));
         let fail = |error: String| {
             log_line(&setup.kind, "error", &error);
             let mut out = output.lock().unwrap();
@@ -830,10 +834,14 @@ pub fn package_open(window: tauri::WebviewWindow, app: tauri::AppHandle, kind: S
             run_connector(ConnectorSetup {
                 kind: kind.clone(), package: kind.clone(), source,
                 connection: target.clone().zip(connection.as_ref().map(|c| c.name.clone())),
+                source_type: connection.as_ref().and_then(|c| c.source_type.clone()),
                 manifest: manifest.clone(), storage_file,
             }, output.clone(), stop.clone());
         }
-        Tier::Declarative => run_declarative(kind.clone(), manifest.clone(), target.clone().ok_or("Choose a connection")?, output.clone(), stop.clone()),
+        Tier::Declarative => {
+            let auth = manifest.auth_for(connection.as_ref().and_then(|c| c.source_type.as_deref()));
+            run_declarative(kind.clone(), manifest.clone(), target.clone().ok_or("Choose a connection")?, auth, output.clone(), stop.clone())
+        }
         Tier::View | Tier::Collector => {}
     }
     let view = dir.join(std::path::Path::new(&manifest.view.entry).parent().unwrap_or(std::path::Path::new("")));
@@ -896,7 +904,8 @@ pub async fn package_action(id: String, viewer: String, action: String, args: Ma
     };
     let (manifest, _) = installed_package(&kind)?;
     let declared = manifest.actions.iter().find(|a| a.id == action).ok_or("This widget didn’t declare that action.")?;
-    let target = Target::new(&kind, &connection.ok_or("Choose a connection")?.address)?;
+    let connection = connection.ok_or("Choose a connection")?;
+    let target = Target::new(&kind, &connection.address)?;
     let path = fill(&declared.path, &args)?;
     let body = declared.body.as_ref().map(|b| fill_body(b, &args)).transpose()?.map(|b| b.to_string().into_bytes());
     let method = match declared.method { Method::Post => "POST", Method::Put => "PUT", Method::Delete => "DELETE" };
@@ -904,7 +913,7 @@ pub async fn package_action(id: String, viewer: String, action: String, args: Ma
     if body.is_some() {
         headers.push(("Content-Type".into(), "application/json".into()));
     }
-    let auth = manifest.sources.as_ref().map_or(Auth::Bearer, |s| s.auth.clone());
+    let auth = manifest.auth_for(connection.source_type.as_deref());
     let response = send(&kind, Some(&target), &auth, Request { url: route_url(&target.base, &path), method: method.into(), headers, body }).await?;
     let status = response["status"].as_u64().unwrap_or(0);
     if !(200..300).contains(&status) {
@@ -1046,7 +1055,7 @@ mod tests {
         let stop = Arc::new(AtomicBool::new(false));
         let setup = ConnectorSetup {
             kind: "plugin.test".into(), package: "plugin.test".into(), source: source.into(),
-            connection: connection.map(|u| (Target { base: u.clone(), account: u }, "Test".to_string())), manifest: manifest(hosts), storage_file: None,
+            connection: connection.map(|u| (Target { base: u.clone(), account: u }, "Test".to_string())), source_type: None, manifest: manifest(hosts), storage_file: None,
         };
         run_connector(setup, output.clone(), stop.clone());
         (output, stop)
@@ -1092,7 +1101,7 @@ mod tests {
         let (address, server) = serve_once("{\"ok\": true}");
         let source = r#"
             fetch(dashledge.connection.address + 'status').then(r => r.json())
-              .then(body => dashledge.emit({address: dashledge.connection.address, ok: body.ok}));
+              .then(body => dashledge.emit({address: dashledge.connection.address, type: dashledge.connection.type, ok: body.ok}));
         "#;
         let base = Url::parse(&format!("{address}/api/")).unwrap();
         let account = Url::parse(&format!("{address}/api")).unwrap();
@@ -1100,10 +1109,11 @@ mod tests {
         let stop = Arc::new(AtomicBool::new(false));
         run_connector(ConnectorSetup {
             kind: "plugin.test".into(), package: "plugin.test".into(), source: source.into(),
-            connection: Some((Target { base: base.clone(), account }, "Test".into())), manifest: manifest(&[]), storage_file: None,
+            connection: Some((Target { base: base.clone(), account }, "Test".into())), source_type: Some("sab".into()), manifest: manifest(&[]), storage_file: None,
         }, output.clone(), stop.clone());
         assert!(wait_for(&output, |o| o.data.get("ok").is_some()), "error: {:?}", output.lock().unwrap().error);
         assert_eq!(output.lock().unwrap().data["address"], base.as_str());
+        assert_eq!(output.lock().unwrap().data["type"], "sab", "the connector sees its connection's type");
         assert!(server.join().unwrap().starts_with("GET /api/status "));
         stop.store(true, Ordering::SeqCst);
     }

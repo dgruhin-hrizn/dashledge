@@ -38,7 +38,7 @@ export function widgetSources(kind, selected, sources) {
         if (source.gpuSsh?.target) telemetry.ssh = source.gpuSsh;
         if (Object.keys(telemetry).length) return {name, address, gpuGuests: telemetry};
       }
-      return {name, address, gpuGuests};
+      return source.type ? {name, address, gpuGuests, type: source.type} : {name, address, gpuGuests};
     });
 }
 
@@ -126,7 +126,7 @@ export function mountPackage(box, slot, entry, connections, {native = false, ope
   async function connect() {
     try {
       const opened = await invoke('package_open', {kind: slot.kind, viewer,
-        connection: source ? {name: source.name, address: source.address} : null});
+        connection: source ? {name: source.name, address: source.address, ...(source.type ? {type: source.type} : {})} : null});
       if (closed) { invoke('package_close', {id: opened.id, viewer}).catch(() => {}); return; }
       feed = opened.id;
       rev = 0;
@@ -138,7 +138,8 @@ export function mountPackage(box, slot, entry, connections, {native = false, ope
       // Permissions come from the package on disk, as the host validated it.
       unregister = registerFrame(frame, {viewer, feed, kind: slot.kind, title: entry.title, actions: entry.actions || [],
         permissions: opened.permissions || [], schema: entry.settings || [], saved, source: slot.source || '', openSettings,
-        displayName: source?.name?.trim() || '', host: hostOf(source?.address), serverField: entry.serverField, native, colors});
+        displayName: source?.name?.trim() || '', host: hostOf(source?.address), serverField: entry.serverField, native, colors,
+        connectionType: source?.type || ''});
       frame.src = '/widget-view/' + encodeURIComponent(feed) + '/' + encodeURIComponent(opened.entry);
       box.replaceChildren(frame);
       pump();

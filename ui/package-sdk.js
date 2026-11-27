@@ -58,6 +58,8 @@
   // The name to show for this placement's server: the user's name for the
   // connection, else the name the server reports, else the address's host.
   api.displayName = serverName => state.displayName || String(serverName || state.serverName || '').trim() || state.host || '';
+  // The manifest's connection type the placement's connection was made for ('' without types).
+  api.connectionType = () => state.connectionType || '';
   // Run an action the manifest declares, with values for its {placeholders}.
   api.action = (id, args = {}) => api.command('action', {id, args});
 

@@ -351,6 +351,57 @@ pub struct Sources {
     /// the credential alone.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub username_label: Option<String>,
+    /// Products one widget can connect to, each with its own auth, Test routes and labels
+    /// (SABnzbd, NZBGet or qBittorrent). A connection stores the type it was made for.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub types: Vec<SourceType>,
+}
+
+/// One kind of server a widget's connection may be. Fields it leaves out come from
+/// `sources`.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SourceType {
+    pub id: String,
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth: Option<Auth>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub test: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub address_label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub address_placeholder: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential_label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub username_label: Option<String>,
+}
+
+impl Sources {
+    /// The type a connection was made for: the named one, else the first. None when the
+    /// widget declares no types, or the named one no longer exists in a type list.
+    pub fn type_of(&self, id: Option<&str>) -> Option<&SourceType> {
+        match id {
+            Some(id) => self.types.iter().find(|t| t.id == id).or(self.types.first()),
+            None => self.types.first(),
+        }
+    }
+    /// How a connection of that type sends its credential.
+    pub fn auth_for(&self, id: Option<&str>) -> Auth {
+        self.type_of(id).and_then(|t| t.auth.clone()).unwrap_or_else(|| self.auth.clone())
+    }
+    /// The routes Test reads for a connection of that type.
+    pub fn test_for(&self, id: Option<&str>) -> Vec<String> {
+        self.type_of(id).filter(|t| !t.test.is_empty()).map_or_else(|| self.test.clone(), |t| t.test.clone())
+    }
+}
+
+impl Manifest {
+    /// The auth a placement's connection uses; none without sources.
+    pub fn auth_for(&self, source_type: Option<&str>) -> Auth {
+        self.sources.as_ref().map_or(Auth::None, |s| s.auth_for(source_type))
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -639,6 +690,27 @@ pub fn validate(raw: &Value, origin: Origin) -> Result<Manifest, String> {
         optional_text(&sources.address_placeholder, "Address placeholder", 120)?;
         optional_text(&sources.credential_label, "Credential label", 40)?;
         optional_text(&sources.username_label, "Username label", 40)?;
+        if sources.types.len() > 12 {
+            return fail("Declare at most 12 connection types.");
+        }
+        unique(sources.types.iter().map(|t| t.id.as_str()), "Connection type ID")?;
+        for kind in &sources.types {
+            name(&kind.id, "Connection type ID")?;
+            text(&kind.label, "Connection type label", 40)?;
+            if let Some(auth) = &kind.auth {
+                check_auth(auth)?;
+            }
+            if kind.test.len() > 8 {
+                return fail("Declare at most 8 Test routes.");
+            }
+            for test in &kind.test {
+                route(test, "Test route", false, true)?;
+            }
+            optional_text(&kind.address_label, "Address label", 40)?;
+            optional_text(&kind.address_placeholder, "Address placeholder", 120)?;
+            optional_text(&kind.credential_label, "Credential label", 40)?;
+            optional_text(&kind.username_label, "Username label", 40)?;
+        }
     }
     if let Some(display) = &manifest.display_name {
         let parts: Vec<_> = display.server_field.split('.').collect();
@@ -1032,6 +1104,33 @@ mod tests {
         no_sources.as_object_mut().unwrap().remove("data");
         no_sources.as_object_mut().unwrap().remove("actions");
         assert!(validate(&no_sources, Origin::Installed).is_err());
+    }
+
+    #[test]
+    fn connection_types_bring_their_own_auth_and_test_routes() {
+        let mut p = installed();
+        p["sources"]["types"] = json!([
+            {"id": "sabnzbd", "label": "SABnzbd", "auth": {"query": "apikey"}, "test": ["api?mode=version&output=json"]},
+            {"id": "nzbget", "label": "NZBGet", "auth": "basic", "usernameLabel": "Username"},
+            {"id": "plain", "label": "Plain"}
+        ]);
+        let m = validate(&p, Origin::Installed).unwrap();
+        let s = m.sources.as_ref().unwrap();
+        assert_eq!(s.auth_for(Some("sabnzbd")), Auth::Query { name: "apikey".into() });
+        assert_eq!(s.auth_for(Some("nzbget")), Auth::Basic);
+        assert_eq!(s.auth_for(Some("plain")), Auth::Bearer, "a type without auth uses the widget's");
+        assert_eq!(s.auth_for(None), Auth::Query { name: "apikey".into() }, "no type means the first");
+        assert_eq!(s.auth_for(Some("removed")), Auth::Query { name: "apikey".into() });
+        assert_eq!(s.test_for(Some("sabnzbd")), vec!["api?mode=version&output=json"]);
+        assert_eq!(s.test_for(Some("nzbget")), vec!["api/status"], "a type without Test routes uses the widget's");
+        assert_eq!(m.auth_for(Some("nzbget")), Auth::Basic);
+        for bad in [json!([{"id": "A", "label": "A"}]), json!([{"id": "a", "label": ""}]), json!([{"id": "a", "label": "A"}, {"id": "a", "label": "B"}]),
+                    json!([{"id": "a", "label": "A", "auth": {"header": "Cookie"}}]), json!([{"id": "a", "label": "A", "extra": 1}])] {
+            let mut q = p.clone();
+            q["sources"]["types"] = bad.clone();
+            assert!(validate(&q, Origin::Installed).is_err(), "{bad}");
+        }
+        assert_eq!(validate(&installed(), Origin::Installed).unwrap().auth_for(Some("x")), Auth::Bearer, "without types the widget's auth");
     }
 
     #[test]

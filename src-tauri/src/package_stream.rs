@@ -5,7 +5,7 @@
 //! else as JSON events. The bridge moves them into the frame by transfer. Live camera
 //! video (go2rtc MSE) plays from them with `video.srcObject = mediaSource`.
 use crate::package_connector::{self, Target};
-use crate::package_manifest::{Auth, Permission};
+use crate::package_manifest::Permission;
 use serde_json::{json, Map, Value};
 use std::{
     collections::HashMap,
@@ -88,7 +88,8 @@ pub fn package_stream_open(id: String, viewer: String, stream: String, params: M
         return Err("This widget didn’t declare the stream permission.".into());
     }
     let declared = manifest.streams.iter().find(|s| s.id == stream).ok_or("This widget didn’t declare that stream.")?;
-    let target = Target::new(&kind, &connection.ok_or("Choose a connection for this widget.")?.address)?;
+    let connection = connection.ok_or("Choose a connection for this widget.")?;
+    let target = Target::new(&kind, &connection.address)?;
     let mut url = package_connector::route_url(&target.base, &package_connector::fill(&declared.path, &params)?);
     let scheme = if url.scheme() == "https" { "wss" } else { "ws" };
     url.set_scheme(scheme).map_err(|_| "Invalid stream address")?;
@@ -100,7 +101,7 @@ pub fn package_stream_open(id: String, viewer: String, stream: String, params: M
         }
         streams.insert(socket, Stream { feed: id.clone(), viewer: viewer.clone(), channel });
     }
-    let auth = manifest.sources.as_ref().map_or(Auth::None, |s| s.auth.clone());
+    let auth = manifest.auth_for(connection.source_type.as_deref());
     if let Err(error) = package_connector::open_socket(package_connector::STREAM_HANDLE, socket, &kind, Some(&target), &auth, url) {
         STREAMS.lock().unwrap().remove(&socket);
         return Err(error);

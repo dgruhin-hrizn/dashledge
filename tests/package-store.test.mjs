@@ -37,3 +37,10 @@ test('replacing a v1 package with v2 clears its JSON-feed connections', () => {
   recordPackage(config, info);
   assert.equal(config.pages[0].slots[0].source, '');
 });
+
+test('connection types reach the catalog without their auth or Test routes', () => {
+  const entry = packageEntry({...info, sources: {min: 1, max: 1, auth: 'none', types: [
+    {id: 'sabnzbd', label: 'SABnzbd', auth: {query: 'apikey'}, test: ['api?mode=version'], credentialLabel: 'API key'},
+    {id: 'nzbget', label: 'NZBGet', auth: 'basic', usernameLabel: 'Username'}]}});
+  assert.deepEqual(entry.sources.types, [{id: 'sabnzbd', label: 'SABnzbd', credentialLabel: 'API key'}, {id: 'nzbget', label: 'NZBGet', usernameLabel: 'Username'}]);
+});

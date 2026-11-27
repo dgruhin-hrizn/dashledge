@@ -183,14 +183,15 @@ pub(crate) fn service_client(kind: &str, base: &Url) -> Result<Client, String> {
     }
 }
 
-/// How a connection sends its credential: from its widget's manifest, else a bearer token.
-fn auth_for(kind: &str) -> crate::package_manifest::Auth {
+/// How a connection sends its credential: from its widget's manifest (and the
+/// connection's type, when the widget has types), else a bearer token.
+fn auth_for(kind: &str, source_type: Option<&str>) -> crate::package_manifest::Auth {
     crate::package_store::lookup(kind)
-        .and_then(|(info, _)| info.manifest.sources.map(|s| s.auth))
+        .and_then(|(info, _)| info.manifest.sources.map(|s| s.auth_for(source_type)))
         .unwrap_or(crate::package_manifest::Auth::Bearer)
 }
 
-async fn get(kind: &str, account: &Url, base: &Url, path: &str, secret: &crate::package_connector::Secret) -> Result<Value, String> {
+async fn get(kind: &str, source_type: Option<&str>, account: &Url, base: &Url, path: &str, secret: &crate::package_connector::Secret) -> Result<Value, String> {
     let client = service_client(kind, account)?;
     let mut url = base.clone();
     if !path.is_empty() {
@@ -201,7 +202,7 @@ async fn get(kind: &str, account: &Url, base: &Url, path: &str, secret: &crate::
         url.set_query(query);
     }
     // The same credential the widget's connector, declarative routes and actions send.
-    let credential = crate::package_connector::Credential::for_auth(&auth_for(kind), secret);
+    let credential = crate::package_connector::Credential::for_auth(&auth_for(kind, source_type), secret);
     let header = credential.as_ref().and_then(|c| c.apply(&mut url));
     let mut request = client.get(url);
     if let Some((name, value)) = header {
@@ -240,28 +241,30 @@ pub async fn widget_source_read(kind:String,address:String)->Result<Value,String
     if let Some((at,value))=&*sample{
         if at.elapsed()<Duration::from_secs(5){return value.clone();}
     }
-    let result=source_read(kind,address).await;
+    let result=source_read(kind,address,None).await;
     *sample=Some((std::time::Instant::now(),result.clone()));
     result
 }
 
 /// Test a connection: read every route its widget's manifest declares for Test.
 #[tauri::command]
-pub async fn source_read(kind: String, address: String) -> Result<Value, String> {
+pub async fn source_read(kind: String, address: String, source_type: Option<String>) -> Result<Value, String> {
     let base = endpoint(&address)?;
     let key = secret(&kind, &base)?;
+    let source_type = source_type.as_deref();
     if kind == "json" {
-        return get(&kind, &base, &base, "", &key).await;
+        return get(&kind, None, &base, &base, "", &key).await;
     }
     let (info, _) = crate::package_store::lookup(&kind).ok_or("Unknown provider")?;
     // The same base the widget's collector or connector receives.
     let requests = resolve(&kind, &address)?;
-    let routes = info.manifest.sources.map(|s| s.test).unwrap_or_default();
+    // A connection type brings its own Test routes.
+    let routes = info.manifest.sources.map(|s| s.test_for(source_type)).unwrap_or_default();
     for route in &routes {
-        get(&kind, &base, &requests, route, &key).await?;
+        get(&kind, source_type, &base, &requests, route, &key).await?;
     }
     if routes.is_empty() {
-        get(&kind, &base, &requests, "", &key).await?;
+        get(&kind, source_type, &base, &requests, "", &key).await?;
     }
     Ok(json!({"ok": true, "routes": routes.len().max(1)}))
 }
@@ -300,9 +303,9 @@ mod tests {
     #[test]
     fn auth_style_comes_from_the_widget_manifest() {
         use crate::package_manifest::Auth;
-        assert_eq!(auth_for("emby"), Auth::EmbyToken);
-        assert_eq!(auth_for("proxmox"), Auth::PveToken);
-        assert_eq!(auth_for("unraid"), Auth::Bearer);
-        assert_eq!(auth_for("json"), Auth::Bearer);
+        assert_eq!(auth_for("emby", None), Auth::EmbyToken);
+        assert_eq!(auth_for("proxmox", None), Auth::PveToken);
+        assert_eq!(auth_for("unraid", None), Auth::Bearer);
+        assert_eq!(auth_for("json", None), Auth::Bearer);
     }
 }

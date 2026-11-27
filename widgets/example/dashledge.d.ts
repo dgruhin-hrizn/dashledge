@@ -44,6 +44,8 @@ declare namespace DashledgeView {
     serverName: string;
     /** The connection address's host. */
     host: string;
+    /** The `sources.types` ID of the placement's connection, or ''. */
+    connectionType: string;
     /** 'native' when the widget fills the display at its real size, else 'reference' (1920 × 540, scaled). */
     viewport: 'native' | 'reference';
     theme: Theme;
@@ -146,6 +148,8 @@ declare namespace DashledgeView {
     action(id: string, args?: Record<string, string | number | boolean>): Promise<{status: number}>;
     /** The name to show for this placement's server: the user's name, else the server's, else the host. */
     displayName(serverName?: string): string;
+    /** The `sources.types` ID the placement's connection was made for, such as 'jellyfin', or '' when the manifest declares no types. */
+    connectionType(): string;
     /** Low-level: send a host command. Prefer the helpers. */
     command(name: string, args?: unknown): Promise<unknown>;
 
@@ -204,10 +208,12 @@ declare var Dashledge: DashledgeView.API;
 
 declare namespace DashledgeConnector {
   interface Connection {
-    /** The placement's connection address, as the user entered it. */
+    /** The placement's connection address, resolved with the manifest's `sources.address` mode (a directory URL ending in `/` for `path`). Join routes to it. */
     address: string;
     /** The connection's name, or '' when automatic. */
     name: string;
+    /** The `sources.types` ID this connection was made for, or null when the manifest declares no types. */
+    type: string | null;
   }
 
   interface Host {

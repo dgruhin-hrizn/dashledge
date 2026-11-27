@@ -95,6 +95,7 @@ Settings and colours are left out of the dashboard's page signature, so changing
   - `min`/`max`: how many connections a placement takes.
   - `auth`: how the credential travels: a named style (`bearer`, `emby-token`, `pve-token`, `basic`, `none`), `{"header", "format"?}` or `{"query"}`. `package_connector::Credential::for_auth` is the one place that turns it and the saved `Secret` (username and key) into a header or query parameter, for connector fetches and sockets, declarative routes, actions and Test alike. Credential headers and the app's own headers (`RESERVED_HEADERS`) can't be set by a package; a query key replaces the package's parameter of that name; `scrub` replaces an echoed credential in returned headers and bodies.
   - `usernameLabel`: the connection form asks for a username, stored beside the key in the vault.
+  - `types`: products one widget connects to, each with its own optional `auth`, `test` and labels. The connection object in `config.sources` stores `type`; `Sources::auth_for`/`test_for` (and `Manifest::auth_for`) pick the type's values, falling back to the widget's, for connector, declarative routes, actions, images, streams and Test. The type reaches connectors as `dashledge.connection.type`, collectors as `type` in their setup, and views as `state.connectionType`. It lives on the connection, not the placement, because auth depends on it.
   - `address`: `path` keeps the address's path as the base; `origin` drops it.
   - `test`: the routes the **Test** button reads.
   - The labels shown in the connection form.

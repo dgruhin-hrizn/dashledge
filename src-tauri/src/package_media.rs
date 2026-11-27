@@ -4,7 +4,7 @@
 //! raster image, caches it, and returns the bytes. The bridge hands them to the frame,
 //! which shows them from a `blob:` URL. The view itself still can't reach the network.
 use crate::package_connector::{self, Request, Target};
-use crate::package_manifest::{self, Auth, Permission};
+use crate::package_manifest::{self, Permission};
 use reqwest::Url;
 use std::{
     collections::VecDeque,
@@ -98,7 +98,7 @@ pub async fn package_image(id: String, viewer: String, path: String, fresh: Opti
             return Ok(tauri::ipc::Response::new(bytes.to_vec()));
         }
     }
-    let auth = manifest.sources.as_ref().map_or(Auth::None, |s| s.auth.clone());
+    let auth = manifest.auth_for(connection.as_ref().and_then(|c| c.source_type.as_deref()));
     let request = Request { url, method: "GET".into(), headers: vec![("Accept".into(), "image/*".into())], body: None };
     let response = package_connector::exchange(&kind, target.as_ref(), &auth, request).await?;
     if !(200..300).contains(&response.status) {

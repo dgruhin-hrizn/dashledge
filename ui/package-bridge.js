@@ -28,6 +28,8 @@ export function packageState(entry) {
     displayName: entry.displayName || '',
     serverName: entry.serverName || '',
     host: entry.host || '',
+    // The manifest's connection type the placement's connection was made for, or ''.
+    connectionType: entry.connectionType || '',
     // 'native' when the widget fills the display at its real size; 'reference' in a
     // split page's 1920 × 540 canvas.
     viewport: entry.native ? 'native' : 'reference',
@@ -151,8 +153,9 @@ async function reminders(entry, name, args) {
 // Returns unregister(); `deliver(data)` sends a package feed's data, now or once ready,
 // and `settings(saved)` sends the placement's changed settings to the live view.
 export function registerFrame(frame, {viewer, feed, kind = '', title = '', commands = [], actions = [], permissions = [],
-  schema = [], saved = {}, source = '', openSettings = null, colors = null, displayName = '', host = '', serverField = '', native = false}) {
-  const entry = {frame, viewer, feed, kind, title: clean(title, 64) || 'Widget', commands, actions, permissions, schema, source,
+  schema = [], saved = {}, source = '', openSettings = null, colors = null, displayName = '', host = '', serverField = '', native = false,
+  connectionType = ''}) {
+  const entry = {frame, viewer, feed, kind, title: clean(title, 64) || 'Widget', commands, actions, permissions, schema, source, connectionType,
     settings: settingValues(schema, saved), openSettings, colors, displayName, host, serverField, native,
     serverName: '', window: null, data: null, ready: false, metrics: false, keyboard: null, streams: new Set()};
   entries.add(entry);

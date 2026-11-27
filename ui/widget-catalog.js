@@ -80,6 +80,12 @@ export function packageEntry(info){
     entry.feed=info.id;
     entry.sources={min:info.sources.min,max:info.sources.max};
     for(const key of ['addressLabel','addressPlaceholder','credentialLabel','usernameLabel'])if(info.sources[key])entry.sources[key]=info.sources[key];
+    // Connection types: what the connection form shows. Auth and Test stay in Rust.
+    if(info.sources.types?.length)entry.sources.types=info.sources.types.map(type=>{
+      const out={id:type.id,label:type.label};
+      for(const key of ['addressLabel','addressPlaceholder','credentialLabel','usernameLabel'])if(type[key])out[key]=type[key];
+      return out;
+    });
   }
   if(info.view?.viewport==='native')entry.viewport='native';
   if(info.view?.theme)entry.theme=true;

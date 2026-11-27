@@ -63,7 +63,15 @@ Every view runs isolated. It can't reach the network, other widgets, Dashledge's
   | `"emby-token"`, `"pve-token"` | `X-Emby-Token`, `Authorization: PVEAPIToken=` | Emby, Proxmox |
   | `"none"` | nothing | |
 
-  Add `"usernameLabel": "Username"` to ask for a username beside the key. Your code never sees either value: a package can't set the credential's header, Dashledge replaces any query parameter of the same name, and an echoed credential (in a redirect's `Location` or a response body) reaches your connector as `[credential]`.
+  Add `"usernameLabel": "Username"` to ask for a username beside the key. One widget can talk to several products with `"types"`: each `{"id", "label"}` may bring its own `auth`, `test` and labels, the connection form asks which one, and your code reads it as `dashledge.connection.type` and `Dashledge.connectionType()`:
+
+  ```json
+  "sources": {"min": 1, "max": 1, "auth": "none", "types": [
+    {"id": "sabnzbd", "label": "SABnzbd", "auth": {"query": "apikey"}, "test": ["api?mode=version&output=json"], "credentialLabel": "API key"},
+    {"id": "nzbget", "label": "NZBGet", "auth": "basic", "test": ["jsonrpc/version"], "usernameLabel": "Username", "credentialLabel": "Password"}
+  ]}
+  ```
+ Your code never sees either value: a package can't set the credential's header, Dashledge replaces any query parameter of the same name, and an echoed credential (in a redirect's `Location` or a response body) reaches your connector as `[credential]`.
 - **`displayName.serverField`** is a dot path into your data where the server reports its own name. Dashledge shows the name the user typed for the connection, else this, else the address's host.
 - **`data`** routes are relative to the connection address, polled every 2–3600 seconds. They must return JSON.
 - **`actions`** are `POST`, `PUT` or `DELETE` routes. `{name}` placeholders, in the route or as whole string values in `body`, take 1–128 letters, digits, `.`, `_`, `:` or `-` from the view.

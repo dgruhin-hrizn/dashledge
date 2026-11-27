@@ -348,12 +348,15 @@ function layouts(){
 const sourceHelp={
   json:['JSON endpoint','https://service.example/status','Optional bearer token']
 };
+// The connection types a package widget declares ([{id,label,…labels}]), by kind.
+const sourceTypes={};
 // Package widgets describe their own connections in widget.json: bundled ones
 // through the package list, installed ones through their layout entry.
 function syncSourceTables(){
   const describe=(kind,title,sources)=>{
     sourceNames[kind]=title;
     sourceHelp[kind]=[sources.addressLabel||'Server URL',sources.addressPlaceholder||'https://server.local',sources.credentialLabel||'Credential',sources.usernameLabel||''];
+    sourceTypes[kind]=sources.types?.length?sources.types:null;
   };
   for(const [kind,info] of packageInfo)if(info.sources)describe(kind,info.title,info.sources);
   for(const entry of config.plugins)if(entry.apiVersion===2&&entry.sources)describe(entry.id,entry.title,entry.sources);
@@ -366,8 +369,15 @@ function sourceForm(widget,existing){
   // A manifest's usernameLabel asks for a username beside the credential (Basic auth, sign-in forms).
   const username=input(''),usernameField=field('',username);
   username.autocomplete='off';username.maxLength=256;username.placeholder=existing?'Leave blank to keep saved username':'';
-  const describe=()=>{const [label,hint,credential,user]=sourceHelp[kind];addressField.firstChild.textContent=label;address.placeholder=hint;secretField.firstChild.textContent=credential;
-    usernameField.firstChild.textContent=user||'';usernameField.hidden=!user};
+  // A widget with connection types (SABnzbd, NZBGet…) asks which one first; its labels follow.
+  const types=sourceTypes[kind],typePicker=el('select');
+  for(const type of types||[]){const option=el('option','',type.label);option.value=type.id;typePicker.append(option)}
+  typePicker.value=types?.some(t=>t.id===existing?.type)?existing.type:types?.[0]?.id||'';
+  const typeField=field('Server type',typePicker);typeField.hidden=!types;
+  const describe=()=>{const [label,hint,credential,user]=sourceHelp[kind],type=types?.find(t=>t.id===typePicker.value)||{};
+    addressField.firstChild.textContent=type.addressLabel||label;address.placeholder=type.addressPlaceholder||hint;secretField.firstChild.textContent=type.credentialLabel||credential;
+    const username=type.usernameLabel||user;usernameField.firstChild.textContent=username||'';usernameField.hidden=!username};
+  typePicker.onchange=describe;
   describe();
   // ComfyUI: optional SSH access to the worker for GPU load when Crystools isn't installed.
   const sshTarget=input(existing?.gpuSsh?.target||''),sshKey=input(existing?.gpuSsh?.identityFile||'');
@@ -375,9 +385,10 @@ function sourceForm(widget,existing){
   const extra=kind==='comfy'?[el('p','sub','GPU load comes from the Crystools node when it’s installed, or from this Mac when ComfyUI runs here. Otherwise add SSH access to the worker.'),field('GPU telemetry over SSH',sshTarget),field('SSH key file',sshKey)]:[];
   const proxmox=kind==='proxmox'?proxmoxFields(existing):null;
   if(proxmox)extra.push(...proxmox.nodes);
-  const dialog=formDialog(existing?'Edit connection':'Add connection',[field('Connection name',name),addressField,usernameField,secretField,...extra],async()=>{
+  const dialog=formDialog(existing?'Edit connection':'Add connection',[field('Connection name',name),typeField,addressField,usernameField,secretField,...extra],async()=>{
     const u=new URL(address.value);if(!['http:','https:'].includes(u.protocol)||u.username||u.password||u.search||u.hash)throw Error('Use an HTTP(S) URL without embedded credentials or query');
     const obj={id:existing?.id||id(),name:name.value.trim(),kind,address:u.href};
+    if(types)obj.type=typePicker.value;
     if(existing?.widgets)obj.widgets=existing.widgets;
     if(existing?.owner||(!existing&&kind==='json'))obj.owner=existing?.owner||widget;
     if(proxmox){const guests=proxmox.guests();if(Object.keys(guests).length)obj.gpuGuests=guests}
@@ -471,7 +482,7 @@ function connections(widget){
     if(s.gpuGuests)details.append(el('small','',Object.keys(s.gpuGuests).length+' saved guest SSH mappings'));
     const test=button('Test',async()=>{
       test.disabled=true;health.textContent='Testing…';
-      try{await invoke('source_read',{kind:s.kind,address:s.address});health.textContent='Connected'}
+      try{await invoke('source_read',{kind:s.kind,address:s.address,sourceType:s.type||null});health.textContent='Connected'}
       catch(e){health.textContent=String(e)}finally{sourcesStatus.set(endpointKey,health.textContent);test.disabled=false}
     });
     const menu=el('details','service-menu'),summary=el('summary','','•••');
