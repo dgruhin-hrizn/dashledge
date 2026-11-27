@@ -17,7 +17,7 @@ const capabilityLines = {
   keyboard: 'Can open the on-screen keyboard to ask you for text.',
   'mac.metrics': 'Reads this Mac’s CPU, GPU, memory and network activity.',
   reminders: 'Reads, checks off and adds your Apple Reminders, and can say them aloud when they’re due. Bundled widgets only.',
-  speech: 'Can say things aloud in your Dashledge voice while it’s on screen.',
+  speech: 'Speak aloud: can say things in your Dashledge voice while it’s on screen.',
 };
 
 // Plain-language permissions for the install sheet. When `previous` is the installed

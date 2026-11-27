@@ -26,6 +26,7 @@ mod photos;
 mod reminders;
 mod voice;
 mod kokoro;
+mod pronounce;
 mod general;
 mod updater;
 mod touch;

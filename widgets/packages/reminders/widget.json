@@ -3,7 +3,7 @@
   "id": "reminders",
   "title": "Reminders",
   "description": "Your Apple Reminders: what’s due, check it off, add new ones with a due date, and hear them spoken when they’re due.",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "category": "Everyday",
   "icon": "view/icon.svg",
   "view": {

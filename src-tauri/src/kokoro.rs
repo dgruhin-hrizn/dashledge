@@ -187,7 +187,7 @@ async fn install_inner() -> Result<(), String> {
         return Err("Natural voices didn't install completely.".into());
     }
     // A short line proves the runtime starts on this Mac.
-    synthesize("Ready.", 1, &root.join("check.wav"))?;
+    synthesize("Ready.", 1, None, &root.join("check.wav"))?;
     let _ = std::fs::remove_file(root.join("check.wav"));
     Ok(())
 }
@@ -236,15 +236,26 @@ pub fn remove() -> Result<(), String> {
     Ok(())
 }
 
-/// Writes `text` spoken by `speaker` to `out` as a WAV. Blocks for about a second.
-pub fn synthesize(text: &str, speaker: u32, out: &Path) -> Result<(), String> {
+/// The installed pronunciation dictionary, read for one line (about 170,000 words).
+pub fn lexicon() -> crate::pronounce::Lexicon {
+    paths().and_then(|p| std::fs::read_to_string(p.lexicon).ok()).map(|text| crate::pronounce::parse_lexicon(&text)).unwrap_or_default()
+}
+
+/// Writes `text` spoken by `speaker` to `out` as a WAV, with `extra` (pronunciations
+/// for words the dictionary lacks) read before the main dictionary. About a second.
+pub fn synthesize(text: &str, speaker: u32, extra: Option<&Path>, out: &Path) -> Result<(), String> {
     let p = paths().ok_or("Natural voices aren't installed.")?;
-    let threads = std::thread::available_parallelism().map(|n| n.get().clamp(1, 4)).unwrap_or(2);
+    let lexicons = match extra {
+        Some(extra) => format!("{},{}", extra.display(), p.lexicon.display()),
+        None => p.lexicon.display().to_string(),
+    };
+    // Two sentences are made at once, so each takes half the cores (up to four).
+    let threads = std::thread::available_parallelism().map(|n| (n.get() / 2).clamp(1, 4)).unwrap_or(2);
     let output = Command::new(&p.bin)
         .arg(format!("--kokoro-model={}", p.model.display()))
         .arg(format!("--kokoro-voices={}", p.voices.display()))
         .arg(format!("--kokoro-tokens={}", p.tokens.display()))
-        .arg(format!("--kokoro-lexicon={}", p.lexicon.display()))
+        .arg(format!("--kokoro-lexicon={lexicons}"))
         .arg(format!("--num-threads={threads}"))
         .arg(format!("--sid={speaker}"))
         .arg(format!("--output-filename={}", out.display()))
@@ -280,7 +291,7 @@ mod tests {
         assert_eq!(status(), Status::Ready);
         let out = dir.join("george.wav");
         let started = std::time::Instant::now();
-        synthesize("-- Laundry is due now.", 9, &out).expect("speak");
+        synthesize("-- Laundry is due now.", 9, None, &out).expect("speak");
         eprintln!("synthesized in {:?}, {} bytes", started.elapsed(), std::fs::metadata(&out).unwrap().len());
         remove().unwrap();
         assert!(!ready());
