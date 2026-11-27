@@ -271,11 +271,11 @@ pub(crate) fn socket_close(socket: i64) {
     unsafe { connector_ws_close(socket) };
 }
 
-/// Headers a package may not set itself: the app's own, and the one its credential uses.
+/// Headers a package may not set itself: credentials, the request's framing, and the
+/// header its own credential uses. `Content-Type`, `Accept` and the like stay the package's.
 fn forbidden_header(name: &str, auth: &Auth) -> bool {
     let lower = name.to_ascii_lowercase();
-    matches!(lower.as_str(), "authorization" | "x-emby-token")
-        || package_manifest::RESERVED_HEADERS.contains(&lower.as_str())
+    matches!(lower.as_str(), "authorization" | "cookie" | "host" | "x-emby-token" | "proxy-authorization" | "content-length")
         || matches!(auth, Auth::Header { name: own, .. } if own.eq_ignore_ascii_case(name))
         || matches!(auth, Auth::Login(package_manifest::Login { session: package_manifest::LoginSession::Token { header, .. }, .. }) if header.eq_ignore_ascii_case(name))
 }
@@ -1110,7 +1110,9 @@ mod tests {
         for name in ["Authorization", "cookie", "X-Emby-Token", "Host", "Content-Length"] {
             assert!(forbidden_header(name, &Auth::Bearer), "{name}");
         }
-        assert!(!forbidden_header("Accept", &Auth::Bearer) && !forbidden_header("X-Api-Key", &Auth::Bearer));
+        for name in ["Accept", "X-Api-Key", "Content-Type", "content-type"] {
+            assert!(!forbidden_header(name, &Auth::Bearer), "a connector sets its own {name}");
+        }
         assert!(forbidden_header("x-api-key", &Auth::Header { name: "X-Api-Key".into(), format: None }), "a package can't replace its own credential header");
     }
 
