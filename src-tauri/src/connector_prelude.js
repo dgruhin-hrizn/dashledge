@@ -87,7 +87,8 @@
     try {
       const headers = init.headers && typeof init.headers === 'object' ? {...init.headers} : {};
       const bytes = init.body == null ? null : bytesOf(init.body);
-      call('fetch', {id, url: String(url), method: init.method || 'GET', headers,
+      const connection = Number.isInteger(init.connection) ? {connection: init.connection} : {};
+      call('fetch', {id, url: String(url), method: init.method || 'GET', headers, ...connection,
         ...(bytes ? {bodyBase64: toBase64(bytes)} : {body: init.body == null ? undefined : String(init.body)})});
       fetches.set(id, {resolve, reject});
     } catch (error) { reject(error); }
@@ -133,8 +134,11 @@
   const storage = Object.freeze({get: key => call('storageGet', {key}), set: (key, value) => call('storageSet', {key, value})});
 
   globalThis.__dashledge_start = config => {
+    const connections = Object.freeze((config.connections || []).map(c => Object.freeze({...c})));
     globalThis.dashledge = Object.freeze({
-      connection: config.connection ? Object.freeze({...config.connection}) : null,
+      // The placement's chosen connection, and every one it holds (that one first).
+      connection: connections[0] ?? null,
+      connections,
       emit: data => call('emit', {data}),
       storage,
     });

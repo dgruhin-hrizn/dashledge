@@ -62,6 +62,33 @@ impl Target {
     }
 }
 
+/// One of a connector's connections: where it is, its name and type, and its auth.
+#[derive(Clone, Debug)]
+pub(crate) struct Link {
+    pub target: Target,
+    pub name: String,
+    pub source_type: Option<String>,
+    pub auth: Auth,
+}
+
+impl Link {
+    fn json(&self) -> Value {
+        json!({"address": self.target.base.as_str(), "name": self.name, "type": self.source_type})
+    }
+}
+
+/// The connection a request is for: the one `index` names, else the connection whose
+/// address the URL falls under (the longest base path wins, so two services behind one
+/// reverse proxy keep their own keys), else none.
+pub(crate) fn link_for<'a>(links: &'a [Link], url: &Url, index: Option<usize>) -> Result<Option<&'a Link>, String> {
+    if let Some(index) = index {
+        return links.get(index).map(Some).ok_or_else(|| format!("This widget has no connection {index}."));
+    }
+    Ok(links.iter()
+        .filter(|l| same_origin(url, Some(&l.target.base)))
+        .max_by_key(|l| if url.path().starts_with(l.target.base.path()) { l.target.base.path().len() } else { 0 }))
+}
+
 #[derive(Default)]
 pub(crate) struct Output {
     rev: u64,
@@ -71,7 +98,8 @@ pub(crate) struct Output {
 
 struct Feed {
     kind: String,
-    connection: Option<Connection>,
+    /// The placement's connections, the one it chose first.
+    connections: Vec<Connection>,
     view: PathBuf,
     /// The manifest declares `ui`: views get `/package-ui.css`.
     ui: bool,
@@ -93,9 +121,9 @@ static NEXT_FEED: AtomicU64 = AtomicU64::new(1);
 
 // ---------------------------------------------------------------- network ----
 
-/// The origins a request may reach: the connection's, then the manifest's hosts.
-pub fn allowed_origins(connection: Option<&Url>, manifest: &Manifest) -> Vec<String> {
-    let mut origins: Vec<String> = connection.map(|u| u.origin().ascii_serialization()).into_iter().collect();
+/// The origins a request may reach: the connections', then the manifest's hosts.
+pub fn allowed_origins(connections: &[&Url], manifest: &Manifest) -> Vec<String> {
+    let mut origins: Vec<String> = connections.iter().map(|u| u.origin().ascii_serialization()).collect();
     if let Some(connector) = &manifest.connector {
         origins.extend(connector.hosts.iter().cloned());
     }
@@ -436,8 +464,7 @@ struct Timer {
 struct Runtime {
     handle: usize,
     kind: String,
-    connection: Option<Target>,
-    auth: Auth,
+    links: Vec<Link>,
     origins: Vec<String>,
     tx: mpsc::Sender<Event>,
     output: Arc<Mutex<Output>>,
@@ -483,9 +510,12 @@ fn host_op(rt: &Runtime, op: &str, args: Value) -> Result<Value, String> {
             let headers = args["headers"].as_object().map(|h| {
                 h.iter().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_string()))).take(32).collect()
             }).unwrap_or_default();
-            let (kind, connection, auth, tx) = (rt.kind.clone(), rt.connection.clone(), rt.auth.clone(), rt.tx.clone());
+            let index = args["connection"].as_u64().map(|i| i as usize);
+            let link = link_for(&rt.links, &url, index)?.cloned();
+            let (kind, tx) = (rt.kind.clone(), rt.tx.clone());
             tauri::async_runtime::spawn(async move {
-                let result = send(&kind, connection.as_ref(), &auth, Request { url, method, headers, body }).await;
+                let (target, auth) = link.map_or((None, Auth::None), |l| (Some(l.target), l.auth));
+                let result = send(&kind, target.as_ref(), &auth, Request { url, method, headers, body }).await;
                 let _ = tx.send(Event::Fetch { id, result });
             });
             Ok(Value::Null)
@@ -567,7 +597,15 @@ fn host_op(rt: &Runtime, op: &str, args: Value) -> Result<Value, String> {
             sockets.insert(global, local);
             drop(sockets);
             // The connector's thread isn't async: wait here for a sign-in, if any.
-            if let Err(error) = tauri::async_runtime::block_on(open_socket(rt.handle, global, &rt.kind, rt.connection.as_ref(), &rt.auth, url)) {
+            let link = match link_for(&rt.links, &url, args["connection"].as_u64().map(|i| i as usize)) {
+                Ok(link) => link,
+                Err(error) => {
+                    rt.sockets.lock().unwrap().remove(&global);
+                    return Err(error);
+                }
+            };
+            let (target, auth) = link.map_or((None, Auth::None), |l| (Some(&l.target), l.auth.clone()));
+            if let Err(error) = tauri::async_runtime::block_on(open_socket(rt.handle, global, &rt.kind, target, &auth, url)) {
                 rt.sockets.lock().unwrap().remove(&global);
                 return Err(error);
             }
@@ -669,9 +707,8 @@ pub(crate) struct ConnectorSetup {
     pub kind: String,
     pub package: String,
     pub source: String,
-    pub connection: Option<(Target, String)>,
-    /// The connection's type, which picks its auth and reaches the connector.
-    pub source_type: Option<String>,
+    /// The placement's connections, each with its own auth (its type may pick it).
+    pub links: Vec<Link>,
     pub manifest: Manifest,
     pub storage_file: Option<PathBuf>,
 }
@@ -684,14 +721,13 @@ pub(crate) fn run_connector(setup: ConnectorSetup, output: Arc<Mutex<Output>>, s
             .and_then(|f| std::fs::read(f).ok())
             .and_then(|b| serde_json::from_slice::<Map<String, Value>>(&b).ok())
             .unwrap_or_default();
-        let connection_url = setup.connection.as_ref().map(|(u, _)| u.clone());
         let handle = NEXT_HANDLE.fetch_add(1, Ordering::SeqCst) as usize;
+        let bases: Vec<&Url> = setup.links.iter().map(|l| &l.target.base).collect();
         let rt = Arc::new(Runtime {
             handle,
             kind: setup.kind.clone(),
-            origins: allowed_origins(connection_url.as_ref().map(|t| &t.base), &setup.manifest),
-            auth: setup.manifest.auth_for(setup.source_type.as_deref()),
-            connection: connection_url,
+            origins: allowed_origins(&bases, &setup.manifest),
+            links: setup.links.clone(),
             tx,
             output: output.clone(),
             timers: Mutex::new(Vec::new()),
@@ -702,7 +738,7 @@ pub(crate) fn run_connector(setup: ConnectorSetup, output: Arc<Mutex<Output>>, s
         });
         RUNTIMES.lock().unwrap().insert(handle, rt.clone());
         let context = Context(unsafe { connector_new(handle, WATCHDOG_SECONDS) });
-        let connection = setup.connection.as_ref().map(|(t, name)| json!({"address": t.base.as_str(), "name": name, "type": setup.source_type}));
+        let connections: Vec<Value> = setup.links.iter().map(Link::json).collect();
         let fail = |error: String| {
             log_line(&setup.kind, "error", &error);
             let mut out = output.lock().unwrap();
@@ -710,7 +746,7 @@ pub(crate) fn run_connector(setup: ConnectorSetup, output: Arc<Mutex<Output>>, s
             out.rev += 1;
         };
         let start = context.eval(PRELUDE, "dashledge://prelude")
-            .and_then(|_| context.eval(&format!("__dashledge_start({})", json!({"connection": connection})), "dashledge://start"))
+            .and_then(|_| context.eval(&format!("__dashledge_start({})", json!({"connections": connections})), "dashledge://start"))
             .and_then(|_| context.eval(&setup.source, &format!("package://{}/connector.js", setup.package)));
         match start {
             Ok(()) => log_line(&setup.kind, "info", "Connector started."),
@@ -831,24 +867,31 @@ fn permission_names(manifest: &crate::package_manifest::Manifest) -> Value {
 }
 
 #[tauri::command]
-pub fn package_open(window: tauri::WebviewWindow, app: tauri::AppHandle, kind: String, connection: Option<Connection>, viewer: String) -> Result<Value, String> {
+pub fn package_open(window: tauri::WebviewWindow, app: tauri::AppHandle, kind: String, connection: Option<Connection>,
+    connections: Option<Vec<Connection>>, viewer: String) -> Result<Value, String> {
     if viewer.is_empty() || viewer.len() > 80 {
         return Err("Invalid viewer".into());
     }
     let (manifest, dir) = installed_package(&kind)?;
     let entry = std::path::Path::new(&manifest.view.entry).file_name().and_then(|n| n.to_str()).unwrap_or("index.html").to_string();
     let needs = manifest.sources.as_ref().is_some_and(|s| s.min > 0);
-    if needs && connection.is_none() {
+    // The placement's connections, the chosen one first, up to the manifest's count.
+    let mut connections = connections.unwrap_or_else(|| connection.into_iter().collect());
+    connections.truncate(manifest.sources.as_ref().map_or(0, |s| s.max as usize));
+    if needs && connections.is_empty() {
         return Err("Choose a connection for this widget in Widget Studio.".into());
     }
     let revision = crate::package_store::revision(&kind);
     let mut feeds = FEEDS.lock().unwrap();
-    if let Some((id, feed)) = feeds.iter_mut().find(|(_, f)| f.kind == kind && f.connection == connection && f.revision == revision) {
+    if let Some((id, feed)) = feeds.iter_mut().find(|(_, f)| f.kind == kind && f.connections == connections && f.revision == revision) {
         feed.viewers.insert(viewer, window.label().into());
         feed.last_attached = Instant::now();
         return Ok(json!({"id": id, "entry": entry, "permissions": permission_names(&manifest)}));
     }
-    let target = connection.as_ref().map(|c| Target::new(&kind, &c.address)).transpose()?;
+    let links = connections.iter().map(|c| Ok(Link {
+        target: Target::new(&kind, &c.address)?, name: c.name.clone(), source_type: c.source_type.clone(),
+        auth: manifest.auth_for(c.source_type.as_deref()),
+    })).collect::<Result<Vec<_>, String>>()?;
     let output = Arc::new(Mutex::new(Output::default()));
     let stop = Arc::new(AtomicBool::new(false));
     match manifest.tier() {
@@ -858,14 +901,14 @@ pub fn package_open(window: tauri::WebviewWindow, app: tauri::AppHandle, kind: S
             let storage_file = app.path().app_data_dir().ok().map(|d| d.join("package-data").join(format!("{kind}.json")));
             run_connector(ConnectorSetup {
                 kind: kind.clone(), package: kind.clone(), source,
-                connection: target.clone().zip(connection.as_ref().map(|c| c.name.clone())),
-                source_type: connection.as_ref().and_then(|c| c.source_type.clone()),
+                links: links.clone(),
                 manifest: manifest.clone(), storage_file,
             }, output.clone(), stop.clone());
         }
+        // Declarative polls read the placement's first connection.
         Tier::Declarative => {
-            let auth = manifest.auth_for(connection.as_ref().and_then(|c| c.source_type.as_deref()));
-            run_declarative(kind.clone(), manifest.clone(), target.clone().ok_or("Choose a connection")?, auth, output.clone(), stop.clone())
+            let first = links.first().cloned().ok_or("Choose a connection")?;
+            run_declarative(kind.clone(), manifest.clone(), first.target, first.auth, output.clone(), stop.clone())
         }
         Tier::View | Tier::Collector => {}
     }
@@ -874,7 +917,7 @@ pub fn package_open(window: tauri::WebviewWindow, app: tauri::AppHandle, kind: S
     let mut viewers = HashMap::new();
     viewers.insert(viewer, window.label().to_string());
     let ui = manifest.permissions.contains(&crate::package_manifest::Permission::Ui);
-    feeds.insert(id.clone(), Feed { kind, connection, view, ui, revision, viewers, last_attached: Instant::now(), output, stop });
+    feeds.insert(id.clone(), Feed { kind, connections, view, ui, revision, viewers, last_attached: Instant::now(), output, stop });
     Ok(json!({"id": id, "entry": entry, "permissions": permission_names(&manifest)}))
 }
 
@@ -907,11 +950,16 @@ pub fn package_close(id: String, viewer: String) {
     crate::package_stream::close_for(&id, Some(&viewer));
 }
 
-/// A running feed's package kind and connection, for a viewer attached to it.
-pub(crate) fn feed_connection(id: &str, viewer: &str) -> Result<(String, Option<Connection>), String> {
+/// A running feed's package kind and one of its connections (`index`, else the first),
+/// for a viewer attached to it.
+pub(crate) fn feed_connection(id: &str, viewer: &str, index: Option<usize>) -> Result<(String, Option<Connection>), String> {
     let feeds = FEEDS.lock().unwrap();
     let feed = feeds.get(id).filter(|f| f.viewers.contains_key(viewer)).ok_or("Widget disconnected")?;
-    Ok((feed.kind.clone(), feed.connection.clone()))
+    let connection = match index {
+        Some(i) => Some(feed.connections.get(i).cloned().ok_or_else(|| format!("This widget has no connection {i}."))?),
+        None => feed.connections.first().cloned(),
+    };
+    Ok((feed.kind.clone(), connection))
 }
 
 /// The manifest of an installed package, never a bundled one.
@@ -921,12 +969,8 @@ pub(crate) fn installed_manifest(kind: &str) -> Result<Manifest, String> {
 
 /// Run a manifest-declared action against the placement's connection.
 #[tauri::command]
-pub async fn package_action(id: String, viewer: String, action: String, args: Map<String, Value>) -> Result<Value, String> {
-    let (kind, connection) = {
-        let feeds = FEEDS.lock().unwrap();
-        let feed = feeds.get(&id).filter(|f| f.viewers.contains_key(&viewer)).ok_or("Widget disconnected")?;
-        (feed.kind.clone(), feed.connection.clone())
-    };
+pub async fn package_action(id: String, viewer: String, action: String, args: Map<String, Value>, connection: Option<usize>) -> Result<Value, String> {
+    let (kind, connection) = feed_connection(&id, &viewer, connection)?;
     let (manifest, _) = installed_package(&kind)?;
     let declared = manifest.actions.iter().find(|a| a.id == action).ok_or("This widget didn’t declare that action.")?;
     let connection = connection.ok_or("Choose a connection")?;
@@ -962,7 +1006,7 @@ mod tests {
     #[test]
     fn requests_reach_only_the_connection_and_declared_hosts() {
         let connection = Url::parse("http://10.0.0.5:8123/api/").unwrap();
-        let origins = allowed_origins(Some(&connection), &manifest(&["https://api.example.com"]));
+        let origins = allowed_origins(&[&connection], &manifest(&["https://api.example.com"]));
         assert!(check_url("http://10.0.0.5:8123/api/states", &origins).is_ok());
         assert!(check_url("ws://10.0.0.5:8123/api/websocket", &origins).is_ok());
         assert!(check_url("https://api.example.com/v1/x?y=1", &origins).is_ok());
@@ -1117,12 +1161,48 @@ mod tests {
         false
     }
 
+    fn link(url: Url, source_type: Option<&str>) -> Link {
+        Link { target: Target { base: url.clone(), account: url }, name: "Test".into(), source_type: source_type.map(str::to_string), auth: Auth::None }
+    }
+
+    #[test]
+    fn a_request_goes_to_the_connection_it_falls_under() {
+        let radarr = link(Url::parse("http://media.local/radarr/").unwrap(), Some("radarr"));
+        let sonarr = link(Url::parse("http://media.local/sonarr/").unwrap(), Some("sonarr"));
+        let sab = link(Url::parse("http://sab.local:8080/").unwrap(), None);
+        let links = vec![radarr, sonarr, sab];
+        let pick = |url: &str, index| link_for(&links, &Url::parse(url).unwrap(), index).unwrap().map(|l| l.source_type.clone());
+        assert_eq!(pick("http://media.local/sonarr/api/v3/queue", None), Some(Some("sonarr".into())), "two services behind one proxy keep their own keys");
+        assert_eq!(pick("http://media.local/radarr/api/v3/movie", None), Some(Some("radarr".into())));
+        assert_eq!(pick("http://sab.local:8080/api?mode=queue", None), Some(None));
+        assert_eq!(pick("https://api.example.com/x", None), None, "a declared host is no connection");
+        assert_eq!(pick("http://media.local/sonarr/api", Some(0)), Some(Some("radarr".into())), "an explicit index wins");
+        assert!(link_for(&links, &Url::parse("http://sab.local:8080/").unwrap(), Some(9)).is_err());
+    }
+
+    #[test]
+    fn a_connector_sees_every_connection_of_its_placement() {
+        let source = r#"dashledge.emit({count: dashledge.connections.length, first: dashledge.connection.name, frozen: Object.isFrozen(dashledge.connections),
+            types: dashledge.connections.map(c => c.type)});"#;
+        let output = Arc::new(Mutex::new(Output::default()));
+        let stop = Arc::new(AtomicBool::new(false));
+        run_connector(ConnectorSetup {
+            kind: "plugin.test".into(), package: "plugin.test".into(), source: source.into(),
+            links: vec![link(Url::parse("http://a.local/").unwrap(), Some("radarr")), link(Url::parse("http://b.local/").unwrap(), Some("sonarr"))],
+            manifest: manifest(&[]), storage_file: None,
+        }, output.clone(), stop.clone());
+        assert!(wait_for(&output, |o| o.data.get("count").is_some()), "{:?}", output.lock().unwrap().error);
+        let data = output.lock().unwrap().data.clone();
+        assert_eq!(data, json!({"count": 2, "first": "Test", "frozen": true, "types": ["radarr", "sonarr"]}));
+        stop.store(true, Ordering::SeqCst);
+    }
+
     fn start(source: &str, connection: Option<Url>, hosts: &[&str]) -> (Arc<Mutex<Output>>, Arc<AtomicBool>) {
         let output = Arc::new(Mutex::new(Output::default()));
         let stop = Arc::new(AtomicBool::new(false));
         let setup = ConnectorSetup {
             kind: "plugin.test".into(), package: "plugin.test".into(), source: source.into(),
-            connection: connection.map(|u| (Target { base: u.clone(), account: u }, "Test".to_string())), source_type: None, manifest: manifest(hosts), storage_file: None,
+            links: connection.map(|u| link(u, None)).into_iter().collect(), manifest: manifest(hosts), storage_file: None,
         };
         run_connector(setup, output.clone(), stop.clone());
         (output, stop)
@@ -1176,7 +1256,8 @@ mod tests {
         let stop = Arc::new(AtomicBool::new(false));
         run_connector(ConnectorSetup {
             kind: "plugin.test".into(), package: "plugin.test".into(), source: source.into(),
-            connection: Some((Target { base: base.clone(), account }, "Test".into())), source_type: Some("sab".into()), manifest: manifest(&[]), storage_file: None,
+            links: vec![Link { target: Target { base: base.clone(), account }, name: "Test".into(), source_type: Some("sab".into()), auth: Auth::None }],
+            manifest: manifest(&[]), storage_file: None,
         }, output.clone(), stop.clone());
         assert!(wait_for(&output, |o| o.data.get("ok").is_some()), "error: {:?}", output.lock().unwrap().error);
         assert_eq!(output.lock().unwrap().data["address"], base.as_str());

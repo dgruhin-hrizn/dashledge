@@ -84,8 +84,8 @@ fn image_url(manifest: &package_manifest::Manifest, target: Option<&Target>, pat
 
 /// Fetch an image a package view asked for. `fresh` skips the cache (a camera snapshot).
 #[tauri::command]
-pub async fn package_image(id: String, viewer: String, path: String, fresh: Option<bool>) -> Result<tauri::ipc::Response, String> {
-    let (kind, connection) = package_connector::feed_connection(&id, &viewer)?;
+pub async fn package_image(id: String, viewer: String, path: String, fresh: Option<bool>, connection: Option<usize>) -> Result<tauri::ipc::Response, String> {
+    let (kind, connection) = package_connector::feed_connection(&id, &viewer, connection)?;
     let manifest = package_connector::installed_manifest(&kind)?;
     if !manifest.permissions.contains(&Permission::Images) {
         return Err("This widget didn’t declare the images permission.".into());

@@ -4,6 +4,20 @@ import {packageInfo,sourceLimit} from './packages.js';
 import {registerFrame} from './package-bridge.js';
 import {hostOf, connectionLabel} from './display-name.js';
 
+// A placement's connections: the one it chose, then the kind's other saved connections
+// (one per address), up to `limit`.
+export function placementConnections(kind, selected, sources, limit) {
+  const primary = sources.find(source => source.kind === kind && source.id === selected);
+  if (!primary || !limit) return [];
+  const endpoints = new Set();
+  return [primary, ...sources.filter(source => source.kind === kind)].filter(source => {
+    const address = source.address.replace(/\/+$/, '');
+    if (endpoints.has(address)) return false;
+    endpoints.add(address);
+    return true;
+  }).slice(0, limit);
+}
+
 export function widgetSources(kind, selected, sources) {
   const limit = sourceLimit(kind);
   if (!limit) return [];
@@ -125,8 +139,10 @@ export function mountPackage(box, slot, entry, connections, {native = false, ope
   }
   async function connect() {
     try {
-      const opened = await invoke('package_open', {kind: slot.kind, viewer,
-        connection: source ? {name: source.name, address: source.address, ...(source.type ? {type: source.type} : {})} : null});
+      // Every connection the placement holds, its chosen one first, up to the manifest's count.
+      const held = placementConnections(slot.kind, slot.source, connections, entry.sources?.max || 0)
+        .map(s => ({name: s.name, address: s.address, ...(s.type ? {type: s.type} : {})}));
+      const opened = await invoke('package_open', {kind: slot.kind, viewer, connection: held[0] || null, connections: held});
       if (closed) { invoke('package_close', {id: opened.id, viewer}).catch(() => {}); return; }
       feed = opened.id;
       rev = 0;

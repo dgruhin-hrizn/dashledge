@@ -83,6 +83,10 @@ test('images load only with the permission and move into the frame by transfer',
     assert.equal(message.type, 'reply');
     assert.equal(message.value.type, 'image/jpeg');
     assert.equal(transfer[0], message.value.bytes, 'the bytes are transferred, not copied');
+    await handleMessage(entry, {dashledge: 1, type: 'command', id: 4, name: 'image', args: {path: 'api/a.jpg', connection: 2}});
+    assert.equal(calls.at(-1)[1].connection, 2, 'a view may name one of its connections');
+    await handleMessage(entry, {dashledge: 1, type: 'command', id: 5, name: 'image', args: {path: 'api/a.jpg', connection: 'x'}});
+    assert.equal('connection' in calls.at(-1)[1], false, 'anything but a small index means the first');
   } finally {
     window.__TAURI__.core.invoke = previous;
   }

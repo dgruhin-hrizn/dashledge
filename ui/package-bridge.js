@@ -190,6 +190,9 @@ export function registerFrame(frame, {viewer, feed, kind = '', title = '', comma
   return unregister;
 }
 
+// Which of the placement's connections a command names, as invoke arguments; none means the first.
+const connectionIndex = value => (Number.isInteger(value) && value >= 0 && value < 20 ? {connection: value} : {});
+
 // Bytes from a Tauri channel, whichever form the IPC delivered them in.
 const toBuffer = body => body instanceof ArrayBuffer ? body
   : ArrayBuffer.isView(body) ? body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength)
@@ -215,7 +218,8 @@ async function openStream(entry, args) {
   };
   const channel = new Channel();
   channel.onmessage = body => (stream === null ? early.length < 256 && early.push(body) : forward(body));
-  stream = await invoke('package_stream_open', {id: entry.feed, viewer: entry.viewer, stream: String(args?.stream ?? ''), params, channel});
+  stream = await invoke('package_stream_open', {id: entry.feed, viewer: entry.viewer, stream: String(args?.stream ?? ''), params,
+    ...connectionIndex(args?.connection), channel});
   entry.streams.add(stream);
   queueMicrotask(() => early.splice(0).forEach(forward));
   return stream;
@@ -253,7 +257,8 @@ export async function handleMessage(entry, message) {
         // A declarative action: the host checks it against the manifest again.
         if (message.name === 'action' && entry.actions.includes(message.args?.id)) {
           const args = message.args.args && typeof message.args.args === 'object' ? message.args.args : {};
-          return reply(await invoke('package_action', {id: entry.feed, viewer: entry.viewer, action: message.args.id, args}));
+          return reply(await invoke('package_action', {id: entry.feed, viewer: entry.viewer, action: message.args.id, args,
+            ...connectionIndex(message.args.connection)}));
         }
         // Capabilities, each only when the manifest declares it.
         if (message.name === 'settings.open' && granted(entry, 'settings') && entry.openSettings) {
@@ -277,7 +282,8 @@ export async function handleMessage(entry, message) {
         // frame gets them by transfer and shows them from its own blob: URL.
         if (message.name === 'image' && granted(entry, 'images')) {
           const path = typeof message.args?.path === 'string' ? message.args.path.slice(0, 2048) : '';
-          const bytes = await invoke('package_image', {id: entry.feed, viewer: entry.viewer, path, fresh: message.args?.fresh === true});
+          const bytes = await invoke('package_image', {id: entry.feed, viewer: entry.viewer, path, fresh: message.args?.fresh === true,
+            ...connectionIndex(message.args?.connection)});
           const buffer = bytes instanceof ArrayBuffer ? bytes : new Uint8Array(bytes).buffer;
           return post(entry, {type: 'reply', id: message.id, value: {type: imageType(buffer), bytes: buffer}}, [buffer]);
         }

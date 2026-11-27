@@ -61,7 +61,8 @@
   // The manifest's connection type the placement's connection was made for ('' without types).
   api.connectionType = () => state.connectionType || '';
   // Run an action the manifest declares, with values for its {placeholders}.
-  api.action = (id, args = {}) => api.command('action', {id, args});
+  // `{connection: i}` sends it to the placement's i-th connection instead of its first.
+  api.action = (id, args = {}, options = {}) => api.command('action', {id, args, connection: options.connection});
 
   // ---- Capabilities: each works only when the manifest's permissions declare it ----
   // settings: this placement's values, also in subscribe() state; open() shows the
@@ -92,10 +93,10 @@
   // its URL; `{fresh: true}` fetches again (a camera snapshot) and revokes the old one.
   const images = new Map();
   api.image = (path, options = {}) => {
-    const key = String(path);
+    const key = (options.connection ?? 0) + ' ' + String(path);
     const known = images.get(key);
     if (known && !options.fresh) return known;
-    const next = api.command('image', {path: key, fresh: options.fresh === true})
+    const next = api.command('image', {path: String(path), fresh: options.fresh === true, connection: options.connection})
       .then(({type, bytes}) => URL.createObjectURL(new Blob([bytes], {type})));
     images.set(key, next);
     next.then(() => known?.then(url => URL.revokeObjectURL(url)).catch(() => {}),
@@ -121,8 +122,8 @@
     waiting.set(m.stream, queue);
   }
   api.stream = {
-    async open(id, params = {}) {
-      const n = await api.command('stream.open', {stream: id, params});
+    async open(id, params = {}, options = {}) {
+      const n = await api.command('stream.open', {stream: id, params, connection: options.connection});
       const handle = {id: n, onopen: null, onmessage: null, onerror: null, onclose: null,
         send: text => api.command('stream.send', {stream: n, text: String(text)}),
         close() { streams.delete(n); return api.command('stream.close', {stream: n}).catch(() => {}); }};

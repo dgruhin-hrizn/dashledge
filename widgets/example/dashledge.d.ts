@@ -126,6 +126,11 @@ declare namespace DashledgeView {
     chip: string | null;
   }
 
+  /** For a widget whose placement holds several connections (`sources.max` > 1): which one, by position. The first is the one the placement chose. */
+  interface ConnectionOption {
+    connection?: number;
+  }
+
   /** An open stream. Set the handlers right after `open()` resolves; events that arrived earlier follow. */
   interface Stream {
     readonly id: number;
@@ -145,7 +150,7 @@ declare namespace DashledgeView {
     /** Data from the package's declarative polls or connector. Called with the latest snapshot right away when there is one. */
     onData<T = unknown>(callback: (data: Data<T>) => void): () => void;
     /** Run an action the manifest declares, filling its {placeholders} from `args`. */
-    action(id: string, args?: Record<string, string | number | boolean>): Promise<{status: number}>;
+    action(id: string, args?: Record<string, string | number | boolean>, options?: ConnectionOption): Promise<{status: number}>;
     /** The name to show for this placement's server: the user's name, else the server's, else the host. */
     displayName(serverName?: string): string;
     /** The `sources.types` ID the placement's connection was made for, such as 'jellyfin', or '' when the manifest declares no types. */
@@ -165,11 +170,11 @@ declare namespace DashledgeView {
       onRefresh(callback: () => void): () => void;
     };
     /** Requires the `images` permission. Load an image the manifest's `images` patterns allow: a path under the connection's address (`api/v3/mediacover/12/poster-250.jpg`) or a full URL on a connector host. Resolves with a `blob:` URL for `<img src>` or CSS. The same path reuses its URL; `{fresh: true}` fetches again, as for a camera snapshot, and revokes the previous URL. Only JPEG, PNG, GIF and WebP load. */
-    image(path: string, options?: {fresh?: boolean}): Promise<string>;
+    image(path: string, options?: {fresh?: boolean} & ConnectionOption): Promise<string>;
     /** Requires the `stream` permission. */
     stream: {
       /** Open a WebSocket route the manifest's `streams` declare, on the placement's connection, filling its {placeholders} from `params`. Dashledge adds the credential. At most 4 per widget. */
-      open(id: string, params?: Record<string, string | number>): Promise<Stream>;
+      open(id: string, params?: Record<string, string | number>, options?: ConnectionOption): Promise<Stream>;
     };
     /** Requires the `keyboard` permission. */
     keyboard: {
@@ -217,8 +222,10 @@ declare namespace DashledgeConnector {
   }
 
   interface Host {
-    /** The placement's connection, or null when the package declares no sources. */
+    /** The placement's chosen connection, or null when the package declares no sources. */
     readonly connection: Readonly<Connection> | null;
+    /** Every connection the placement holds, its chosen one first, up to `sources.max`. */
+    readonly connections: ReadonlyArray<Readonly<Connection>>;
     /** Send data to every view of this connector. Views receive it through `Dashledge.onData`. */
     emit(data: unknown): void;
     /** A small per-package store that survives restarts (`connector.storage` bytes, default 64 KiB). */
@@ -242,6 +249,8 @@ declare namespace DashledgeConnector {
     method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
     headers?: Record<string, string>;
     body?: string | ArrayBuffer | ArrayBufferView;
+    /** Which of `dashledge.connections` to send it to. Without it, the connection whose address the URL falls under. */
+    connection?: number;
   }
 
   /** WebSocket to the connection or a declared host. Text frames arrive as strings, binary frames as ArrayBuffers. */

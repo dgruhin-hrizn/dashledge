@@ -170,6 +170,10 @@ const player = playLive(document.querySelector('video'), 'live', {camera: 'front
 
 `playLive` offers go2rtc the codecs this Mac decodes, attaches the stream with `video.srcObject`, keeps about 10 seconds buffered near the live edge, reconnects with backoff, and pauses while the page is hidden. For a grid, show `Dashledge.image('api/<camera>/latest.jpg?h=360', {fresh: true})` snapshots and play live video only for the camera the user opens. A widget keeps at most 4 streams. go2rtc on its own port uses `api/ws?src={camera}`.
 
+### Several connections
+
+With `"sources": {"min": 1, "max": 4}` a placement holds up to four connections: the one the user picked, then their other saved connections for your widget. A connector sees all of them in `dashledge.connections` (`dashledge.connection` is the first). Its `fetch` and `WebSocket` send each request with the credential of the connection whose address it falls under, so two services behind one reverse proxy (`/radarr/`, `/sonarr/`) keep their own keys. Pass `{connection: i}` to `fetch` to choose one explicitly. A view does the same with `Dashledge.action(id, args, {connection: i})`, `Dashledge.image(path, {connection: i})` and `Dashledge.stream.open(id, params, {connection: i})`. Declarative `data` polls read the first connection.
+
 ## Develop with an unpacked folder
 
 In **Widget Studio**, choose **Load unpacked package** and pick the folder that holds `widget.json`. Dashledge checks it like an install and runs it from that folder. When a file in it changes, open views reload and the connector restarts. After editing `widget.json`, choose **Reload** on the widget's page to pick up new settings or permissions. An unpacked folder takes the place of an installed package with the same ID. Removing it unlinks the folder and leaves your files where they are.

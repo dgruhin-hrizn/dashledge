@@ -81,8 +81,9 @@ fn owned(id: &str, viewer: &str, stream: i64) -> Result<(), String> {
 
 /// Open a declared stream. Returns its ID; frames arrive on `channel`.
 #[tauri::command]
-pub async fn package_stream_open(id: String, viewer: String, stream: String, params: Map<String, Value>, channel: Channel<InvokeResponseBody>) -> Result<i64, String> {
-    let (kind, connection) = package_connector::feed_connection(&id, &viewer)?;
+pub async fn package_stream_open(id: String, viewer: String, stream: String, params: Map<String, Value>, connection: Option<usize>,
+    channel: Channel<InvokeResponseBody>) -> Result<i64, String> {
+    let (kind, connection) = package_connector::feed_connection(&id, &viewer, connection)?;
     let manifest = package_connector::installed_manifest(&kind)?;
     if !manifest.permissions.contains(&Permission::Stream) {
         return Err("This widget didn’t declare the stream permission.".into());
