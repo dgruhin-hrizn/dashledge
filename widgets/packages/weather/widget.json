@@ -1,0 +1,60 @@
+{
+  "apiVersion": 2,
+  "id": "weather",
+  "title": "Weather",
+  "description": "Current conditions, the next 24 hours and 7 days from Open-Meteo, for a place you choose.",
+  "version": "1.0.0",
+  "category": "Productivity",
+  "icon": "view/icon.svg",
+  "view": {
+    "entry": "view/index.html",
+    "viewport": "native",
+    "theme": true
+  },
+  "collector": {
+    "entry": "collector/collect.mjs",
+    "outputs": [
+      "snapshot.js"
+    ],
+    "commands": [
+      "watch"
+    ]
+  },
+  "page": false,
+  "permissions": [
+    "settings"
+  ],
+  "settings": [
+    {
+      "id": "location",
+      "label": "Location",
+      "type": "text",
+      "maxLength": 80,
+      "default": "",
+      "help": "A city or place, such as Chicago, Portland, OR or Paris, France. Coordinates like 41.88, -87.63 work too."
+    },
+    {
+      "id": "units",
+      "label": "Temperature",
+      "type": "choice",
+      "options": [
+        {"value": "fahrenheit", "label": "Fahrenheit (°F)"},
+        {"value": "celsius", "label": "Celsius (°C)"}
+      ],
+      "default": "fahrenheit"
+    },
+    {
+      "id": "show",
+      "label": "Show",
+      "type": "choice",
+      "options": [
+        {"value": "auto", "label": "Automatic for the space"},
+        {"value": "hourly", "label": "Next 24 hours"},
+        {"value": "week", "label": "Next 7 days"},
+        {"value": "now", "label": "Just now"}
+      ],
+      "default": "auto",
+      "help": "The full Edge shows everything. Smaller placements pick what fits, or what you choose here."
+    }
+  ]
+}
