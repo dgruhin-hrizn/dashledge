@@ -43,6 +43,9 @@ pub struct Registry {
 
 impl Registry {
     pub fn pinned() -> Result<Registry, String> {
+        if let Some(registry) = dev_registry() {
+            return Ok(registry);
+        }
         if KEYS.is_empty() {
             return Err("The Marketplace isn’t available in this build yet.".into());
         }
@@ -89,8 +92,31 @@ pub struct Installed {
     pub installed_at: u64,
 }
 
+/// Debug builds only: a test registry from `DASHLEDGE_REGISTRY` (its `v1/` URL) and
+/// `DASHLEDGE_REGISTRY_KEY` (its base64 public key), for trying a registry or a catalog
+/// change in `npm run dev`. Release builds always use the pinned registry.
+fn dev_registry() -> Option<Registry> {
+    #[cfg(debug_assertions)]
+    {
+        dev_registry_from(std::env::var("DASHLEDGE_REGISTRY").ok(), std::env::var("DASHLEDGE_REGISTRY_KEY").ok())
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        None
+    }
+}
+
+#[cfg_attr(not(debug_assertions), allow(dead_code))]
+fn dev_registry_from(url: Option<String>, key: Option<String>) -> Option<Registry> {
+    let url = url.filter(|u| !u.is_empty())?;
+    let key = key.filter(|k| !k.is_empty())?;
+    let base = Url::parse(&if url.ends_with('/') { url } else { url + "/" }).ok()?;
+    Some(Registry { base, keys: vec![key] })
+}
+
+/// A test registry keeps its own record, so its catalog sequence never blocks the real one.
 pub fn record_path(dir: &Path) -> PathBuf {
-    dir.join("marketplace.json")
+    dir.join(if dev_registry().is_some() { "marketplace-dev.json" } else { "marketplace.json" })
 }
 
 pub fn load(dir: &Path) -> Record {
@@ -761,6 +787,16 @@ pub mod tests {
             let (raw, files) = package_store::extract(&fixtures::package(id, version, json!({}))).unwrap();
             assert!(submission(&raw, &files).unwrap_err().contains(message), "{id} {version}");
         }
+    }
+
+    #[test]
+    fn a_dev_registry_needs_both_its_address_and_key() {
+        assert!(dev_registry_from(None, Some("k".into())).is_none());
+        assert!(dev_registry_from(Some("http://127.0.0.1:8000/v1".into()), None).is_none());
+        assert!(dev_registry_from(Some(String::new()), Some("k".into())).is_none());
+        let registry = dev_registry_from(Some("http://127.0.0.1:8000/v1".into()), Some("k".into())).unwrap();
+        assert_eq!(registry.base.as_str(), "http://127.0.0.1:8000/v1/");
+        assert_eq!(registry.keys, ["k"]);
     }
 
     #[test]

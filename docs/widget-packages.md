@@ -225,6 +225,12 @@ The Marketplace distributes reviewed plugins from the registry repository [dgruh
 - When a change makes the checker accept packages that older apps refuse, ship the app first, then move the registry's `DASHLEDGE_REF`.
 - Never add a Marketplace command that takes package bytes, a URL or a path from the UI.
 
+**Testing against a local registry.** In debug builds only, `DASHLEDGE_REGISTRY` (a `…/v1/` URL) and `DASHLEDGE_REGISTRY_KEY` (its base64 public key) replace the pinned registry. Its record goes to `marketplace-dev.json`, so a test catalog's sequence never blocks the real one, and packages installed from it show as Unverified in normal runs.
+1. Build a site with `dashledge-package catalog`, sign it with a key from `dashledge-package keygen`, and serve it with any static server, such as `python3 -m http.server`.
+2. Run `npm run dev` with both variables set.
+
+Release builds ignore both variables.
+
 ## Verifying a change
 
 - `npm test` runs the JavaScript and Rust tests, including every bundled package validating and its files existing.

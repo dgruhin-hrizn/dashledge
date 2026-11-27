@@ -322,6 +322,8 @@ The Marketplace lists plugins that passed the registry's checks and a maintainer
 
 **Pulled versions.** If a version turns out to be harmful or broken, maintainers pull it. Every Mac turns it off at its next daily check and shows the reason on the widget. Publishing a fixed version turns the widget back on.
 
+**Testing a catalog yourself.** If you build Dashledge from source, a development build (`npm run dev`) can use your own registry instead of the real one. Point `DASHLEDGE_REGISTRY` at its `v1/` folder and set `DASHLEDGE_REGISTRY_KEY` to your public key. The Dashledge repository's [`docs/widget-packages.md`](../docs/widget-packages.md#marketplace) shows how to build and sign one with `dashledge-package`. Released Dashledge always uses the real Marketplace.
+
 ## Troubleshooting
 
 | You see | Why | Fix |
