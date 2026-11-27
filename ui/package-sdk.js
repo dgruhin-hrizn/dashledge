@@ -85,6 +85,21 @@
     add: (title, {list = ''} = {}) => api.command('reminders.add', {title, list}),
     openPrivacy: () => api.command('reminders.privacy'),
   };
+  // images: an image the manifest's `images` patterns allow, from the connection or a
+  // declared host. Resolves with a blob: URL for <img src> or CSS. The same path reuses
+  // its URL; `{fresh: true}` fetches again (a camera snapshot) and revokes the old one.
+  const images = new Map();
+  api.image = (path, options = {}) => {
+    const key = String(path);
+    const known = images.get(key);
+    if (known && !options.fresh) return known;
+    const next = api.command('image', {path: key, fresh: options.fresh === true})
+      .then(({type, bytes}) => URL.createObjectURL(new Blob([bytes], {type})));
+    images.set(key, next);
+    next.then(() => known?.then(url => URL.revokeObjectURL(url)).catch(() => {}),
+      () => { if (images.get(key) === next) images.delete(key); });
+    return next;
+  };
   // keyboard: the shared touch keyboard. Resolves with the text, or null when closed.
   api.keyboard = {open: (options = {}) => api.command('keyboard.open', options)};
   // mac.metrics: this Mac's CPU, GPU, memory and network readings, about once a second.

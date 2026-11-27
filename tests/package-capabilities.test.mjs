@@ -64,6 +64,34 @@ test('undeclared capabilities are refused', async () => {
     'settings.open needs an editor to open');
 });
 
+test('images load only with the permission and move into the frame by transfer', async () => {
+  const refused = frameFor({permissions: []});
+  assert.equal((await command(refused.entry, refused.posted, 'image', {path: 'api/a.jpg'})).error, 'Unknown widget command');
+
+  const calls = [], sent = [];
+  const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]).buffer;
+  const previous = window.__TAURI__.core.invoke;
+  window.__TAURI__.core.invoke = async (cmd, args) => { calls.push([cmd, args]); return jpeg; };
+  try {
+    const frame = new EventTarget();
+    frame.contentWindow = {postMessage: (message, _origin, transfer) => sent.push({message, transfer})};
+    const {entry} = registerFrame(frame, {viewer: 'v', feed: 'pkg-9', kind: 'plugin.posters', permissions: ['images']});
+    frame.dispatchEvent(new Event('load'));
+    await handleMessage(entry, {dashledge: 1, type: 'command', id: 3, name: 'image', args: {path: 'api/v3/mediacover/1/poster.jpg', fresh: true}});
+    assert.deepEqual(calls, [['package_image', {id: 'pkg-9', viewer: 'v', path: 'api/v3/mediacover/1/poster.jpg', fresh: true}]]);
+    const {message, transfer} = sent.at(-1);
+    assert.equal(message.type, 'reply');
+    assert.equal(message.value.type, 'image/jpeg');
+    assert.equal(transfer[0], message.value.bytes, 'the bytes are transferred, not copied');
+  } finally {
+    window.__TAURI__.core.invoke = previous;
+  }
+});
+
+test('the install sheet names the images capability', () => {
+  assert.ok(permissionSummary({permissions: ['images'], images: ['api/*.jpg']}).some(line => line.includes('images from that connection')));
+});
+
 test('the settings gear opens the placement editor', async () => {
   const {entry, posted} = frameFor({permissions: ['settings'], schema, openSettings: async () => ({metric: 'cpu'})});
   const reply = await command(entry, posted, 'settings.open');

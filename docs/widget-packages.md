@@ -98,6 +98,7 @@ Settings and colours are left out of the dashboard's page signature, so changing
   - `address`: `path` keeps the address's path as the base; `origin` drops it.
   - `test`: the routes the **Test** button reads.
   - The labels shown in the connection form.
+- `images` (with the `images` permission): the image routes `package_media::package_image` may fetch for a view. Rust matches the path against the patterns, fetches through `package_connector::exchange` (so the credential goes only to the connection), checks the bytes' signature with `image_kind`, and caches 64 MiB for 10 minutes. The bridge transfers the bytes and the SDK makes the frame's own `blob:` URL; `blob:` images load in an opaque-origin frame, unlike `blob:` media.
 - `displayName.serverField`: the dot path where the server reports its own name. The display name is the user's connection name, else that field, else the address's host.
 - `permissions` and `settings`: capabilities and the per-placement settings schema. Rust fills defaults. `dynamic` settings need `settings.choices`; `multi` values are lists (`["*"]` is every option), `names` values map option values to names.
 - `page` (bundled widgets only): `false` keeps a fresh layout from getting a full-screen page for the widget (`addOriginalPages`), as AI Plan Monitor does. Layouts that already have the page keep it. Installed packages never get one, so the validator refuses the field there.

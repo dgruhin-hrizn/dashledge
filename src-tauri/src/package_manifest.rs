@@ -39,6 +39,11 @@ pub struct Manifest {
     pub data: Vec<DataPoll>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub actions: Vec<Action>,
+    /// Image routes a view may load with the `images` permission: paths under the
+    /// connection's address, or full URLs on a connector host. `*` matches any run of
+    /// characters within one path segment.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub connector: Option<Connector>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -82,6 +87,10 @@ pub enum Permission {
     /// an installed view could pass reminder text to its connection in an action.
     #[serde(rename = "reminders")]
     Reminders,
+    /// Images the manifest's `images` patterns allow, fetched by Dashledge and handed to
+    /// the view as `blob:` URLs by `Dashledge.image()`.
+    #[serde(rename = "images")]
+    Images,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -237,6 +246,42 @@ impl<'de> Deserialize<'de> for Auth {
             AuthForm::Query(q) => Auth::Query { name: q.query },
         })
     }
+}
+
+/// A full `http(s)://host[:port]/path` pattern split into its origin and path.
+pub fn split_origin(pattern: &str) -> Option<(&str, &str)> {
+    let rest = pattern.strip_prefix("https://").or_else(|| pattern.strip_prefix("http://"))?;
+    let end = pattern.len() - rest.len() + rest.find('/').unwrap_or(rest.len());
+    Some((&pattern[..end], pattern[end..].trim_start_matches('/')))
+}
+
+/// An image route or pattern: relative segments of URL-safe characters (`*` in a pattern).
+fn image_path(path: &str, pattern: bool) -> Result<(), String> {
+    let ok = !path.is_empty() && path.len() <= 200 && !path.starts_with('/')
+        && path.split('/').all(|s| !s.is_empty() && s != "." && s != ".."
+            && s.bytes().all(|b| b.is_ascii_alphanumeric() || b"-_.~".contains(&b) || (pattern && b == b'*')));
+    if ok { Ok(()) } else { fail(format!("Image route “{path}” must be a relative path of letters, digits and - _ . ~")) }
+}
+
+/// Whether a requested image path (no query) fits a pattern, segment by segment.
+pub fn image_matches(pattern: &str, path: &str) -> bool {
+    fn glob(pattern: &[u8], text: &[u8]) -> bool {
+        match pattern.split_first() {
+            None => text.is_empty(),
+            Some((b'*', rest)) => (0..=text.len()).any(|i| glob(rest, &text[i..])),
+            Some((c, rest)) => text.first() == Some(c) && glob(rest, &text[1..]),
+        }
+    }
+    image_path(path, false).is_ok() && {
+        let (p, t): (Vec<_>, Vec<_>) = (pattern.split('/').collect(), path.split('/').collect());
+        p.len() == t.len() && p.iter().zip(&t).all(|(p, t)| glob(p.as_bytes(), t.as_bytes()))
+    }
+}
+
+/// A query string an image request may carry: values views commonly pass for sizing
+/// and cache-busting, such as `h=360` or `lastWrite=638…`.
+pub fn image_query(query: &str) -> bool {
+    query.len() <= 200 && query.bytes().all(|b| b.is_ascii_alphanumeric() || b"-_.~=&,:%+".contains(&b))
 }
 
 /// Request headers the app owns. A package's credential header may not be one of them.
@@ -633,6 +678,25 @@ pub fn validate(raw: &Value, origin: Origin) -> Result<Manifest, String> {
             return fail("A permission is declared twice.");
         }
     }
+    if granted.contains(&Permission::Images) != !manifest.images.is_empty() {
+        return fail("Declare the images permission together with at least one image route.");
+    }
+    if manifest.images.len() > 16 {
+        return fail("Declare at most 16 image routes.");
+    }
+    let hosts = manifest.connector.as_ref().map(|c| c.hosts.clone()).unwrap_or_default();
+    for pattern in &manifest.images {
+        match split_origin(pattern) {
+            Some((origin, path)) => {
+                if !hosts.iter().any(|h| h == origin) {
+                    return fail(format!("Image route “{pattern}” must be on a host the connector declares."));
+                }
+                image_path(path, true)?;
+            }
+            None if manifest.sources.is_none() => return fail("Image routes under the connection need sources."),
+            None => image_path(pattern, true)?,
+        }
+    }
     if granted.contains(&Permission::Settings) != !manifest.settings.is_empty() {
         return fail("Declare the settings permission together with at least one setting.");
     }
@@ -889,6 +953,29 @@ mod tests {
         // Serialized back the way widget.json spells it, for the settings window.
         assert_eq!(serde_json::to_value(Auth::Query { name: "apikey".into() }).unwrap(), json!({"query": "apikey"}));
         assert_eq!(serde_json::to_value(Auth::EmbyToken).unwrap(), json!("emby-token"));
+    }
+
+    #[test]
+    fn image_routes_need_the_permission_and_stay_on_declared_hosts() {
+        let mut p = installed();
+        p["permissions"] = json!(["images"]);
+        p["images"] = json!(["api/v3/mediacover/*/poster-*.jpg", "https://api.example.com/t/p/*/*"]);
+        let m = validate(&p, Origin::Installed).unwrap();
+        assert_eq!(m.images.len(), 2);
+        let mut missing = p.clone();
+        missing["permissions"] = json!([]);
+        assert!(validate(&missing, Origin::Installed).is_err(), "images need the permission");
+        for bad in ["../secret.png", "/api/x.jpg", "api//x.jpg", "api/x.jpg?h=1", "https://elsewhere.example/x.jpg", "api/{id}.jpg"] {
+            let mut q = p.clone();
+            q["images"] = json!([bad]);
+            assert!(validate(&q, Origin::Installed).is_err(), "{bad}");
+        }
+        assert!(image_matches("api/v3/mediacover/*/poster-*.jpg", "api/v3/mediacover/12/poster-250.jpg"));
+        assert!(!image_matches("api/v3/mediacover/*/poster-*.jpg", "api/v3/mediacover/12/fanart.jpg"));
+        assert!(!image_matches("api/*/latest.jpg", "api/a/b/latest.jpg"), "* stays within a segment");
+        assert!(!image_matches("api/*/latest.jpg", "api/../latest.jpg"));
+        assert_eq!(split_origin("https://api.example.com/t/p/*"), Some(("https://api.example.com", "t/p/*")));
+        assert!(image_query("h=360&bbox=1") && !image_query("x=<script>"));
     }
 
     #[test]

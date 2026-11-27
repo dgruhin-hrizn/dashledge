@@ -17,6 +17,7 @@ const capabilityLines = {
   keyboard: 'Can open the on-screen keyboard to ask you for text.',
   'mac.metrics': 'Reads this Mac’s CPU, GPU, memory and network activity.',
   reminders: 'Reads, checks off and adds your Apple Reminders. Bundled widgets only.',
+  images: 'Shows images from that connection, such as posters and camera snapshots.',
 };
 
 // Plain-language permissions for the install sheet. When `previous` is the installed

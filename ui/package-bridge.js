@@ -97,8 +97,19 @@ function openKeyboard(entry, options = {}) {
   });
 }
 
-function post(entry, message) {
-  entry.frame.contentWindow?.postMessage({dashledge: 1, ...message}, '*');
+// `transfer` moves ArrayBuffers (images, stream frames) into the frame instead of copying.
+function post(entry, message, transfer = []) {
+  entry.frame.contentWindow?.postMessage({dashledge: 1, ...message}, '*', transfer);
+}
+
+// The image type of raw bytes, as Rust checked them: JPEG, PNG, GIF or WebP.
+export function imageType(buffer) {
+  const b = new Uint8Array(buffer, 0, Math.min(12, buffer.byteLength));
+  if (b[0] === 0xff && b[1] === 0xd8) return 'image/jpeg';
+  if (b[0] === 0x89 && b[1] === 0x50) return 'image/png';
+  if (b[0] === 0x47 && b[1] === 0x49) return 'image/gif';
+  if (b[8] === 0x57 && b[9] === 0x45) return 'image/webp';
+  return 'application/octet-stream';
 }
 
 function track(entry, win) {
@@ -226,6 +237,14 @@ export async function handleMessage(entry, message) {
         }
         if (message.name.startsWith('reminders.') && granted(entry, 'reminders'))
           return reply(await reminders(entry, message.name, message.args && typeof message.args === 'object' ? message.args : {}));
+        // images: Rust checks the path against the manifest's patterns and the bytes; the
+        // frame gets them by transfer and shows them from its own blob: URL.
+        if (message.name === 'image' && granted(entry, 'images')) {
+          const path = typeof message.args?.path === 'string' ? message.args.path.slice(0, 2048) : '';
+          const bytes = await invoke('package_image', {id: entry.feed, viewer: entry.viewer, path, fresh: message.args?.fresh === true});
+          const buffer = bytes instanceof ArrayBuffer ? bytes : new Uint8Array(bytes).buffer;
+          return post(entry, {type: 'reply', id: message.id, value: {type: imageType(buffer), bytes: buffer}}, [buffer]);
+        }
         if (message.name === 'mac.metrics' && granted(entry, 'mac.metrics')) return reply(latestMetrics);
         if (message.name === 'mac.subscribe' && granted(entry, 'mac.metrics')) {
           entry.metrics = true;

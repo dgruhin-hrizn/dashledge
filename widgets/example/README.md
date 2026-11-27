@@ -114,6 +114,10 @@ Dashledge.settings.onRefresh(() => lookAgain());
 
 // mac.metrics: this Mac's readings, about once a second.
 Dashledge.mac.onMetrics(({cpu, gpu, memory, network, chip}) => { /* … */ });
+
+// images: a poster or snapshot your manifest's `images` patterns allow.
+poster.src = await Dashledge.image('api/v3/mediacover/12/poster-250.jpg');
+snapshot.src = await Dashledge.image('api/front_door/latest.jpg?h=360', {fresh: true});
 ```
 
 - **settings** are per placement and reach only the view. A connector serves every placement on the same connection, so it doesn't see them.
@@ -122,6 +126,7 @@ Dashledge.mac.onMetrics(({cpu, gpu, memory, network, chip}) => { /* … */ });
 - **ui** links Dashledge's `package-ui.css` before your styles. It provides `--dl-*` tokens and the classes `dl-surface`, `dl-panel`, `dl-caption`, `dl-reading` with `dl-unit`, `dl-list` with `dl-row`, `dl-button`, `dl-loading`, `dl-empty` and `dl-error`. Sizes follow `--px-scale`, so they keep their physical size at the native viewport.
 - **reminders** is for bundled widgets only; an installed package that declares it is refused. It reads, checks off and adds Apple Reminders, and asks macOS for access, or changes a reminder, only while the widget is on screen.
 - **mac.metrics** reports CPU, per-core load, GPU, memory, network throughput, uptime and the chip name. It never includes the Mac's name, volumes or network interfaces.
+- **images** needs `"images"` in the manifest: up to 16 patterns, each a path under the connection's address or a full URL on a connector host, where `*` matches within one path segment. For example `["api/v3/mediacover/*/*.jpg", "https://image.tmdb.org/t/p/*/*"]`. Dashledge fetches the image (with the connection's credential only on the connection), accepts only JPEG, PNG, GIF and WebP, caches it for 10 minutes, and resolves with a `blob:` URL. A query such as `?h=360` may follow the path. Pass `{fresh: true}` for images that change, like camera snapshots. Paths are relative to the address, so strip a leading `/` and any URL base the server includes.
 
 ## Develop with an unpacked folder
 

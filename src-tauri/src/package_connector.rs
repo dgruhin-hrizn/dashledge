@@ -203,14 +203,29 @@ fn forbidden_header(name: &str, auth: &Auth) -> bool {
         || matches!(auth, Auth::Header { name: own, .. } if own.eq_ignore_ascii_case(name))
 }
 
-struct Request {
-    url: Url,
-    method: String,
-    headers: Vec<(String, String)>,
-    body: Option<Vec<u8>>,
+pub(crate) struct Request {
+    pub url: Url,
+    pub method: String,
+    pub headers: Vec<(String, String)>,
+    pub body: Option<Vec<u8>>,
+}
+
+/// A response as packages may see it: `set-cookie` and `www-authenticate` removed and
+/// an echoed credential scrubbed from the headers. `body` is raw.
+pub(crate) struct Exchange {
+    pub status: u16,
+    pub headers: Map<String, Value>,
+    pub body: Vec<u8>,
+    credential: Option<Credential>,
+    key: String,
 }
 
 async fn send(kind: &str, connection: Option<&Target>, auth: &Auth, request: Request) -> Result<Value, String> {
+    Ok(exchange(kind, connection, auth, request).await?.into_json())
+}
+
+/// Make a request, with the connection's credential and CA when it goes to the connection.
+pub(crate) async fn exchange(kind: &str, connection: Option<&Target>, auth: &Auth, request: Request) -> Result<Exchange, String> {
     // Only an authenticated connection has vault data (its key and any CA). Reading the
     // vault for one without auth could ask the user to unlock their connections.
     let connection = connection.filter(|t| *auth != Auth::None && same_origin(&request.url, Some(&t.base)));
@@ -223,8 +238,23 @@ async fn send(kind: &str, connection: Option<&Target>, auth: &Auth, request: Req
     }
 }
 
-/// Send a request; `to_connection` adds the credential, which `send` decides by origin.
-async fn deliver(client: &reqwest::Client, to_connection: bool, auth: &Auth, secret: &Secret, request: Request) -> Result<Value, String> {
+impl Exchange {
+    /// What a connector's `fetch` receives: text stays text (with any echoed credential
+    /// scrubbed); other bodies go as base64.
+    fn into_json(self) -> Value {
+        let (status, headers) = (self.status, self.headers);
+        match String::from_utf8(self.body) {
+            Ok(text) => json!({"status": status, "headers": headers, "body": scrub(&text, self.credential.as_ref(), &self.key)}),
+            Err(bytes) => {
+                use base64::Engine;
+                json!({"status": status, "headers": headers, "base64": base64::engine::general_purpose::STANDARD.encode(bytes.into_bytes())})
+            }
+        }
+    }
+}
+
+/// Send a request; `to_connection` adds the credential, which `exchange` decides by origin.
+async fn deliver(client: &reqwest::Client, to_connection: bool, auth: &Auth, secret: &Secret, request: Request) -> Result<Exchange, String> {
     let credential = to_connection.then(|| Credential::for_auth(auth, secret)).flatten();
     let mut url = request.url.clone();
     let header = credential.as_ref().and_then(|c| c.apply(&mut url));
@@ -257,14 +287,7 @@ async fn deliver(client: &reqwest::Client, to_connection: bool, auth: &Auth, sec
         }
         body.extend_from_slice(&chunk);
     }
-    // Text stays text (with any echoed credential scrubbed); other bodies go as base64.
-    Ok(match String::from_utf8(body) {
-        Ok(text) => json!({"status": status, "headers": headers, "body": scrub(&text, credential.as_ref(), &secret.key)}),
-        Err(bytes) => {
-            use base64::Engine;
-            json!({"status": status, "headers": headers, "base64": base64::engine::general_purpose::STANDARD.encode(bytes.into_bytes())})
-        }
-    })
+    Ok(Exchange { status, headers, body, credential, key: secret.key.clone() })
 }
 
 // ------------------------------------------------------- tier 1: declarative --
@@ -295,7 +318,7 @@ fn fill_body(value: &Value, args: &Map<String, Value>) -> Result<Value, String> 
     })
 }
 
-fn route_url(base: &Url, route: &str) -> Url {
+pub(crate) fn route_url(base: &Url, route: &str) -> Url {
     let mut url = base.clone();
     let (path, query) = route.split_once('?').map_or((route, None), |(p, q)| (p, Some(q)));
     url.set_path(&format!("{}/{}", base.path().trim_end_matches('/'), path));
@@ -813,6 +836,18 @@ pub fn package_close(id: String, viewer: String) {
     }
 }
 
+/// A running feed's package kind and connection, for a viewer attached to it.
+pub(crate) fn feed_connection(id: &str, viewer: &str) -> Result<(String, Option<Connection>), String> {
+    let feeds = FEEDS.lock().unwrap();
+    let feed = feeds.get(id).filter(|f| f.viewers.contains_key(viewer)).ok_or("Widget disconnected")?;
+    Ok((feed.kind.clone(), feed.connection.clone()))
+}
+
+/// The manifest of an installed package, never a bundled one.
+pub(crate) fn installed_manifest(kind: &str) -> Result<Manifest, String> {
+    Ok(installed_package(kind)?.0)
+}
+
 /// Run a manifest-declared action against the placement's connection.
 #[tauri::command]
 pub async fn package_action(id: String, viewer: String, action: String, args: Map<String, Value>) -> Result<Value, String> {
@@ -926,7 +961,7 @@ mod tests {
         let result = tauri::async_runtime::block_on(deliver(
             &crate::connections::plain_client(), true, &Auth::Query { name: "apikey".into() }, &Secret { user: String::new(), key: "sab-test-key".into() },
             Request { url: base.join("api?mode=queue").unwrap(), method: "GET".into(), headers: vec![], body: None },
-        )).unwrap();
+        )).unwrap().into_json();
         assert!(server.join().unwrap().starts_with("GET /api?mode=queue&apikey=sab-test-key "));
         assert!(!result.to_string().contains("sab-test-key"), "{result}");
         assert_eq!(result["status"], 302);

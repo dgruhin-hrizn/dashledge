@@ -33,6 +33,7 @@ mod widget_package;
 mod package_manifest;
 mod package_store;
 mod package_connector;
+mod package_media;
 mod vault;
 
 use std::{path::PathBuf, sync::OnceLock, time::Duration};
@@ -270,7 +271,7 @@ pub fn run() {
             package_store::choose_unpacked_package, package_store::reload_unpacked_package,
             package_connector::package_logs,
             package_connector::package_open, package_connector::package_read, package_connector::package_ping,
-            package_connector::package_close, package_connector::package_action,
+            package_connector::package_close, package_connector::package_action, package_media::package_image,
             vault::unlock_connections,
             vault::recover_credential,
             widget_host::widget_open,

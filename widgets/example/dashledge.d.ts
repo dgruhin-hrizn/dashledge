@@ -12,7 +12,7 @@
 // ---------------------------------------------------------------- views ----
 
 declare namespace DashledgeView {
-  type Permission = 'settings' | 'settings.choices' | 'keyboard' | 'ui' | 'mac.metrics' | 'reminders';
+  type Permission = 'settings' | 'settings.choices' | 'keyboard' | 'ui' | 'mac.metrics' | 'reminders' | 'images';
   /** `multi` settings hold a list (`["*"]` is every option, including later ones); `names` settings map option values to names. */
   type SettingValue = string | number | boolean | string[] | Record<string, string>;
 
@@ -147,6 +147,8 @@ declare namespace DashledgeView {
       /** Requires `settings.choices`. Called when someone taps Check now in this placement's settings: look again, then offer. Returns an unsubscribe function. */
       onRefresh(callback: () => void): () => void;
     };
+    /** Requires the `images` permission. Load an image the manifest's `images` patterns allow: a path under the connection's address (`api/v3/mediacover/12/poster-250.jpg`) or a full URL on a connector host. Resolves with a `blob:` URL for `<img src>` or CSS. The same path reuses its URL; `{fresh: true}` fetches again, as for a camera snapshot, and revokes the previous URL. Only JPEG, PNG, GIF and WebP load. */
+    image(path: string, options?: {fresh?: boolean}): Promise<string>;
     /** Requires the `keyboard` permission. */
     keyboard: {
       /** Open the shared touch keyboard. Resolves with the text, or null when closed. Opens only while the widget is on screen. */
