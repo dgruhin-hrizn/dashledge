@@ -124,12 +124,12 @@
 .ph-controls button:focus-visible{outline:3px solid #f6b9cb;outline-offset:2px}
 .ph-controls button[aria-pressed=true]{background:#f6b9cb;color:#2a1820}
 .ph-controls svg{width:22px;height:22px}
-/* The heart on each Cinema photo: top-right, clear of the date and the controls, and shown
-   with the controls so a tap on a hidden heart only reveals it. */
+/* The heart on each Cinema photo: top-right, clear of the date and the controls. Only a tap
+   (or keyboard focus) arms it, never hover, so a tap on a hidden heart only reveals it. */
 .tile .ph-fav{position:absolute;z-index:4;top:14px;right:14px;display:grid;place-items:center;width:48px;height:48px;min-height:48px;padding:0;
   border-radius:50%;background:#141315d9;color:#fff;border:1px solid #ffffff55;backdrop-filter:blur(10px);
   opacity:0;pointer-events:none;transition:opacity .2s,transform .12s,background-color .2s}
-.ph-widget.ph-revealed .ph-fav,.ph-widget:hover .ph-fav,.tile .ph-fav:focus-visible{opacity:1;pointer-events:auto}
+.ph-widget.ph-revealed .ph-fav,.tile .ph-fav:focus-visible{opacity:1;pointer-events:auto}
 .tile .ph-fav[aria-pressed=true]{color:#ff91a4}
 .tile .ph-fav:active{transform:scale(.9);background:#2a1820}
 .tile .ph-fav[aria-busy=true]{cursor:progress}
