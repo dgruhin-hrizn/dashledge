@@ -113,14 +113,25 @@ function claim(source) {
   return null;
 }
 
-// The voice settings a view may send, field by field; Rust checks the values again.
-function voiceSettings(value) {
+// What the Reminders view may change of Dashledge's voice: its own alerts (on, how
+// early) and mute. Voice, volume and quiet hours belong to Settings › General › Voice.
+function reminderVoicePatch(value) {
   const v = value && typeof value === 'object' ? value : {};
-  const bool = key => v[key] === true;
-  const num = (key, fallback) => typeof v[key] === 'number' && Number.isFinite(v[key]) ? v[key] : fallback;
-  return {enabled: bool('enabled'), muted: bool('muted'), lead: Math.max(0, Math.round(num('lead', 0))), quiet: bool('quiet'),
-    quietStart: Math.max(0, Math.round(num('quietStart', 1320))), quietEnd: Math.max(0, Math.round(num('quietEnd', 420))),
-    volume: num('volume', 0.8), voice: typeof v.voice === 'string' ? v.voice.slice(0, 200) : ''};
+  const patch = {};
+  for (const key of ['enabled', 'muted']) if (typeof v[key] === 'boolean') patch[key] = v[key];
+  if (typeof v.lead === 'number' && Number.isFinite(v.lead)) patch.lead = Math.max(0, Math.round(v.lead));
+  return patch;
+}
+
+// Say a line in the user's voice (`speech` permission). Rust trims, caps and limits it.
+async function speech(entry, name, args) {
+  if (!onScreen(entry)) throw new Error('Widgets speak only while on screen');
+  if (name === 'speech.say') {
+    if (typeof args.text !== 'string' || !args.text.trim()) throw new Error('Give speech.say some text');
+    return invoke('speech_line', {text: args.text.slice(0, 2000)});
+  }
+  if (name === 'speech.stop') return invoke('speech_stop_all');
+  throw new Error('Unknown widget command');
 }
 
 // Apple Reminders for bundled views that declare `reminders`. Asking macOS for access,
@@ -129,7 +140,7 @@ async function reminders(entry, name, args) {
   const visible = onScreen(entry);
   if (name === 'reminders.read') return invoke('reminders_read', {request: args.request === true && visible});
   if (name === 'reminders.changes') return invoke('reminders_changes');
-  if (name === 'reminders.voice') return invoke('reminders_voice');
+  if (name === 'reminders.voice') return invoke('voice_settings');
   if (!visible) throw new Error('Reminders change only while the widget is on screen');
   if (name === 'reminders.complete') {
     if (typeof args.id !== 'string' || typeof args.completed !== 'boolean') throw new Error('Choose a reminder');
@@ -142,9 +153,9 @@ async function reminders(entry, name, args) {
     // Rust trims and caps the title by character and checks the date and time.
     return invoke('reminders_create', {title: args.title, list: text('list') || null, due: text('due') || null, time: text('time') || null, priority});
   }
-  if (name === 'reminders.voice.set') return invoke('reminders_voice_set', {settings: voiceSettings(args.settings)});
-  if (name === 'reminders.voice.more') return invoke('reminders_voice_more');
-  if (name === 'reminders.voice.test') return invoke('reminders_voice_test', args.settings ? {settings: voiceSettings(args.settings)} : {});
+  if (name === 'reminders.voice.set') return invoke('voice_update', {patch: reminderVoicePatch(args.settings)});
+  if (name === 'reminders.voice.settings') return invoke('open_settings');
+  if (name === 'reminders.voice.test') return invoke('voice_test', {patch: null});
   if (name === 'reminders.privacy') return invoke('reminders_privacy');
   throw new Error('Unknown widget command');
 }
@@ -242,6 +253,8 @@ export async function handleMessage(entry, message) {
         }
         if (message.name.startsWith('reminders.') && granted(entry, 'reminders'))
           return reply(await reminders(entry, message.name, message.args && typeof message.args === 'object' ? message.args : {}));
+        if (message.name.startsWith('speech.') && granted(entry, 'speech'))
+          return reply(await speech(entry, message.name, message.args && typeof message.args === 'object' ? message.args : {}));
         if (message.name === 'mac.metrics' && granted(entry, 'mac.metrics')) return reply(latestMetrics);
         if (message.name === 'mac.subscribe' && granted(entry, 'mac.metrics')) {
           entry.metrics = true;

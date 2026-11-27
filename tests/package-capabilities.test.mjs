@@ -112,7 +112,7 @@ test('Reminders reach only views that declare them, with checked arguments', asy
   window.__TAURI__.core.invoke = async (name, args) => { calls.push([name, args]); return {permission: 'allowed', items: []}; };
   try {
     const bystander = frameFor({permissions: []});
-    for (const name of ['reminders.read', 'reminders.changes', 'reminders.complete', 'reminders.add', 'reminders.privacy', 'reminders.voice', 'reminders.voice.set', 'reminders.voice.test', 'reminders.voice.more'])
+    for (const name of ['reminders.read', 'reminders.changes', 'reminders.complete', 'reminders.add', 'reminders.privacy', 'reminders.voice', 'reminders.voice.set', 'reminders.voice.test', 'reminders.voice.settings', 'speech.say', 'speech.stop'])
       assert.equal((await command(bystander.entry, bystander.posted, name, {})).error, 'Unknown widget command', name);
     assert.equal(calls.length, 0, 'nothing reaches EventKit without the permission');
 
@@ -136,15 +136,39 @@ test('Reminders reach only views that declare them, with checked arguments', asy
 
     await command(entry, posted, 'reminders.changes');
     assert.deepEqual(calls.at(-1), ['reminders_changes', {}]);
-    await command(entry, posted, 'reminders.voice.set', {settings: {enabled: true, muted: 'yes', lead: 15, volume: 0.5, voice: 42, extra: 1}});
-    assert.deepEqual(calls.at(-1), ['reminders_voice_set', {settings: {enabled: true, muted: false, lead: 15, quiet: false,
-      quietStart: 1320, quietEnd: 420, volume: 0.5, voice: ''}}], 'only known fields, typed, reach Rust');
+    await command(entry, posted, 'reminders.voice');
+    assert.deepEqual(calls.at(-1), ['voice_settings', {}]);
+    await command(entry, posted, 'reminders.voice.set', {settings: {enabled: true, muted: 'yes', lead: 15, volume: 0.5, voice: 'x', quiet: false}});
+    assert.deepEqual(calls.at(-1), ['voice_update', {patch: {enabled: true, lead: 15}}],
+      'Reminders changes only its alerts and mute; voice, volume and quiet hours are Settings’');
     await command(entry, posted, 'reminders.voice.test');
-    assert.deepEqual(calls.at(-1), ['reminders_voice_test', {}]);
-    await command(entry, posted, 'reminders.voice.more');
-    assert.deepEqual(calls.at(-1), ['reminders_voice_more', {}]);
+    assert.deepEqual(calls.at(-1), ['voice_test', {patch: null}]);
+    await command(entry, posted, 'reminders.voice.settings');
+    assert.deepEqual(calls.at(-1), ['open_settings', {}]);
   } finally {
     window.__TAURI__.core.invoke = original;
   }
   assert.ok(permissionSummary({permissions: ['reminders']}).some(line => line.includes('Apple Reminders')));
+});
+
+test('Widgets that declare speech can say a line, only while on screen', async () => {
+  const calls = [];
+  const original = window.__TAURI__.core.invoke;
+  window.__TAURI__.core.invoke = async (name, args) => { calls.push([name, args]); return {spoken: true}; };
+  try {
+    const bystander = frameFor({permissions: []});
+    assert.equal((await command(bystander.entry, bystander.posted, 'speech.say', {text: 'hi'})).error, 'Unknown widget command');
+    assert.equal(calls.length, 0);
+    const {entry, posted} = frameFor({permissions: ['speech']});
+    assert.equal((await command(entry, posted, 'speech.say', {text: '  '})).error, 'Error: Give speech.say some text');
+    assert.deepEqual((await command(entry, posted, 'speech.say', {text: 'Build finished'})).value, {spoken: true});
+    assert.deepEqual(calls.at(-1), ['speech_line', {text: 'Build finished'}]);
+    await command(entry, posted, 'speech.say', {text: 'y'.repeat(5000)});
+    assert.equal(calls.at(-1)[1].text.length, 2000, 'the bridge bounds what crosses; Rust caps at 500');
+    await command(entry, posted, 'speech.stop');
+    assert.deepEqual(calls.at(-1), ['speech_stop_all', {}]);
+  } finally {
+    window.__TAURI__.core.invoke = original;
+  }
+  assert.ok(permissionSummary({permissions: ['speech']}).some(line => line.includes('aloud')));
 });

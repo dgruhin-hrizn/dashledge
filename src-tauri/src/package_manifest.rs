@@ -82,6 +82,10 @@ pub enum Permission {
     /// an installed view could pass reminder text to its connection in an action.
     #[serde(rename = "reminders")]
     Reminders,
+    /// Say a line aloud in the user's Dashledge voice, with `Dashledge.speech.say()`.
+    /// Mute, quiet hours and a once-a-second limit apply; only while on screen.
+    #[serde(rename = "speech")]
+    Speech,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -861,6 +865,12 @@ mod tests {
         assert_eq!(label.max_length, Some(40));
         let json = serde_json::to_value(&manifest).unwrap();
         assert_eq!(json["permissions"], json!(["settings", "keyboard", "ui", "mac.metrics"]));
+    }
+
+    #[test]
+    fn installed_widgets_may_speak() {
+        let manifest = validate(&view_only(json!({"permissions": ["speech"]})), Origin::Installed).unwrap();
+        assert_eq!(manifest.permissions, [Permission::Speech]);
     }
 
     #[test]
