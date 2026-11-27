@@ -11,8 +11,22 @@ extern "C" {
 #[serde(tag = "action", rename_all = "lowercase")]
 pub enum PhotoRequest {
     Catalog { ask: bool },
-    Select { source: String, albums: Vec<String> },
-    Image { id: String },
+    Select {
+        source: String,
+        #[serde(default)]
+        albums: Vec<String>,
+        #[serde(default, rename = "skipScreenshots")]
+        skip_screenshots: bool,
+    },
+    Image {
+        id: String,
+        /// Longest edge wanted, in pixels; photos.m clamps it.
+        #[serde(default)]
+        size: Option<u32>,
+        /// Also report the salient point, so a cropped frame keeps its subject.
+        #[serde(default)]
+        focus: bool,
+    },
 }
 #[tauri::command]
 pub async fn photos_read(request: PhotoRequest) -> Result<Value, String> {
@@ -34,4 +48,20 @@ pub async fn photos_read(request: PhotoRequest) -> Result<Value, String> {
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // JS sends these fields; anything missing from the enum is silently dropped on the way to photos.m.
+    #[test]
+    fn requests_keep_every_field_photos_m_reads() {
+        let select: PhotoRequest = serde_json::from_value(json!({"action":"select","source":"library","skipScreenshots":true})).unwrap();
+        assert_eq!(json!(select), json!({"action":"select","source":"library","albums":[],"skipScreenshots":true}));
+        let image: PhotoRequest = serde_json::from_value(json!({"action":"image","id":"a","size":2048,"focus":true})).unwrap();
+        assert_eq!(json!(image), json!({"action":"image","id":"a","size":2048,"focus":true}));
+        let old: PhotoRequest = serde_json::from_value(json!({"action":"image","id":"a"})).unwrap();
+        assert_eq!(json!(old)["size"], Value::Null);
+    }
 }
