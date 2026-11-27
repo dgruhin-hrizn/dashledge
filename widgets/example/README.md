@@ -24,7 +24,7 @@ Compress the files into a ZIP with `widget.json` at the top level, or in a singl
 Every view runs isolated. It can't reach the network, other widgets, Dashledge's settings, your files or your credentials. Data reaches it in one of three ways, and Widget Studio shows which before you install.
 
 1. **Declarative.** The manifest lists `data` routes for Dashledge to poll and `actions` it may send. Dashledge makes the requests to the connection you choose, adding the credential you saved. No package code runs outside the view. See `samples/declarative.widget.json`.
-2. **Connector.** `connector.js` runs in its own JavaScript context with no files, processes or modules. Its `fetch` and `WebSocket` reach only the connection's address and the `hosts` listed in the manifest; install shows those hosts. Dashledge adds the connection's credential itself, so connector code never sees it.
+2. **Connector.** `connector.js` runs in its own JavaScript context with no files, processes or modules. Its `fetch` and `WebSocket` reach only the connection's address and the `hosts` listed in the manifest; install shows those hosts. Dashledge adds the connection's credential itself, so connector code never sees it. A manifest with a connector runs no `data` polls: the view receives what the connector emits. `actions`, `images` and `streams` still work beside it.
 3. **Collector.** Node programs with full access to the Mac. Only widgets built into Dashledge use these. Installed packages that declare one are refused.
 
 ## widget.json

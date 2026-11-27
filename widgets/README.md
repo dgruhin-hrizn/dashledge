@@ -54,9 +54,9 @@ The user installs your package, adds a **connection** (the server's address and 
 
 The example is a weather widget with a connector that reads Open-Meteo.
 
-1. In **Widget Studio**, choose **Load unpacked package** and pick the unzipped folder. Dashledge checks it as if you'd installed it, then runs it straight from that folder.
-2. In **Pages & layouts**, add a page and choose **Add widget → Weather (example)**. Watch it in **Live preview** or the window preview.
-3. Open `widget.json` and change the `id` to your own, for example `plugin.my-weather`, and the `title`. Choose **Reload** on the widget's page in Widget Studio. Manifest changes need Reload; other files reload by themselves.
+1. Open `widget.json` and change the `id` to your own, for example `plugin.my-weather`, and the `title`. The `id` is your widget's identity: placements and saved connections follow it, so choose it before you place the widget.
+2. In **Widget Studio**, choose **Load unpacked package** and pick the folder. Dashledge checks it as if you'd installed it, then runs it straight from that folder.
+3. In **Pages & layouts**, add a page and choose **Add widget**, then your widget. Watch it in **Live preview** or the window preview. When you change `widget.json` later, choose **Reload** on the widget's page in Widget Studio. Other files reload by themselves.
 4. In `connector.js`, change `PLACE` to your city and save. The connector restarts and the view updates.
 5. Add `console.log('reading', reading)` before `dashledge.emit(...)` and save. Open the widget's page in Widget Studio. **Connector log** shows the last 50 lines and any error that stopped the connector.
 6. In `view.js` and `style.css`, change what's shown. Open views reload when you save.
@@ -171,6 +171,10 @@ That's a complete plugin. No package code runs outside the view, and the API key
 ## When you need a connector
 
 A connector is `connector.js`, run in its own JavaScript context with no files, processes or modules. It reaches only the connection's address and the extra `hosts` you declare, and Dashledge adds the credential to requests for the connection. It sends data to the view with `dashledge.emit(data)`.
+
+**A connector replaces `data` polls.** When the manifest has a `connector`, Dashledge doesn't poll `data` routes, so the connector fetches everything itself. The view then receives exactly what you emit: `data.queue` below, not `data.queue.value`. `actions`, `images` and `streams` keep working beside a connector.
+
+To turn the walkthrough's widget into a connector widget, remove `data` from the manifest and add:
 
 ```json
 "connector": {"entry": "connector.js", "hosts": ["https://api.themoviedb.org"], "storage": 65536, "commands": ["search"]}
