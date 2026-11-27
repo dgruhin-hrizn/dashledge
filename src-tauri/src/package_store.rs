@@ -37,6 +37,14 @@ pub struct PackageInfo {
     pub path: Option<String>,
 }
 
+/// `check`, plus the package's `minAppVersion` against this build. Listing what is
+/// already installed skips this, so an app downgrade never hides a package silently.
+pub fn check_for_this_app(raw: &Value, files: &Files) -> Result<Manifest, String> {
+    let manifest = check(raw, files)?;
+    manifest.runs_on(env!("CARGO_PKG_VERSION"))?;
+    Ok(manifest)
+}
+
 fn info(manifest: Manifest, origin: Origin, dir: &Path) -> PackageInfo {
     let icon_data = fs::read(dir.join(&manifest.icon)).ok().and_then(|b| icon_data(&manifest.icon, &b));
     PackageInfo {
@@ -94,7 +102,7 @@ pub fn read_folder(root: &Path) -> Result<(Value, Files), String> {
 /// Check an unpacked folder and describe it as a package served from that folder.
 pub fn unpacked_info(dir: &Path) -> Result<PackageInfo, String> {
     let (raw, files) = read_folder(dir)?;
-    let manifest = check(&raw, &files)?;
+    let manifest = check_for_this_app(&raw, &files)?;
     let mut package = info(manifest, Origin::Installed, dir);
     package.origin = "unpacked";
     package.path = Some(dir.to_string_lossy().into_owned());
@@ -322,7 +330,7 @@ pub fn inspect_widget_package(window: tauri::WebviewWindow, request: tauri::ipc:
     if raw.get("apiVersion").and_then(Value::as_u64) != Some(package_manifest::API_VERSION) {
         return crate::widget_package::unpack(bytes.to_vec());
     }
-    let manifest = check(&raw, &files)?;
+    let manifest = check_for_this_app(&raw, &files)?;
     let icon = icon_data(&manifest.icon, &files[&manifest.icon]).ok_or("The icon must be a PNG or SVG up to 256 KiB.")?;
     serde_json::to_value(PackageInfo { tier: manifest.tier(), origin: "installed", icon_data: Some(icon), manifest, path: None })
         .map_err(|e| e.to_string())
@@ -336,7 +344,7 @@ pub fn install_widget_package(
 ) -> Result<PackageInfo, String> {
     settings_only(&window)?;
     let (raw, files) = extract(raw_body(&request)?)?;
-    let manifest = check(&raw, &files)?;
+    let manifest = check_for_this_app(&raw, &files)?;
     let root = installed_root(&app)?;
     install_files(&root, &manifest, &files)?;
     refresh();

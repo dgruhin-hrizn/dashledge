@@ -7,7 +7,7 @@ import {marketConnection,marketPicker} from './markets.js';
 import {editPhotos} from './photos.js';
 import {editShortcuts,shortcutPins} from './mac-shortcuts.js';
 import {catalogGroups,widgetInfo,installed,connectionsFor,defaultSource,useDefault,placements,removeWidget,recordPackage} from './widget-catalog.js';
-import {permissionSummary} from './package-manifest.js';
+import {packageFacts, permissionSummary} from './package-manifest.js';
 import {settingsForm,settingValues} from './package-settings.js';
 import {HIGHLIGHTS,TEXTS,followsColors,placementOverride,writePreview,clearPreview} from './placement-colors.js';
 import {connectionLabel} from './display-name.js';
@@ -579,7 +579,10 @@ function installV2(info,bytes){
   if(info.origin==='bundled'||Object.hasOwn(titles,info.id))throw Error('A built-in widget already uses this ID.');
   const permissions=el('ul','package-permissions');
   for(const line of permissionSummary(info,old))permissions.append(el('li','',line));
-  const fields=[el('p','',info.description||''),el('h3','','This widget')];
+  const fields=[el('p','',info.description||'')];
+  const facts=packageFacts(info);
+  if(facts)fields.push(el('p','package-facts',facts));
+  fields.push(el('h3','','This widget'));
   fields.push(permissions);
   formDialog((old?'Update ':'Install ')+info.title,fields,async()=>{
     const installedInfo=await invoke('install_widget_package',bytes);

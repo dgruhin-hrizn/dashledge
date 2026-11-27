@@ -1,7 +1,19 @@
 // Helpers for normalized API version 2 manifests. Rust validates every manifest
-// (src-tauri/src/package_manifest.rs); the UI only reads the result.
+// (src-tauri/package-core/src/manifest.rs); the UI only reads the result.
 
 export const isV2 = manifest => manifest?.apiVersion === 2;
+
+// One line of facts for the install sheet: version, license and home page host.
+export function packageFacts(manifest) {
+  const facts = [];
+  if (manifest.version) facts.push('Version ' + manifest.version);
+  if (manifest.license) facts.push(manifest.license + ' license');
+  if (manifest.homepage) {
+    try { facts.push(new URL(manifest.homepage).host); } catch {}
+  }
+  if (manifest.minAppVersion) facts.push('Needs Dashledge ' + manifest.minAppVersion + ' or later');
+  return facts.join(' · ');
+}
 
 // The highest trust tier a manifest uses: view, declarative, connector or collector.
 export function packageTier(manifest) {

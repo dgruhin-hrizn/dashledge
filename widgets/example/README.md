@@ -36,6 +36,9 @@ Every view runs isolated. It can't reach the network, other widgets, Dashledge's
   "title": "Your widget",
   "description": "One line for Widget Studio.",
   "version": "1.0.0",
+  "minAppVersion": "0.9.0",
+  "homepage": "https://github.com/you/your-widget",
+  "license": "MIT",
   "icon": "icon.svg",
   "view": {"entry": "index.html", "viewport": "native"},
   "sources": {"min": 1, "max": 1, "auth": "bearer", "test": ["api/status"],
@@ -51,6 +54,9 @@ Every view runs isolated. It can't reach the network, other widgets, Dashledge's
 ```
 
 - **`id`** starts with `plugin.` and uses lowercase letters, digits, `-` and `.`.
+- **`version`** is yours to choose. Use `major.minor.patch` if you plan to publish to the Marketplace, which requires it.
+- **`minAppVersion`** (optional) is the oldest Dashledge that can run the widget, such as `0.9.0`. Dashledge refuses to install it on an older app, with a message to update. Versions of Dashledge from before this field existed refuse the package with an "unknown field" message.
+- **`homepage`** (optional, https) and **`license`** (optional, such as `MIT`) appear on the install sheet.
 - **`view.theme`**: `true` when your view follows Dashledge's text and highlight colours (`state.theme`, also the CSS variables `--text` and `--accent`). Pages & layouts then lets each placement choose its own colours, and your view receives them in the same theme.
 - **`view.viewport`**: `native` renders at the Edge's real size (2560 × 720) when the widget fills a page; `reference` uses the scaled 1920 × 540 canvas. Size type with `clamp()` and viewport units so the widget reads well in a narrow tile too.
 - **`sources`** asks for connections. `test` lists routes the Test button reads. Omit `sources` for a widget that needs no connection, like this example. `auth` says how Dashledge sends the saved credential to the connection, and only to it:

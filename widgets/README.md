@@ -115,6 +115,7 @@ What each part does:
 - **`displayName.serverField`** points at the server's own name inside your data. Dashledge shows the name the user gave the connection, else this field, else the host.
 - **`images`** lets the view load posters from routes that match the pattern. `*` matches within one path segment.
 - **`ui`** links Dashledge's stylesheet, with its `dl-*` classes and tokens.
+- Optional **`minAppVersion`**, **`homepage`** and **`license`** describe the package on the install sheet; see the [manifest reference](example/README.md#widgetjson).
 
 **2. The view.** `index.html`:
 
