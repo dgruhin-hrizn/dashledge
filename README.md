@@ -32,6 +32,7 @@ The menu-bar icon reopens Settings. You can also run the dashboard in a resizabl
 | oMLX | Watch live decode speed with request markers, memory split by loaded model, cache hits, and a week of usage. Load, unload and compare models by how they fit in memory. |
 | Ember | View local workspaces, chats, plans, and usage. |
 | Run-DMD | Turn the screen into a pinball dot-matrix clock with selectable animation groups and clips. |
+| Weather | See the temperature, conditions, feels-like, today’s high and low, and the next 12 hours with the chance of rain, from Open-Meteo (no account or key). Type each placement’s city in its settings, such as Chicago or Paris, France, and choose °F or °C. |
 | Everyday tools | Add local and world clocks, a focus timer, a scratchpad, or a widget backed by your own JSON endpoint. |
 
 ### Connect a service

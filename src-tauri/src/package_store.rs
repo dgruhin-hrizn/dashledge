@@ -641,7 +641,7 @@ mod tests {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../widgets/packages");
         let listed = read_root(&root, Origin::Bundled);
         let ids: Vec<_> = listed.iter().map(|p| p.manifest.id.as_str()).collect();
-        assert_eq!(ids, ["comfy", "ember", "emby", "omlx", "plans", "proxmox", "reminders", "unraid"]);
+        assert_eq!(ids, ["comfy", "ember", "emby", "omlx", "plans", "proxmox", "reminders", "unraid", "weather"]);
         for package in &listed {
             let dir = root.join(&package.manifest.id);
             // Reminders is view-only: it reads EventKit through the bridge, with no collector.
@@ -654,6 +654,7 @@ mod tests {
         }
         assert!(is_bundled("emby") && !is_bundled("plugin.emby") && !is_bundled("markets"));
         assert!(is_bundled("plans"));
+        assert!(is_bundled("weather"));
     }
 
     #[test]

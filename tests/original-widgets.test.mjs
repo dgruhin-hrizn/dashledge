@@ -21,6 +21,7 @@ test('upgrade adds missing full-screen dashboards once and honors later edits', 
 test('a fresh layout gets no AI Plan Monitor page; the other bundled widgets keep theirs',()=>{
   assert.ok(originalKinds.includes('plans'));
   assert.ok(pagelessKinds.has('plans'),'plans/widget.json says page: false');
+  assert.ok(pagelessKinds.has('weather'),'weather needs a location first, so it gets no page of its own');
   const layout=initial();
   addOriginalPages(layout);
   const solo=kind=>layout.pages.filter(p=>p.slots.length===1&&p.slots[0].kind===kind).length;
