@@ -126,11 +126,23 @@ function claim(source) {
   return null;
 }
 
-// Apple Reminders for bundled views that declare `reminders`. Asking macOS for access
-// and changing reminders happen only while the widget is on screen.
+// The voice settings a view may send, field by field; Rust checks the values again.
+function voiceSettings(value) {
+  const v = value && typeof value === 'object' ? value : {};
+  const bool = key => v[key] === true;
+  const num = (key, fallback) => typeof v[key] === 'number' && Number.isFinite(v[key]) ? v[key] : fallback;
+  return {enabled: bool('enabled'), muted: bool('muted'), lead: Math.max(0, Math.round(num('lead', 0))), quiet: bool('quiet'),
+    quietStart: Math.max(0, Math.round(num('quietStart', 1320))), quietEnd: Math.max(0, Math.round(num('quietEnd', 420))),
+    volume: num('volume', 0.8), voice: typeof v.voice === 'string' ? v.voice.slice(0, 200) : ''};
+}
+
+// Apple Reminders for bundled views that declare `reminders`. Asking macOS for access,
+// changing reminders and changing the voice happen only while the widget is on screen.
 async function reminders(entry, name, args) {
   const visible = onScreen(entry);
   if (name === 'reminders.read') return invoke('reminders_read', {request: args.request === true && visible});
+  if (name === 'reminders.changes') return invoke('reminders_changes');
+  if (name === 'reminders.voice') return invoke('reminders_voice');
   if (!visible) throw new Error('Reminders change only while the widget is on screen');
   if (name === 'reminders.complete') {
     if (typeof args.id !== 'string' || typeof args.completed !== 'boolean') throw new Error('Choose a reminder');
@@ -138,10 +150,14 @@ async function reminders(entry, name, args) {
   }
   if (name === 'reminders.add') {
     if (typeof args.title !== 'string' || !args.title.trim()) throw new Error('Type a reminder first');
-    const list = typeof args.list === 'string' ? args.list : '';
-    // Rust trims and caps the title by character.
-    return invoke('reminders_create', {title: args.title, list: list || null});
+    const text = key => typeof args[key] === 'string' ? args[key] : '';
+    const priority = [1, 5, 9].includes(args.priority) ? args.priority : 0;
+    // Rust trims and caps the title by character and checks the date and time.
+    return invoke('reminders_create', {title: args.title, list: text('list') || null, due: text('due') || null, time: text('time') || null, priority});
   }
+  if (name === 'reminders.voice.set') return invoke('reminders_voice_set', {settings: voiceSettings(args.settings)});
+  if (name === 'reminders.voice.more') return invoke('reminders_voice_more');
+  if (name === 'reminders.voice.test') return invoke('reminders_voice_test', args.settings ? {settings: voiceSettings(args.settings)} : {});
   if (name === 'reminders.privacy') return invoke('reminders_privacy');
   throw new Error('Unknown widget command');
 }

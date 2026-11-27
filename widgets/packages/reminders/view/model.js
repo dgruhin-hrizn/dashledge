@@ -169,7 +169,65 @@
       .filter(option => /^[A-Za-z0-9._:@/-]{1,128}$/.test(option.value));
   }
 
-  const api = {chosenLists, addTarget, compare, dueLabel, dueSection, sections, counts, progress, nextUp, relative, onColor, readable, listOptions};
+  // ---- Adding with a due date ----
+  const hhmm = minutes => pad(Math.floor(minutes / 60)) + ':' + pad(minutes % 60);
+  const minutesOf = time => { const [h, m] = String(time).split(':').map(Number); return h * 60 + m; };
+
+  // Quick choices for a new reminder's due date: [{id, label, due, time}]. Later today
+  // is the next quarter hour an hour from now; options already past are left out.
+  function quickPicks(now = new Date()) {
+    const today = dayKey(now), minute = now.getHours() * 60 + now.getMinutes();
+    const picks = [{id: 'none', label: 'No date', due: '', time: ''}];
+    const later = Math.ceil((minute + 60) / 15) * 15;
+    if (later < 23 * 60 + 45) picks.push({id: 'later', label: 'Later today', due: today, time: hhmm(later)});
+    if (minute < 19 * 60) picks.push({id: 'tonight', label: 'Tonight', due: today, time: '20:00'});
+    picks.push({id: 'tomorrow', label: 'Tomorrow', due: dayKey(addDays(now, 1)), time: '09:00'});
+    const toSaturday = (6 - now.getDay() + 7) % 7 || 7;
+    picks.push({id: 'weekend', label: 'This weekend', due: dayKey(addDays(now, now.getDay() === 0 ? 6 : toSaturday)), time: '10:00'});
+    const toMonday = (8 - now.getDay()) % 7 || 7;
+    picks.push({id: 'nextweek', label: 'Next week', due: dayKey(addDays(now, toMonday)), time: '09:00'});
+    return picks;
+  }
+
+  // The day `n` days from `due` (today when there is none), never before today.
+  function shiftDay(due, n, now = new Date()) {
+    const base = due ? new Date(...due.split('-').map((v, i) => Number(v) - (i === 1 ? 1 : 0))) : new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const next = addDays(base, n), today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    return dayKey(next < today ? today : next);
+  }
+
+  // A time `step` quarter hours from `time` (9:00 AM when there is none), wrapping at midnight.
+  function shiftTime(time, step) {
+    const start = time ? minutesOf(time) : 9 * 60;
+    return hhmm((((Math.round(start / 15) + step) * 15) % 1440 + 1440) % 1440);
+  }
+
+  // A clock time for minutes after midnight, in the user's locale: "10:00 PM".
+  // `short` drops ":00" on the hour, for the one-line summary.
+  function clockText(minutes, short = false) {
+    const options = short && minutes % 60 === 0 ? {hour: 'numeric'} : {hour: 'numeric', minute: '2-digit'};
+    return new Date(2000, 0, 1, Math.floor(minutes / 60), minutes % 60).toLocaleTimeString(undefined, options);
+  }
+
+  // A chosen due date as it reads on the sheet, or "No date".
+  function whenText(due, time, now = new Date()) {
+    return due ? dueLabel({due, dueTime: time || ''}, now).text : 'No date';
+  }
+
+  // One line saying what the voice will do: "Says reminders when due · Quiet 10 PM–7 AM".
+  function voiceSummary(voice) {
+    if (!voice || !voice.enabled) return 'Spoken reminders are off';
+    if (voice.muted) return 'Voice muted';
+    const lead = voice.lead ? (voice.lead === 60 ? 'an hour early' : voice.lead + ' min early') + ' and when due' : 'when due';
+    const quiet = voice.quiet && voice.quietStart !== voice.quietEnd ? ' · Quiet ' + clockText(voice.quietStart, true) + '–' + clockText(voice.quietEnd, true) : '';
+    return 'Says reminders ' + lead + quiet;
+  }
+
+  const PRIORITIES = [{value: 0, label: 'None'}, {value: 9, label: '!'}, {value: 5, label: '!!'}, {value: 1, label: '!!!'}];
+  const LEADS = [{value: 0, label: 'Only when due'}, {value: 5, label: '5 min early'}, {value: 15, label: '15 min early'},
+    {value: 30, label: '30 min early'}, {value: 60, label: '1 hour early'}];
+
+  const api = {quickPicks, shiftDay, shiftTime, clockText, whenText, voiceSummary, PRIORITIES, LEADS, chosenLists, addTarget, compare, dueLabel, dueSection, sections, counts, progress, nextUp, relative, onColor, readable, listOptions};
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.RemindersModel = api;
 })(typeof globalThis === 'object' ? globalThis : this);

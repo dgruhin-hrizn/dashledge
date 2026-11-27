@@ -8,7 +8,8 @@ use std::ffi::{c_char, c_void, CStr, CString};
 extern "C" {
     fn reminders_snapshot(request: i32) -> *mut c_char;
     fn reminders_set_completed(id: *const c_char, completed: i32) -> *mut c_char;
-    fn reminders_add(title: *const c_char, list: *const c_char) -> *mut c_char;
+    fn reminders_add(title: *const c_char, list: *const c_char, due: *const c_char, time: *const c_char, priority: i32) -> *mut c_char;
+    fn reminders_revision() -> std::ffi::c_long;
     fn free(ptr: *mut c_void);
 }
 
@@ -27,6 +28,29 @@ pub fn clean_title(title: &str) -> Result<String, String> {
         return Err("Type a reminder first.".into());
     }
     Ok(title)
+}
+
+/// A due day (`YYYY-MM-DD`) and optional time (`HH:MM`). Empty day means no due date;
+/// a time needs a day.
+pub fn clean_due(due: &str, time: &str) -> Result<(String, String), String> {
+    let due = due.trim();
+    let time = time.trim();
+    if due.is_empty() {
+        return if time.is_empty() { Ok((String::new(), String::new())) } else { Err("Choose a day for that time.".into()) };
+    }
+    chrono::NaiveDate::parse_from_str(due, "%Y-%m-%d").map_err(|_| "Not a date".to_string())?;
+    if due.len() != 10 {
+        return Err("Not a date".into());
+    }
+    if !time.is_empty() && (time.len() != 5 || chrono::NaiveTime::parse_from_str(time, "%H:%M").is_err()) {
+        return Err("Not a time".into());
+    }
+    Ok((due.to_string(), time.to_string()))
+}
+
+/// Reminders' priorities: 0 none, 1 high, 5 medium, 9 low.
+pub fn valid_priority(priority: i32) -> bool {
+    matches!(priority, 0 | 1 | 5 | 9)
 }
 
 unsafe fn take(ptr: *mut c_char) -> Result<Value, String> {
@@ -65,10 +89,44 @@ pub async fn reminders_complete(id: String, completed: bool) -> Result<Value, St
     .await
 }
 
-/// Adds to `list`, or to the default Reminders list when it is empty.
+/// Counts EventKit changes from anywhere; a view reads again when it moves.
 #[tauri::command]
-pub async fn reminders_create(title: String, list: Option<String>) -> Result<Value, String> {
+pub fn reminders_changes() -> i64 {
+    unsafe { reminders_revision() as i64 }
+}
+
+/// Open reminders with a due time, for spoken alerts. None without access.
+pub fn timed() -> Option<Vec<crate::voice::Due>> {
+    let data = unsafe { take(reminders_snapshot(0)) }.ok()?;
+    if data.get("permission").and_then(Value::as_str) != Some("allowed") || data.get("error").is_some() {
+        return None;
+    }
+    let items = data.get("items")?.as_array()?;
+    Some(
+        items
+            .iter()
+            .filter(|item| item.get("completed").and_then(Value::as_bool) == Some(false))
+            .filter_map(|item| {
+                Some(crate::voice::Due {
+                    id: item.get("id")?.as_str()?.to_string(),
+                    title: item.get("title")?.as_str()?.to_string(),
+                    due_at: item.get("dueAt")?.as_i64()?,
+                })
+            })
+            .collect(),
+    )
+}
+
+/// Adds to `list`, or to the default Reminders list when it is empty, due on `due`
+/// (and at `time`) when given, with Reminders' `priority`.
+#[tauri::command]
+pub async fn reminders_create(title: String, list: Option<String>, due: Option<String>, time: Option<String>, priority: Option<i32>) -> Result<Value, String> {
     let title = clean_title(&title)?;
+    let (due, time) = clean_due(due.as_deref().unwrap_or(""), time.as_deref().unwrap_or(""))?;
+    let priority = priority.unwrap_or(0);
+    if !valid_priority(priority) {
+        return Err("Not a priority".into());
+    }
     let list = list.unwrap_or_default();
     if !list.is_empty() && !valid_id(&list) {
         return Err("Not a Reminders list".into());
@@ -76,7 +134,9 @@ pub async fn reminders_create(title: String, list: Option<String>) -> Result<Val
     blocking(move || unsafe {
         let title = CString::new(title).map_err(|_| "Invalid title")?;
         let list = CString::new(list).map_err(|_| "Not a Reminders list")?;
-        take(reminders_add(title.as_ptr(), list.as_ptr()))
+        let due = CString::new(due).map_err(|_| "Not a date")?;
+        let time = CString::new(time).map_err(|_| "Not a time")?;
+        take(reminders_add(title.as_ptr(), list.as_ptr(), due.as_ptr(), time.as_ptr(), priority))
     })
     .await
 }
@@ -103,6 +163,20 @@ mod tests {
         assert!(!valid_id("a b"));
         assert!(!valid_id("id\"; drop"));
         assert!(!valid_id(&"a".repeat(201)));
+    }
+
+    #[test]
+    fn due_dates_are_a_real_day_and_optional_time() {
+        assert_eq!(clean_due("", "").unwrap(), (String::new(), String::new()));
+        assert_eq!(clean_due("2026-11-28", "").unwrap(), ("2026-11-28".into(), String::new()));
+        assert_eq!(clean_due(" 2026-11-28 ", "09:30").unwrap(), ("2026-11-28".into(), "09:30".into()));
+        assert!(clean_due("", "09:30").is_err());
+        assert!(clean_due("2026-02-30", "").is_err());
+        assert!(clean_due("2026-11-28", "24:00").is_err());
+        assert!(clean_due("2026-11-28", "9:30").is_err());
+        assert!(clean_due("tomorrow", "").is_err());
+        assert!(valid_priority(0) && valid_priority(1) && valid_priority(5) && valid_priority(9));
+        assert!(!valid_priority(3) && !valid_priority(-1));
     }
 
     #[test]

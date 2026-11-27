@@ -1,6 +1,7 @@
 #import <EventKit/EventKit.h>
 #import <AppKit/AppKit.h>
 #import <string.h>
+#import <stdio.h>
 
 // Apple Reminders through EventKit, for package views that declare the `reminders`
 // permission. Every entry point returns a JSON string the caller frees with free().
@@ -12,6 +13,22 @@ static EKEventStore *sharedStore(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{ store = [[EKEventStore alloc] init]; });
     return store;
+}
+
+// Bumped whenever EventKit says reminders changed anywhere: here, in the Reminders app,
+// through Siri or from another device. Views compare it to decide when to read again.
+static volatile long changes = 0;
+static void watch(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        [NSNotificationCenter.defaultCenter addObserverForName:EKEventStoreChangedNotification object:sharedStore()
+            queue:nil usingBlock:^(NSNotification *note) { (void)note; __atomic_add_fetch(&changes, 1, __ATOMIC_RELAXED); }];
+    });
+}
+
+long reminders_revision(void) {
+    watch();
+    return __atomic_load_n(&changes, __ATOMIC_RELAXED);
 }
 
 static BOOL canRead(EKAuthorizationStatus status) {
@@ -78,6 +95,11 @@ static NSDictionary *item(EKReminder *r) {
         if (c.hour != NSDateComponentUndefined)
             out[@"dueTime"] = [NSString stringWithFormat:@"%02ld:%02ld", (long)c.hour,
                                (long)(c.minute == NSDateComponentUndefined ? 0 : c.minute)];
+        // The moment it is due, in milliseconds, for timed reminders: what voice alerts use.
+        if (c.hour != NSDateComponentUndefined) {
+            NSDate *at = [NSCalendar.currentCalendar dateFromComponents:c];
+            if (at) out[@"dueAt"] = @((long long)llround(at.timeIntervalSince1970 * 1000));
+        }
     }
     NSString *notes = [r.notes stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
     if (notes.length) out[@"notes"] = notes.length > 400 ? [notes substringToIndex:400] : notes;
@@ -87,6 +109,7 @@ static NSDictionary *item(EKReminder *r) {
 
 static NSDictionary *snapshot(BOOL request) {
     EKEventStore *store = sharedStore();
+    watch();
     EKAuthorizationStatus status = [EKEventStore authorizationStatusForEntityType:EKEntityTypeReminder];
     if (request && status == EKAuthorizationStatusNotDetermined) {
         NSDictionary *problem = requestAccess(store);
@@ -144,8 +167,10 @@ char *reminders_set_completed(const char *identifier, int completed) {
     }
 }
 
-// Add a reminder to the given list, or to the default list when the id is empty.
-char *reminders_add(const char *title, const char *listIdentifier) {
+// Add a reminder to the given list, or to the default list when the id is empty. `due`
+// is YYYY-MM-DD or empty, `time` HH:MM or empty (only with a day), `priority` 0, 1, 5
+// or 9. A timed reminder also gets an alert at that time, as Reminders gives one.
+char *reminders_add(const char *title, const char *listIdentifier, const char *due, const char *time, int priority) {
     @autoreleasepool {
         EKEventStore *store = sharedStore();
         if (!canRead([EKEventStore authorizationStatusForEntityType:EKEntityTypeReminder]))
@@ -157,6 +182,20 @@ char *reminders_add(const char *title, const char *listIdentifier) {
         EKReminder *r = [EKReminder reminderWithEventStore:store];
         r.title = [NSString stringWithUTF8String:title];
         r.calendar = list;
+        if (priority == 1 || priority == 5 || priority == 9) r.priority = priority;
+        int y = 0, m = 0, d = 0, h = -1, min = 0;
+        if (sscanf(due, "%4d-%2d-%2d", &y, &m, &d) == 3) {
+            NSDateComponents *c = [[NSDateComponents alloc] init];
+            c.calendar = NSCalendar.currentCalendar;
+            c.timeZone = NSTimeZone.localTimeZone;
+            c.year = y; c.month = m; c.day = d;
+            if (sscanf(time, "%2d:%2d", &h, &min) == 2 && h >= 0 && h < 24 && min >= 0 && min < 60) { c.hour = h; c.minute = min; }
+            r.dueDateComponents = c;
+            if (c.hour != NSDateComponentUndefined) {
+                NSDate *at = [NSCalendar.currentCalendar dateFromComponents:c];
+                if (at) [r addAlarm:[EKAlarm alarmWithAbsoluteDate:at]];
+            }
+        }
         NSError *error = nil;
         if (![store saveReminder:r commit:YES error:&error])
             return encode(@{@"error":error.localizedDescription ?: @"Reminders refused the new reminder."});
