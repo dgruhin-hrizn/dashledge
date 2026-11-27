@@ -353,7 +353,7 @@ const sourceHelp={
 function syncSourceTables(){
   const describe=(kind,title,sources)=>{
     sourceNames[kind]=title;
-    sourceHelp[kind]=[sources.addressLabel||'Server URL',sources.addressPlaceholder||'https://server.local',sources.credentialLabel||'Credential'];
+    sourceHelp[kind]=[sources.addressLabel||'Server URL',sources.addressPlaceholder||'https://server.local',sources.credentialLabel||'Credential',sources.usernameLabel||''];
   };
   for(const [kind,info] of packageInfo)if(info.sources)describe(kind,info.title,info.sources);
   for(const entry of config.plugins)if(entry.apiVersion===2&&entry.sources)describe(entry.id,entry.title,entry.sources);
@@ -363,7 +363,11 @@ function sourceForm(widget,existing){
   const kind=widgetInfo(config,widget).feed,name=input(existing?.name),address=input(existing?.address,'url'),secret=input('','password');
   address.required=true;name.placeholder='Automatic (from server)';name.maxLength=60;secret.autocomplete='new-password';secret.placeholder=existing?'Leave blank to keep saved credential':'Optional';
   const addressField=field('',address),secretField=field('',secret);
-  const describe=()=>{const [label,hint,credential]=sourceHelp[kind];addressField.firstChild.textContent=label;address.placeholder=hint;secretField.firstChild.textContent=credential};
+  // A manifest's usernameLabel asks for a username beside the credential (Basic auth, sign-in forms).
+  const username=input(''),usernameField=field('',username);
+  username.autocomplete='off';username.maxLength=256;username.placeholder=existing?'Leave blank to keep saved username':'';
+  const describe=()=>{const [label,hint,credential,user]=sourceHelp[kind];addressField.firstChild.textContent=label;address.placeholder=hint;secretField.firstChild.textContent=credential;
+    usernameField.firstChild.textContent=user||'';usernameField.hidden=!user};
   describe();
   // ComfyUI: optional SSH access to the worker for GPU load when Crystools isn't installed.
   const sshTarget=input(existing?.gpuSsh?.target||''),sshKey=input(existing?.gpuSsh?.identityFile||'');
@@ -371,7 +375,7 @@ function sourceForm(widget,existing){
   const extra=kind==='comfy'?[el('p','sub','GPU load comes from the Crystools node when it’s installed, or from this Mac when ComfyUI runs here. Otherwise add SSH access to the worker.'),field('GPU telemetry over SSH',sshTarget),field('SSH key file',sshKey)]:[];
   const proxmox=kind==='proxmox'?proxmoxFields(existing):null;
   if(proxmox)extra.push(...proxmox.nodes);
-  const dialog=formDialog(existing?'Edit connection':'Add connection',[field('Connection name',name),addressField,secretField,...extra],async()=>{
+  const dialog=formDialog(existing?'Edit connection':'Add connection',[field('Connection name',name),addressField,usernameField,secretField,...extra],async()=>{
     const u=new URL(address.value);if(!['http:','https:'].includes(u.protocol)||u.username||u.password||u.search||u.hash)throw Error('Use an HTTP(S) URL without embedded credentials or query');
     const obj={id:existing?.id||id(),name:name.value.trim(),kind,address:u.href};
     if(existing?.widgets)obj.widgets=existing.widgets;
@@ -384,7 +388,8 @@ function sourceForm(widget,existing){
       if(identityFile&&!/^(~|\/)[^\0]*$/.test(identityFile))throw Error('Enter the full path of the SSH key file');
       obj.gpuSsh=identityFile?{target,identityFile}:{target};
     }
-    if(secret.value)await invoke('set_secret',{kind:obj.kind,address:obj.address,secret:secret.value});
+    const user=usernameField.hidden?'':username.value.trim();
+    if(secret.value||user)await invoke('set_secret',{kind:obj.kind,address:obj.address,secret:secret.value,...(user?{user}:{})});
     if(proxmox)await proxmox.saveCertificate(obj.address);
     change(()=>{if(existing)config.sources[config.sources.findIndex(item=>item.id===existing.id)]=obj;else config.sources.push(obj);
       if(connectionsFor(config,widget).length===1)useDefault(config,widget,obj.id);

@@ -59,6 +59,10 @@ pub(crate) fn credential(kind: &str, base: &Url) -> Result<String, String> {
 fn secret_for(kind: &str, base: &Url) -> Result<Option<Vec<u8>>, String> {
     Ok(crate::vault::get(kind, base)?.key.map(String::into_bytes))
 }
+/// The stored username for a connection, or an empty string.
+pub(crate) fn username(kind: &str, base: &Url) -> Result<String, String> {
+    Ok(crate::vault::get(kind, base)?.user.unwrap_or_default())
+}
 pub(crate) fn widget_credentials(
     kind: &str,
     base: &Url,
@@ -73,12 +77,25 @@ pub fn set_secret(
     kind: String,
     address: String,
     secret: String,
+    user: Option<String>,
 ) -> Result<(), String> {
     if window.label() != "settings" {
         return Err("Open Settings to change credentials".into());
     }
     let base = endpoint(&address)?;
-    crate::vault::set(&kind, &base, secret)?;
+    match user {
+        // A username alone keeps the saved key; an empty secret with no username removes everything.
+        Some(user) => {
+            if user.len() > 256 || user.chars().any(char::is_control) {
+                return Err("Enter a username of up to 256 characters.".into());
+            }
+            if !secret.is_empty() {
+                crate::vault::set(&kind, &base, secret)?;
+            }
+            crate::vault::set_user(&kind, &base, Some(user))?;
+        }
+        None => crate::vault::set(&kind, &base, secret)?,
+    }
     crate::widget_host::invalidate(&kind, &base);
     Ok(())
 }

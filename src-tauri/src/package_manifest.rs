@@ -204,6 +204,10 @@ pub struct Sources {
     pub address_placeholder: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub credential_label: Option<String>,
+    /// Shown above a username field beside the credential. Without it the form asks for
+    /// the credential alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub username_label: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -481,6 +485,7 @@ pub fn validate(raw: &Value, origin: Origin) -> Result<Manifest, String> {
         optional_text(&sources.address_label, "Address label", 40)?;
         optional_text(&sources.address_placeholder, "Address placeholder", 120)?;
         optional_text(&sources.credential_label, "Credential label", 40)?;
+        optional_text(&sources.username_label, "Username label", 40)?;
     }
     if let Some(display) = &manifest.display_name {
         let parts: Vec<_> = display.server_field.split('.').collect();
@@ -775,6 +780,20 @@ mod tests {
         assert!(validate(&extra, Origin::Installed).is_err());
         assert!(validate(&with(installed(), "/title", json!("  ")), Origin::Installed).is_err());
         assert!(validate(&with(installed(), "/title", json!("x".repeat(65))), Origin::Installed).is_err());
+    }
+
+    #[test]
+    fn a_username_label_is_short_plain_text() {
+        let labelled = |label: Value| {
+            let mut p = installed();
+            p["sources"]["usernameLabel"] = label;
+            p
+        };
+        let m = validate(&labelled(json!("Username")), Origin::Installed).unwrap();
+        assert_eq!(m.sources.unwrap().username_label.as_deref(), Some("Username"));
+        for bad in [json!("x".repeat(41)), json!("User\nname"), json!(7)] {
+            assert!(validate(&labelled(bad.clone()), Origin::Installed).is_err(), "{bad}");
+        }
     }
 
     #[test]
