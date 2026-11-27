@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reminders</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="model.js" defer></script>
+  <script src="widget.js" defer></script>
+</head>
+<body>
+  <main class="rm" id="widget" aria-label="Reminders" data-state="loading">
+    <header class="rm-head">
+      <div class="rm-summary" id="summary" aria-live="polite">
+        <span class="rm-count" id="count">–</span>
+        <span class="rm-sub" id="subline">Reminders</span>
+      </div>
+      <div class="rm-actions">
+        <button type="button" class="rm-icon" id="add" aria-label="New reminder" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+        <button type="button" class="rm-icon" id="gear" aria-label="Reminders settings for this placement">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.4M12 18.8v2.4M21.2 12h-2.4M5.2 12H2.8M18.5 5.5l-1.7 1.7M7.2 16.8l-1.7 1.7M18.5 18.5l-1.7-1.7M7.2 7.2 5.5 5.5"/></svg>
+        </button>
+      </div>
+    </header>
+    <section class="rm-body" id="body"></section>
+    <p class="rm-toast" id="toast" role="status" hidden></p>
+  </main>
+</body>
+</html>

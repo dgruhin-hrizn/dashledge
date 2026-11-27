@@ -113,6 +113,25 @@ function claim(source) {
   return null;
 }
 
+// Apple Reminders for bundled views that declare `reminders`. Asking macOS for access
+// and changing reminders happen only while the widget is on screen, after a tap.
+async function reminders(entry, name, args) {
+  const visible = onScreen(entry);
+  if (name === 'reminders.read') return invoke('reminders_read', {request: args.request === true && visible});
+  if (!visible) throw new Error('Reminders change only while the widget is on screen');
+  if (name === 'reminders.complete') {
+    if (typeof args.id !== 'string' || typeof args.completed !== 'boolean') throw new Error('Choose a reminder');
+    return invoke('reminders_complete', {id: args.id, completed: args.completed});
+  }
+  if (name === 'reminders.add') {
+    if (typeof args.title !== 'string' || !args.title.trim()) throw new Error('Type a reminder first');
+    const list = typeof args.list === 'string' ? args.list : '';
+    return invoke('reminders_create', {title: args.title.slice(0, 300), list: list || null});
+  }
+  if (name === 'reminders.privacy') return invoke('reminders_privacy');
+  throw new Error('Unknown widget command');
+}
+
 // Track a package frame. `commands` lists the collector commands and `permissions`
 // the capabilities its manifest declares; `schema` is its settings and `saved` this
 // placement's stored values; `source` is its connection ID, which keys the options a
@@ -204,6 +223,8 @@ export async function handleMessage(entry, message) {
           storeChoices(entry.kind, entry.source, setting.id, cleanOptions(message.args.options));
           return reply(true);
         }
+        if (message.name.startsWith('reminders.') && granted(entry, 'reminders'))
+          return reply(await reminders(entry, message.name, message.args && typeof message.args === 'object' ? message.args : {}));
         if (message.name === 'mac.metrics' && granted(entry, 'mac.metrics')) return reply(latestMetrics);
         if (message.name === 'mac.subscribe' && granted(entry, 'mac.metrics')) {
           entry.metrics = true;

@@ -105,3 +105,34 @@ test('the catalog entry carries permissions and settings to the dashboard', () =
   assert.deepEqual(entry.permissions, ['settings', 'keyboard', 'ui', 'mac.metrics']);
   assert.equal(entry.settings.length, 4);
 });
+
+test('Reminders reach only views that declare them, with checked arguments', async () => {
+  const calls = [];
+  const original = window.__TAURI__.core.invoke;
+  window.__TAURI__.core.invoke = async (name, args) => { calls.push([name, args]); return {permission: 'allowed', items: []}; };
+  try {
+    const bystander = frameFor({permissions: []});
+    for (const name of ['reminders.read', 'reminders.complete', 'reminders.add', 'reminders.privacy'])
+      assert.equal((await command(bystander.entry, bystander.posted, name, {})).error, 'Unknown widget command', name);
+    assert.equal(calls.length, 0, 'nothing reaches EventKit without the permission');
+
+    const {entry, posted} = frameFor({permissions: ['reminders']});
+    assert.deepEqual((await command(entry, posted, 'reminders.read', {request: 'yes'})).value, {permission: 'allowed', items: []});
+    assert.deepEqual(calls.at(-1), ['reminders_read', {request: false}], 'only a literal true asks macOS');
+    await command(entry, posted, 'reminders.read', {request: true});
+    assert.deepEqual(calls.at(-1), ['reminders_read', {request: true}]);
+
+    assert.equal((await command(entry, posted, 'reminders.complete', {id: 7, completed: true})).error, 'Error: Choose a reminder');
+    await command(entry, posted, 'reminders.complete', {id: 'ABC-1', completed: false});
+    assert.deepEqual(calls.at(-1), ['reminders_complete', {id: 'ABC-1', completed: false}]);
+
+    assert.equal((await command(entry, posted, 'reminders.add', {title: '   '})).error, 'Error: Type a reminder first');
+    await command(entry, posted, 'reminders.add', {title: 'x'.repeat(400)});
+    assert.deepEqual(calls.at(-1), ['reminders_create', {title: 'x'.repeat(300), list: null}]);
+    await command(entry, posted, 'reminders.add', {title: 'Milk', list: 'LIST-1'});
+    assert.deepEqual(calls.at(-1), ['reminders_create', {title: 'Milk', list: 'LIST-1'}]);
+  } finally {
+    window.__TAURI__.core.invoke = original;
+  }
+  assert.ok(permissionSummary({permissions: ['reminders']}).some(line => line.includes('Apple Reminders')));
+});

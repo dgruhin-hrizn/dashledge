@@ -23,6 +23,7 @@ mod google_desk;
 mod mac_shortcuts;
 mod markets;
 mod photos;
+mod reminders;
 mod general;
 mod updater;
 mod touch;
@@ -295,6 +296,10 @@ pub fn run() {
             google_desk::desk_spark_inbox,
             google_desk::desk_mail,
             google_desk::desk_calendar,
+            reminders::reminders_read,
+            reminders::reminders_complete,
+            reminders::reminders_create,
+            reminders::reminders_privacy,
             google_desk::desk_open,
             widget_host::markets_watch,
             widget_host::widget_command,

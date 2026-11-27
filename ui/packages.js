@@ -9,7 +9,8 @@ export const packageInfo = new Map();
 
 export function registerPackages(list) {
   for (const info of list) {
-    if (info.origin !== 'bundled' || !info.collector) continue;
+    // Bundled packages, with a collector or view-only (Reminders reads EventKit through the bridge).
+    if (info.origin !== 'bundled') continue;
     packageInfo.set(info.id, info);
     titles[info.id] = info.title;
     if (!originalKinds.includes(info.id)) originalKinds.push(info.id);

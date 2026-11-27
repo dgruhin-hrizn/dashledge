@@ -1,0 +1,47 @@
+{
+  "apiVersion": 2,
+  "id": "reminders",
+  "title": "Reminders",
+  "description": "Your Apple Reminders: what’s due, check it off, add new ones with the touch keyboard.",
+  "version": "1.0.0",
+  "category": "Everyday",
+  "icon": "view/icon.svg",
+  "view": {
+    "entry": "view/index.html",
+    "viewport": "native",
+    "theme": true
+  },
+  "page": false,
+  "permissions": [
+    "settings",
+    "settings.choices",
+    "keyboard",
+    "reminders"
+  ],
+  "settings": [
+    {
+      "id": "lists",
+      "label": "Lists",
+      "type": "multi",
+      "dynamic": true,
+      "default": ["*"],
+      "help": "Choose one list to add new reminders straight to it."
+    },
+    {
+      "id": "finished",
+      "label": "Show what you finished today",
+      "type": "toggle",
+      "default": true
+    },
+    {
+      "id": "group",
+      "label": "Arrange",
+      "type": "choice",
+      "default": "lists",
+      "options": [
+        {"value": "lists", "label": "By list"},
+        {"value": "due", "label": "By due date"}
+      ]
+    }
+  ]
+}
