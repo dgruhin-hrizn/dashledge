@@ -97,3 +97,14 @@ test('list options fit the settings.choices shape', () => {
   assert.deepEqual(options.map(o => o.value), ['L-HOME', 'L-WORK', 'L-SHARED']);
   assert.deepEqual(options[0], {value: 'L-HOME', label: 'Home', detail: 'iCloud'});
 });
+
+test('the hero dial counts today and names what is next', () => {
+  assert.deepEqual(M.progress(snapshot, {lists: ['*']}, now), {done: 1, due: 3, total: 4, ratio: 0.25});
+  assert.equal(M.nextUp(snapshot, {lists: ['*']}, now).id, 'late');
+  assert.equal(M.nextUp({lists, items: [item('plain', 'L-HOME')]}, {}, now), null, 'nothing due or flagged, nothing next');
+  assert.deepEqual(M.relative(item('a', 'x', {due: '2026-11-26', dueTime: '10:45'}), now), {text: 'in 45 min', late: false});
+  assert.deepEqual(M.relative(item('a', 'x', {due: '2026-11-26', dueTime: '13:00'}), now), {text: 'in 3 h', late: false});
+  assert.deepEqual(M.relative(item('a', 'x', {due: '2026-11-24'}), now), {text: '1 d overdue', late: true});
+  assert.deepEqual(M.relative(item('a', 'x', {due: '2026-11-26'}), now), {text: 'today', late: false});
+  assert.equal(M.relative(item('a', 'x'), now), null);
+});

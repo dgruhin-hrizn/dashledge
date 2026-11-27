@@ -5,7 +5,10 @@
   const host = window.Dashledge;
   const M = window.RemindersModel;
   const $ = id => document.getElementById(id);
-  const widget = $('widget'), body = $('body'), count = $('count'), subline = $('subline'), addButton = $('add'), toast = $('toast');
+  const widget = $('widget'), body = $('body'), count = $('count'), countLabel = $('countLabel'), addButton = $('add'), toast = $('toast');
+  const arc = $('arc'), dial = $('dial'), chips = $('chips'), next = $('next');
+  const CHECK = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m7.5 12.4 3 3 6-6.6" pathLength="1"/></svg>';
+  const PLUS = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
   const REFRESH = 15000, HOLD = 4000;
 
   let snapshot = null, failure = '', settings = {lists: ['*'], finished: true, group: 'lists'};
@@ -88,6 +91,7 @@
     check.type = 'button';
     check.setAttribute('aria-pressed', String(!!item.completed));
     check.setAttribute('aria-label', (item.completed ? 'Mark not done: ' : 'Mark done: ') + item.title);
+    check.innerHTML = CHECK;
     check.onclick = () => toggle(item);
     const text = el('div', 'rm-text');
     const title = el('span', 'rm-title', item.title || 'New Reminder');
@@ -110,30 +114,80 @@
     return li;
   }
 
-  function section(group, many) {
+  // One card per list (or due section), tinted in the list's own Reminders colour.
+  function section(group) {
     const box = el('section', 'rm-group');
     box.dataset.id = group.id;
-    if (group.color) box.style.setProperty('--list', group.color);
-    if (many) {
-      const head = el('header', 'rm-group-head');
-      head.append(el('h2', '', group.title), el('span', 'rm-group-count', String(group.items.filter(i => !i.completed).length)));
-      if (group.list) {
-        const plus = el('button', 'rm-icon rm-small');
-        plus.type = 'button';
-        plus.setAttribute('aria-label', 'New reminder in ' + group.title);
-        plus.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
-        plus.onclick = () => add(group.list, group.title);
-        head.append(plus);
-      }
-      box.append(head);
+    const color = group.color || (settings.group === 'due' ? DUE_COLORS[group.id] : '') || '';
+    if (color) box.style.setProperty('--list', color);
+    const head = el('header', 'rm-group-head');
+    const badge = el('span', 'rm-badge');
+    badge.innerHTML = settings.group === 'due' ? DUE_ICONS[group.id] || DUE_ICONS.later
+      : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7h11M8 12h11M8 17h11"/><circle cx="4" cy="7" r="1.3"/><circle cx="4" cy="12" r="1.3"/><circle cx="4" cy="17" r="1.3"/></svg>';
+    const name = el('h2', '', group.title);
+    const open = group.items.filter(i => !i.completed).length;
+    head.append(badge, name, el('span', 'rm-group-count', String(open)));
+    if (group.list) {
+      const plus = el('button', 'rm-icon rm-small');
+      plus.type = 'button';
+      plus.setAttribute('aria-label', 'New reminder in ' + group.title);
+      plus.innerHTML = PLUS;
+      plus.onclick = () => add(group.list, group.title);
+      head.append(plus);
     }
+    box.append(head);
     const list = el('ul', 'rm-list');
-    for (const item of group.items) list.append(row(item, group.color || colorOf(item.listId)));
+    for (const item of group.items) list.append(row(item, settings.group === 'due' ? colorOf(item.listId) : ''));
     if (!group.items.length) list.append(el('li', 'rm-none', 'Nothing here'));
     box.append(list);
     return box;
   }
+  const DUE_COLORS = {overdue: '#ff5d55', today: '', week: '#5aa9ff', later: '#a58bff', done: '#8e99a8'};
+  const DUE_ICONS = {
+    overdue: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 2.5 20h19L12 3Z"/><path d="M12 10v4.5M12 17.2v.3"/></svg>',
+    today: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M21.5 12h-2M4.5 12h-2M18.7 5.3l-1.4 1.4M6.7 17.3l-1.4 1.4M18.7 18.7l-1.4-1.4M6.7 6.7 5.3 5.3"/></svg>',
+    week: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>',
+    later: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>',
+    done: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>',
+  };
   const colorOf = id => snapshot?.lists?.find(list => list.id === id)?.color || '';
+
+  // The dial fills with what's finished today against what's due by tonight. With
+  // nothing due today it shows every open reminder instead.
+  // pathLength is 100, so the dash is the percentage; a hair of arc shows at zero.
+  const setArc = ratio => { arc.style.strokeDasharray = Math.max(0.001, ratio * 100) + ' 100'; arc.style.opacity = ratio > 0 ? '1' : '0'; };
+  function hero(data, tally) {
+    chips.replaceChildren();
+    next.hidden = true;
+    if (!data || data.permission !== 'allowed') {
+      count.textContent = '';
+      countLabel.textContent = 'Reminders';
+      setArc(0);
+      dial.setAttribute('aria-label', 'Reminders');
+      return;
+    }
+    const day = M.progress(data, settings);
+    const today = day.total > 0;
+    const left = today ? day.total - day.done : tally.open;
+    count.textContent = String(left);
+    countLabel.textContent = today ? (left ? 'left today' : 'all done today') : left === 1 ? 'open reminder' : 'open reminders';
+    setArc(today ? day.ratio : left ? 0 : 1);
+    widget.dataset.complete = String(today && !left);
+    dial.setAttribute('aria-label', today ? day.done + ' of ' + day.total + ' done today' : left + ' open');
+    const chip = (text, tone) => { const c = el('span', 'rm-chip', text); if (tone) c.dataset.tone = tone; chips.append(c); };
+    if (tally.overdue) chip(tally.overdue + ' overdue', 'overdue');
+    if (day.done) chip(day.done + ' done today', 'done');
+    chip(tally.open + ' open', '');
+    const up = M.nextUp(data, settings);
+    if (up) {
+      next.hidden = false;
+      $('nextTitle').textContent = up.title;
+      const when = M.relative(up) || {text: 'high priority', late: false};
+      $('nextWhen').textContent = when.text;
+      $('nextWhen').dataset.tone = when.late ? 'overdue' : '';
+      next.style.setProperty('--list', colorOf(up.listId) || 'var(--hi)');
+    }
+  }
 
   function draw() {
     // Keep each group's scroll position and the page's across redraws.
@@ -141,10 +195,9 @@
     const outer = body.scrollTop, across = body.scrollLeft;
     const data = current();
     addButton.hidden = true;
+    hero(null);
     if (!data) {
       widget.dataset.state = failure ? 'error' : 'loading';
-      count.textContent = '–';
-      subline.textContent = 'Reminders';
       body.replaceChildren(failure
         ? message('Couldn’t read Reminders', failure, [['Try again', () => read()]])
         : message('Reading Reminders…'));
@@ -152,16 +205,12 @@
     }
     if (data.permission === 'request') {
       widget.dataset.state = 'permission';
-      count.textContent = '';
-      subline.textContent = 'Reminders';
       body.replaceChildren(message('Show your reminders here', data.detail || 'macOS asks once whether Dashledge may use Reminders.',
         [['Show my Reminders', () => read(true), true]]));
       return;
     }
     if (data.permission === 'denied') {
       widget.dataset.state = 'permission';
-      count.textContent = '';
-      subline.textContent = 'Reminders';
       body.replaceChildren(message('Reminders is off for Dashledge', data.detail || 'Turn on Dashledge in Privacy & Security › Reminders, then come back.',
         [['Open Privacy settings', () => host.reminders.openPrivacy().catch(e => say(String(e.message || e))), true], ['Check again', () => read()]]));
       return;
@@ -169,10 +218,7 @@
     widget.dataset.state = 'ready';
     addButton.hidden = false;
     const tally = M.counts(data, settings);
-    count.textContent = String(tally.open);
-    subline.textContent = tally.overdue ? tally.overdue + ' overdue' + (tally.today ? ' · ' + tally.today + ' today' : '')
-      : tally.today ? tally.today + ' due today' : tally.open === 1 ? 'reminder' : 'reminders';
-    subline.dataset.tone = tally.overdue ? 'overdue' : '';
+    hero(data, tally);
     const groups = M.sections(data, settings).filter(group => group.items.length || settings.group !== 'due');
     const visible = settings.group === 'due' ? groups : groups.filter(group => group.items.length || M.chosenLists(data.lists || [], settings.lists).length <= 6);
     const nodes = [];
@@ -183,9 +229,8 @@
     else if (!tally.open && !visible.some(group => group.items.length))
       nodes.push(message('All done', 'Nothing left in these lists.', [['New reminder', () => add(), true]]));
     else {
-      const many = visible.length > 1;
       widget.dataset.groups = String(visible.length);
-      for (const group of visible) nodes.push(section(group, many));
+      for (const group of visible) nodes.push(section(group));
     }
     body.replaceChildren(...nodes);
     for (const g of body.querySelectorAll('.rm-group')) {
@@ -201,7 +246,17 @@
     const completed = !(before?.completed ?? item.completed);
     // Keep the row where it was when first tapped until the hold runs out.
     held.set(item.id, {completed, sortDone: before?.sortDone ?? !!item.completed, until: Date.now() + HOLD});
-    draw();
+    // Flip the row in place so the ring fills and the tick draws in; the next redraw
+    // keeps it there until the hold runs out. The hero updates now.
+    const shown = body.querySelector('.rm-row[data-id="' + CSS.escape(item.id) + '"]');
+    if (shown) {
+      shown.dataset.done = String(completed);
+      const check = shown.querySelector('.rm-check');
+      check.setAttribute('aria-pressed', String(completed));
+      check.setAttribute('aria-label', (completed ? 'Mark not done: ' : 'Mark done: ') + item.title);
+      const data = current();
+      hero(data, M.counts(data, settings));
+    } else draw();
     try {
       const result = await host.reminders.setCompleted(item.id, completed);
       const fresh = result?.item;

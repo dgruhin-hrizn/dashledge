@@ -99,6 +99,34 @@
     return {open: open.length, today: kinds.filter(k => k === 'today').length, overdue: kinds.filter(k => k === 'overdue').length};
   }
 
+  // Today's progress for the hero dial: finished today against what was due by tonight.
+  function progress(snapshot, settings = {}, now = new Date()) {
+    const shown = new Set(chosenLists(snapshot.lists || [], settings.lists).map(list => list.id));
+    const items = (snapshot.items || []).filter(item => shown.has(item.listId));
+    const done = items.filter(item => item.completed).length;
+    const due = items.filter(item => !item.completed && ['overdue', 'today'].includes(dueSection({...item, sortDone: undefined}, now))).length;
+    return {done, due, total: done + due, ratio: done + due ? done / (done + due) : 0};
+  }
+
+  // The open reminder to do next: the earliest due, else the highest priority.
+  function nextUp(snapshot, settings = {}, now = new Date()) {
+    const shown = new Set(chosenLists(snapshot.lists || [], settings.lists).map(list => list.id));
+    return (snapshot.items || []).filter(item => !item.completed && shown.has(item.listId) && (item.due || item.priority > 0))
+      .sort(compare)[0] || null;
+  }
+
+  // "in 45 min", "in 3 h", "2 d overdue"… for the next-up line; null without a due date.
+  function relative(item, now = new Date()) {
+    if (!item?.due) return null;
+    const [y, m, d] = item.due.split('-').map(Number);
+    const [h, min] = (item.dueTime || '23:59').split(':').map(Number);
+    const minutes = Math.round((new Date(y, m - 1, d, h, min) - now) / 60000);
+    const span = Math.abs(minutes);
+    const text = span < 60 ? span + ' min' : span < 24 * 60 ? Math.round(span / 60) + ' h' : Math.round(span / 1440) + ' d';
+    if (!item.dueTime && item.due === dayKey(now)) return {text: 'today', late: false};
+    return minutes < 0 ? {text: text + ' overdue', late: true} : {text: 'in ' + text, late: false};
+  }
+
   // Options for the placement's Lists setting.
   function listOptions(lists) {
     return lists.slice(0, 64).map(list => ({value: list.id.slice(0, 128), label: String(list.title).slice(0, 64),
@@ -106,7 +134,7 @@
       .filter(option => /^[A-Za-z0-9._:@/-]{1,128}$/.test(option.value));
   }
 
-  const api = {chosenLists, addTarget, compare, dueLabel, dueSection, sections, counts, listOptions};
+  const api = {chosenLists, addTarget, compare, dueLabel, dueSection, sections, counts, progress, nextUp, relative, listOptions};
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.RemindersModel = api;
 })(typeof globalThis === 'object' ? globalThis : this);
