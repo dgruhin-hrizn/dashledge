@@ -36,6 +36,8 @@
   const format = (value, formatter = number) => value == null ? "—" : formatter.format(value);
   const gib = (value) => value == null ? "—" : format(M.gib(value)) + " GiB";
   const tps = (value) => format(value) + " tok/s";
+  // Text may wrap between words, but a number keeps its unit and a count its total.
+  const unbroken = (text) => text.replace(/(?<=[\d/]) /g, "\u00a0");
   function set(id, text) {
     const node = typeof id === "string" ? $(id) : id;
     if (node.textContent !== text) node.textContent = text;
@@ -375,25 +377,28 @@
     // The chip's model name shortens first; its counts and times stay whole.
     let chipText = null, chipDetail = "", chipType = null, idle = null;
     const detail = (...parts) => parts.filter(Boolean).join(" · ");
+    // Details wrap instead of shortening, so a count, time or rate stays whole.
+    const lines = (...parts) => unbroken(parts.filter(Boolean).join(" · "));
     if (mode === "generating") {
       const rows = M.generations(data);
       const row = rows[0];
       chipType = row.type;
       chipText = row.name;
-      chipDetail = detail(row.tokens != null && whole.format(row.tokens) + " tokens",
+      chipDetail = lines(row.tokens != null && whole.format(row.tokens) + " tokens",
         row.elapsed != null && seconds.format(row.elapsed) + " s", rows.length > 1 && "+" + (rows.length - 1) + " more");
     } else if (mode === "prefill") {
       const rows = M.prefills(data);
       const row = rows[0];
       chipType = data.models.find((model) => model.id === row.model)?.type;
       chipText = row.name;
-      chipDetail = detail("prefill " + (row.total ? format(row.done, whole) + " / " + format(row.total, whole) : ""),
-        row.rate > 0 && tps(row.rate), rows.length > 1 && "+" + (rows.length - 1) + " more");
+      // The Prefill row under the chart carries the speed.
+      chipDetail = lines(row.total ? "prefill " + format(row.done, whole) + " / " + format(row.total, whole) : "prefill",
+        rows.length > 1 && "+" + (rows.length - 1) + " more");
     } else if (mode === "loading") {
       const model = data.models.find((candidate) => candidate.loading);
       chipType = model.type;
       chipText = "Loading " + model.name;
-      chipDetail = detail(model.loadingElapsed != null && M.duration(model.loadingElapsed),
+      chipDetail = lines(model.loadingElapsed != null && M.duration(model.loadingElapsed),
         model.loadingRemaining != null && "~" + M.duration(model.loadingRemaining) + " left");
     } else if (mode === "queued") {
       chipText = format(data.queued) + " queued";
@@ -414,8 +419,8 @@
     chip.hidden = !chipText;
     if (chipText) {
       set("chip-text", chipText);
-      set("chip-detail", chipDetail && " · " + chipDetail);
-      chip.title = detail(chipText, chipDetail);
+      set("chip-detail", chipDetail);
+      chip.title = detail(chipText, chipDetail.replace(/\u00a0/g, " "));
       const kind = M.glyphType(chipType);
       $("chip-use").setAttribute("href", "#g-" + kind);
       chip.dataset.glyph = kind;
@@ -493,7 +498,8 @@
       const timerText = timer && !model.pinned ? (timer.expiring ? "unloading" : "unloads in " + M.clock(timer.remaining)) : null;
       const sub = state.busy ? [...state.text, !model.generating && sizeText] :
         [label, model.pinned ? "pinned" : "idle", timerText, sizeText];
-      row.append(element("span", sub.filter(Boolean).join(" · "), "resident-sub"));
+      // The line wraps instead of shortening, so a count, rate or unit is never cut off.
+      row.append(element("span", unbroken(sub.filter(Boolean).join(" · ")), "resident-sub"));
       row.dataset.side = String(side.childNodes.length > 0);
       if (state.progress != null) {
         const bar = element("progress");
@@ -996,8 +1002,7 @@
       const hasActivity = server.liveDecode != null || jobs.length > 0 || server.models?.some(model => model.generating > 0);
       const prior = previousSnapshot?.servers.find(s => s.address === server.address);
       const estimate = M.completedPrefillRate(prior, server);
-      const live = jobs.length && jobs.every(job => job.rate > 0)
-        ? jobs.reduce((sum, job) => sum + job.rate, 0) : null;
+      const live = M.livePrefillRate(jobs);
       points.push({ at, rate: server.liveDecode ?? null, prefill: live,
         estimate, phase: jobs.length ? "Measuring" : hasActivity ? "Idle" : "Unavailable" });
       history.set(server.address, points.filter((point) => point.at >= value.at - windowMs));
