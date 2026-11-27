@@ -277,6 +277,7 @@ pub fn run() {
             marketplace::marketplace_catalog, marketplace::marketplace_image,
             marketplace::marketplace_inspect, marketplace::marketplace_install,
             marketplace::marketplace_check, marketplace::marketplace_set_auto_update,
+            marketplace::marketplace_installed,
             package_store::choose_unpacked_package, package_store::reload_unpacked_package,
             package_connector::package_logs,
             package_connector::package_open, package_connector::package_read, package_connector::package_ping,

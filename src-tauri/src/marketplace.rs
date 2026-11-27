@@ -412,6 +412,14 @@ pub async fn marketplace_check(window: tauri::WebviewWindow, app: tauri::AppHand
     check(&Registry::pinned()?, &data_dir(&app)?, &package_store::installed_root(&app)?).await
 }
 
+/// IDs installed from the Marketplace, so Widget Studio can label the rest Unverified.
+/// Reads only this Mac's record; nothing is fetched.
+#[tauri::command]
+pub fn marketplace_installed(window: tauri::WebviewWindow, app: tauri::AppHandle) -> Result<Vec<String>, String> {
+    package_store::settings_only(&window)?;
+    Ok(load(&data_dir(&app)?).installed.into_keys().collect())
+}
+
 #[tauri::command]
 pub fn marketplace_set_auto_update(window: tauri::WebviewWindow, app: tauri::AppHandle, on: bool) -> Result<(), String> {
     package_store::settings_only(&window)?;

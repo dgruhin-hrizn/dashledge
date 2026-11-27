@@ -14,6 +14,7 @@ import {connectionLabel} from './display-name.js';
 import {guestRows,parseGuests} from './proxmox-guests.js';
 import {general,loadGeneral,updateGeneral,fitDashboard,dimensions,onGeneral} from './general.js';
 import {icon} from './admin-icons.js';
+import {renderMarketplace} from './marketplace.js';
 import {appendPage,assignWidget,pickWidget} from './page-actions.js';
 import {presets,titles,id,resize,split,removeSection,layout,plugin} from './model.js';
 import {addBundledDmdPage,ensure,state,current,activate,save,invoke,el,button,field,select} from './common.js';
@@ -21,9 +22,14 @@ import {loadPackages,packageInfo,installedPackages} from './packages.js';
 await loadPackages();
 let config=ensure();
 if(syncInstalled(config,[...installedPackages.values()]))save(config);
+// The Marketplace tab's loaded catalog, search and open plugin; IDs installed from it label Studio cards.
+const marketState={};
+let marketIds=new Set();
+function loadMarketIds(){invoke('marketplace_installed').then(ids=>{marketIds=new Set(ids);if(tab==='Widget Studio')render()}).catch(()=>{})}
+loadMarketIds();
 let tab='General',chosen=current(config).id,index=0,undo=[],statusTimer;
 const main=document.querySelector('#editor');
-const links=[['General','General','general'],['Layouts','Pages & layouts','pages'],['Widget Studio','Widget Studio','studio'],['Preview','Live preview','preview'],['About','About','info']];
+const links=[['General','General','general'],['Layouts','Pages & layouts','pages'],['Widget Studio','Widget Studio','studio'],['Marketplace','Marketplace','market'],['Preview','Live preview','preview'],['About','About','info']];
 const sourcesStatus=new Map();
 function decorated(label,action,symbol,cls=''){const b=button(label,action,cls);b.prepend(icon(symbol));return b}
 function heading(text,actions){const h=el('header','admin-heading');h.append(el('h1','',text));if(actions)h.append(actions);return h}
@@ -577,6 +583,11 @@ function removePackage(info){
 }
 // API version 2: show what the package may do, then install its files on confirm.
 function installV2(info,bytes){
+  installSheet(info,()=>invoke('install_widget_package',bytes));
+}
+// The install sheet for a checked package from a file or the Marketplace. `install`
+// installs it and returns the installed package's info.
+function installSheet(info,install){
   const old=config.plugins.find(p=>p.id===info.id);
   if(info.origin==='bundled'||Object.hasOwn(titles,info.id))throw Error('A built-in widget already uses this ID.');
   const permissions=el('ul','package-permissions');
@@ -587,10 +598,10 @@ function installV2(info,bytes){
   fields.push(el('h3','','This widget'));
   fields.push(permissions);
   formDialog((old?'Update ':'Install ')+info.title,fields,async()=>{
-    const installedInfo=await invoke('install_widget_package',bytes);
+    const installedInfo=await install();
     const saved=change(()=>recordPackage(config,installedInfo),false);
     if(!saved)throw Error('Could not save this package.');
-    syncSourceTables();
+    syncSourceTables();loadMarketIds();
   },old?'Update widget':'Install widget');
 }
 // A package connector's recent console output, refreshed while the dialog is open.
@@ -697,7 +708,9 @@ function plugins(){
       const info=widgetInfo(config,kind),card=el('article','panel studio-card');
       const title=el('div','card-title');title.append(tag(kind),el('h3','',info.title));
       const count=new Set(placements(config,kind).map(u=>u.page.id)).size;
-      const meta=[info.version?'v'+info.version:null,count?count+' '+(count===1?'page':'pages'):'Unplaced'].filter(Boolean).join(' · ');
+      // Where an installed package came from: the Marketplace, a folder, or a file nobody reviewed.
+      const origin=info.apiVersion!==2?null:info.disabled?'Pulled':info.unpacked?'Unpacked':marketIds.has(kind)?'Marketplace':'Unverified';
+      const meta=[origin,info.version?'v'+info.version:null,count?count+' '+(count===1?'page':'pages'):'Unplaced'].filter(Boolean).join(' · ');
       card.append(title,el('p','card-description',info.description||(info.feed==='json'?'Reads '+info.field+' from a JSON connection.':'Reads '+info.field+' from this Mac.')),el('small','card-meta',meta));
       const settings=button('Settings',()=>widgetSettings(kind)),remove=button('Remove',()=>removePackage(info),'quiet');
       settings.setAttribute('aria-label',info.title+' settings');remove.setAttribute('aria-label','Remove '+info.title);
@@ -803,6 +816,7 @@ function render(){
   if(tab==='Layouts'){const h=heading('Pages & layouts');if(keep)main.insertBefore(h,keep);else main.append(h);layouts()}else discardDraft();
   if(tab==='Widget Studio'){if(detail&&installed(config,detail))widgetDetail(detail);else plugins()}
   if(tab==='General')generalTab();
+  if(tab==='Marketplace')renderMarketplace({main,invoke,el,button,row,heading,notice,installSheet,rerender:()=>{if(tab==='Marketplace')render()}},marketState);
   if(tab==='Preview'){
     main.append(heading('Live preview',row(button('Edit layout',()=>go('Layouts')),previewButton())));
     const frame=el('section','panel preview-panel'),f=el('iframe','preview');f.title='Current dashboard';f.src='index.html';

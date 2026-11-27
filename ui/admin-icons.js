@@ -6,6 +6,7 @@ const paths={
  pages:'M2 4h16v12H2z M8 4v12 M8 10h10',
  connections:'M6 2v4 M10 2v4 M4 6h8v2a4 4 0 0 1-4 4v2a3 3 0 0 0 6 0v-2h3',
  studio:'M3 3h6v6H3z M12 3h5v6h-5z M3 12h6v5H3z M12 14.5h6 M15 11.5v6',
+ market:'M3 8h14v9H3z M2 4h16l-1 4H3z M8 17v-5h4v5',
  preview:'M2 4h16v11H2z M6 18h8 M10 15v3',
  display:'M2 5h16v9H2z M7 17h6',
  cpu:'M5 5h10v10H5z M8 8h4v4H8z M7 2v3 M12 2v3 M7 15v3 M12 15v3 M2 7h3 M2 12h3 M15 7h3 M15 12h3',
