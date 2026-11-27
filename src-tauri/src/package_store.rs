@@ -12,6 +12,7 @@ use crate::package_manifest::{self, Manifest, Origin, Tier};
 use serde::Serialize;
 use serde_json::Value;
 use std::{
+    collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
     collections::HashMap,
@@ -36,6 +37,9 @@ pub struct PackageInfo {
     /// The folder an unpacked package is loaded from.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
+    /// Why this installed version doesn't run: the Marketplace pulled it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub disabled: Option<String>,
 }
 
 /// `check`, plus the package's `minAppVersion` against this build. Listing what is
@@ -54,6 +58,7 @@ fn info(manifest: Manifest, origin: Origin, dir: &Path) -> PackageInfo {
         icon_data,
         manifest,
         path: None,
+        disabled: None,
     }
 }
 
@@ -287,9 +292,11 @@ pub fn all() -> Vec<(PackageInfo, PathBuf)> {
         }
     }
     if let Some(installed) = installed {
-        for package in read_root(&installed, Origin::Installed) {
+        let disabled = read_disabled(&installed);
+        for mut package in read_root(&installed, Origin::Installed) {
             if !list.iter().any(|(p, _)| p.manifest.id == package.manifest.id) {
                 let dir = installed.join(&package.manifest.id);
+                package.disabled = disabled_reason(&disabled, &package.manifest);
                 list.push((package, dir));
             }
         }
@@ -298,8 +305,52 @@ pub fn all() -> Vec<(PackageInfo, PathBuf)> {
     list
 }
 
-/// A package and its folder by ID.
+/// An installed version the Marketplace pulled, kept in `<packages>/.disabled.json` by ID.
+#[derive(Clone, Debug, Default, serde::Deserialize, Serialize, PartialEq)]
+pub struct Disabled {
+    pub version: String,
+    pub reason: String,
+}
+
+pub fn disabled_path(root: &Path) -> PathBuf {
+    root.join(".disabled.json")
+}
+
+pub fn read_disabled(root: &Path) -> BTreeMap<String, Disabled> {
+    fs::read(disabled_path(root)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+}
+
+/// Record which installed versions are pulled, and reload the packages whose state changed.
+pub fn write_disabled(root: &Path, disabled: &BTreeMap<String, Disabled>) -> Result<(), String> {
+    let before = read_disabled(root);
+    if &before == disabled {
+        return Ok(());
+    }
+    fs::create_dir_all(root).map_err(|e| e.to_string())?;
+    let tmp = root.join(".disabled.json.tmp");
+    fs::write(&tmp, serde_json::to_vec_pretty(disabled).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    fs::rename(&tmp, disabled_path(root)).map_err(|e| e.to_string())?;
+    refresh();
+    for id in before.keys().chain(disabled.keys()) {
+        if before.get(id) != disabled.get(id) {
+            bump(id);
+        }
+    }
+    Ok(())
+}
+
+/// A pulled entry applies only to the version it names; an update lifts it.
+pub fn disabled_reason(disabled: &BTreeMap<String, Disabled>, manifest: &Manifest) -> Option<String> {
+    disabled.get(&manifest.id).filter(|d| manifest.version.as_deref() == Some(d.version.as_str())).map(|d| d.reason.clone())
+}
+
+/// A package that may run: bundled, unpacked or installed, and not pulled.
 pub fn lookup(id: &str) -> Option<(PackageInfo, PathBuf)> {
+    lookup_any(id).filter(|(p, _)| p.disabled.is_none())
+}
+
+/// Any listed package with this ID, including a pulled one.
+pub fn lookup_any(id: &str) -> Option<(PackageInfo, PathBuf)> {
     all().into_iter().find(|(p, _)| p.manifest.id == id)
 }
 
@@ -337,7 +388,7 @@ pub fn inspect_widget_package(window: tauri::WebviewWindow, request: tauri::ipc:
 
 /// The installed or unpacked package with this ID, if any.
 pub(crate) fn lookup_installed(id: &str) -> Option<Manifest> {
-    lookup(id).filter(|(p, _)| p.origin != "bundled").map(|(p, _)| p.manifest)
+    lookup_any(id).filter(|(p, _)| p.origin != "bundled").map(|(p, _)| p.manifest)
 }
 
 /// What the install sheet shows for a checked package: its info, and `added`, the grants
@@ -345,7 +396,7 @@ pub(crate) fn lookup_installed(id: &str) -> Option<Manifest> {
 pub fn sheet_info(manifest: Manifest, files: &Files, installed: impl Fn(&str) -> Option<Manifest>) -> Result<Value, String> {
     let icon = icon_data(&manifest.icon, &files[&manifest.icon]).ok_or("The icon must be a PNG or SVG up to 256 KiB.")?;
     let added = installed(&manifest.id).map(|old| grants::added_grants(&old, &manifest));
-    let mut value = serde_json::to_value(PackageInfo { tier: manifest.tier(), origin: "installed", icon_data: Some(icon), manifest, path: None })
+    let mut value = serde_json::to_value(PackageInfo { tier: manifest.tier(), origin: "installed", icon_data: Some(icon), manifest, path: None, disabled: None })
         .map_err(|e| e.to_string())?;
     if let Some(added) = added {
         value["added"] = serde_json::to_value(added).map_err(|e| e.to_string())?;

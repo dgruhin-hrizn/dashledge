@@ -276,6 +276,7 @@ pub fn run() {
             package_store::list_packages, package_store::remove_widget_package,
             marketplace::marketplace_catalog, marketplace::marketplace_image,
             marketplace::marketplace_inspect, marketplace::marketplace_install,
+            marketplace::marketplace_check, marketplace::marketplace_set_auto_update,
             package_store::choose_unpacked_package, package_store::reload_unpacked_package,
             package_connector::package_logs,
             package_connector::package_open, package_connector::package_read, package_connector::package_ping,
@@ -332,6 +333,7 @@ pub fn run() {
             let _ = APP.set(app.handle().clone());
             general::init(app.handle())?;
             package_store::init(app.handle())?;
+            marketplace::start_checks(app.handle().clone());
             widget_host::reap_idle(app.handle().clone());
             package_connector::reap_idle(app.handle().clone());
 

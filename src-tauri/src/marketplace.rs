@@ -7,12 +7,12 @@
 //! against the sha256 the catalog gives, and installs a package only from bytes it
 //! verified itself. The settings UI never hands it package bytes or URLs.
 use crate::package_store::{self, PackageInfo};
-use dashledge_package_core::catalog::{self, Catalog};
+use dashledge_package_core::{catalog::{self, Catalog}, grants::{grants, Grant}};
 use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     fs,
     path::{Path, PathBuf},
     sync::Mutex,
@@ -280,8 +280,20 @@ pub fn newest_for_this_app<'a>(catalog: &'a Catalog, plugin: &'a catalog::Plugin
     })
 }
 
-/// The catalog as the Marketplace tab shows it: each plugin with what this Mac has.
-pub fn view(catalog: &Catalog, record: &Record, installed: impl Fn(&str) -> Option<(String, String)>) -> Value {
+/// A package as this Mac has it: its origin, version and grants.
+pub struct Here {
+    pub origin: String,
+    pub version: String,
+    pub grants: BTreeSet<Grant>,
+}
+
+fn newer(next: &str, current: &str) -> bool {
+    semver::Version::parse(next).ok() > semver::Version::parse(current).ok()
+}
+
+/// The catalog as the Marketplace tab shows it: each plugin with what this Mac has,
+/// the update it can take and the grants that update would add.
+pub fn view(catalog: &Catalog, record: &Record, installed: impl Fn(&str) -> Option<Here>) -> Value {
     let expired = catalog.expired(now());
     let plugins: Vec<Value> = catalog
         .plugins
@@ -289,40 +301,125 @@ pub fn view(catalog: &Catalog, record: &Record, installed: impl Fn(&str) -> Opti
         .map(|plugin| {
             let available = newest_for_this_app(catalog, plugin);
             let here = installed(&plugin.id);
-            let from_marketplace = here.as_ref().is_some_and(|(origin, version)| {
-                origin == "installed" && record.installed.get(&plugin.id).is_some_and(|i| &i.version == version)
+            let from_marketplace = here.as_ref().is_some_and(|h| {
+                h.origin == "installed" && record.installed.get(&plugin.id).is_some_and(|i| i.version == h.version)
             });
-            let installed_version = here.as_ref().map(|(_, v)| v.clone());
-            let pulled = installed_version.as_deref().and_then(|v| catalog.revoked(&plugin.id, v)).map(|r| r.reason.clone());
-            let update = match (&installed_version, available) {
-                (Some(current), Some(next)) if from_marketplace => {
-                    let newer = semver::Version::parse(&next.version).ok() > semver::Version::parse(current).ok();
-                    newer.then(|| next.version.clone())
+            let pulled = here.as_ref().and_then(|h| catalog.revoked(&plugin.id, &h.version)).map(|r| r.reason.clone());
+            let (update, adds) = match (&here, available) {
+                (Some(h), Some(next)) if from_marketplace && newer(&next.version, &h.version) => {
+                    let adds: Vec<&Grant> = next.grants.iter().filter(|g| !h.grants.contains(g)).collect();
+                    (Some(next.version.clone()), adds)
                 }
-                _ => None,
+                _ => (None, Vec::new()),
             };
             json!({
                 "id": plugin.id, "publisher": plugin.publisher, "title": plugin.title, "summary": plugin.summary,
                 "category": plugin.category, "homepage": plugin.homepage, "license": plugin.license,
                 "icon": plugin.icon.path, "screenshots": plugin.screenshots.iter().map(|s| &s.path).collect::<Vec<_>>(),
                 "versions": plugin.versions, "available": available.map(|v| &v.version),
-                "installed": installed_version, "origin": here.map(|(o, _)| if from_marketplace { "marketplace".to_string() } else { o }),
-                "update": update, "pulled": pulled,
+                "installed": here.as_ref().map(|h| &h.version),
+                "origin": here.as_ref().map(|h| if from_marketplace { "marketplace" } else { h.origin.as_str() }),
+                "update": update, "updateAdds": adds, "pulled": pulled,
             })
         })
         .collect();
     json!({"sequence": catalog.sequence, "expired": expired, "autoUpdate": record.auto_update, "plugins": plugins})
 }
 
+/// What a check did: packages updated on their own, updates that wait for approval
+/// because they add grants (or automatic updates are off), and pulled versions now off.
+#[derive(Clone, Debug, Default, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Checked {
+    pub updated: Vec<String>,
+    pub needs_approval: Vec<String>,
+    pub pulled: Vec<String>,
+}
+
+/// Fetch the catalog, turn off installed versions it pulls (and back on ones it no longer
+/// pulls), and install updates that add no grants when automatic updates are on.
+pub async fn check(registry: &Registry, dir: &Path, root: &Path) -> Result<Checked, String> {
+    let catalog = fetch_catalog(registry, dir).await?;
+    let mut out = Checked::default();
+    let installed = package_store::read_root(root, dashledge_package_core::manifest::Origin::Installed);
+    let mut disabled = BTreeMap::new();
+    for info in &installed {
+        let Some(version) = &info.manifest.version else { continue };
+        if let Some(revoked) = catalog.revoked(&info.manifest.id, version) {
+            disabled.insert(info.manifest.id.clone(), package_store::Disabled { version: version.clone(), reason: revoked.reason.clone() });
+            out.pulled.push(info.manifest.id.clone());
+        }
+    }
+    package_store::write_disabled(root, &disabled)?;
+    if catalog.expired(now()) {
+        return Ok(out);
+    }
+    let record = load(dir);
+    for (id, from) in &record.installed {
+        let Some(info) = installed.iter().find(|i| &i.manifest.id == id) else { continue };
+        if info.manifest.version.as_deref() != Some(from.version.as_str()) {
+            continue;
+        }
+        let Some(next) = catalog.plugin(id).and_then(|p| newest_for_this_app(&catalog, p)) else { continue };
+        if !newer(&next.version, &from.version) {
+            continue;
+        }
+        let have = grants(&info.manifest);
+        if !record.auto_update || next.grants.iter().any(|g| !have.contains(g)) {
+            out.needs_approval.push(id.clone());
+        } else if install(registry, dir, root, id, &next.version).await.is_ok() {
+            out.updated.push(id.clone());
+        } else {
+            out.needs_approval.push(id.clone());
+        }
+    }
+    Ok(out)
+}
+
+/// Check at launch and once a day while Dashledge runs.
+pub fn start_checks(app: tauri::AppHandle) {
+    let Ok(registry) = Registry::pinned() else { return };
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_secs(60));
+        loop {
+            if let (Ok(dir), Ok(root)) = (data_dir(&app), package_store::installed_root(&app)) {
+                if let Ok(checked) = tauri::async_runtime::block_on(check(&registry, &dir, &root)) {
+                    use tauri::Emitter;
+                    let _ = app.emit("marketplace-checked", &checked);
+                }
+            }
+            std::thread::sleep(Duration::from_secs(24 * 60 * 60));
+        }
+    });
+}
+
 fn data_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     app.path().app_data_dir().map_err(|e| e.to_string())
 }
 
-/// What a listed package looks like on this Mac: its origin and version.
-fn installed_here(id: &str) -> Option<(String, String)> {
-    package_store::lookup(id)
-        .filter(|(p, _)| p.origin != "bundled")
-        .map(|(p, _)| (p.origin.to_string(), p.manifest.version.clone().unwrap_or_default()))
+/// What a listed package looks like on this Mac, pulled or not.
+fn installed_here(id: &str) -> Option<Here> {
+    package_store::lookup_any(id).filter(|(p, _)| p.origin != "bundled").map(|(p, _)| Here {
+        origin: p.origin.to_string(),
+        version: p.manifest.version.clone().unwrap_or_default(),
+        grants: grants(&p.manifest),
+    })
+}
+
+#[tauri::command]
+pub async fn marketplace_check(window: tauri::WebviewWindow, app: tauri::AppHandle) -> Result<Checked, String> {
+    package_store::settings_only(&window)?;
+    check(&Registry::pinned()?, &data_dir(&app)?, &package_store::installed_root(&app)?).await
+}
+
+#[tauri::command]
+pub fn marketplace_set_auto_update(window: tauri::WebviewWindow, app: tauri::AppHandle, on: bool) -> Result<(), String> {
+    package_store::settings_only(&window)?;
+    let dir = data_dir(&app)?;
+    let _guard = LOCK.lock().unwrap();
+    let mut record = load(&dir);
+    record.auto_update = on;
+    save(&dir, &record)
 }
 
 #[tauri::command]
@@ -453,7 +550,7 @@ pub mod tests {
         assert!(root.path().join("plugin.alice.queue/widget.json").is_file());
         let record = load(dir.path());
         assert_eq!(record.installed["plugin.alice.queue"].version, "1.1.0");
-        let shown = view(&catalog, &record, |_| Some(("installed".into(), "1.0.0".into())));
+        let shown = view(&catalog, &record, |_| Some(Here { origin: "installed".into(), version: "1.0.0".into(), grants: BTreeSet::new() }));
         assert_eq!(shown["plugins"][0]["origin"], "installed", "a version the record doesn't know came from a file");
         forget(dir.path(), "plugin.alice.queue").unwrap();
         assert!(load(dir.path()).installed.is_empty());
@@ -482,7 +579,7 @@ pub mod tests {
         let catalog = block(fetch_catalog(&server.registry, dir.path())).unwrap();
         assert_eq!(catalog.sequence, second.sequence);
         assert!(block(inspect(&server.registry, dir.path(), "plugin.alice.queue", "1.0.0")).unwrap_err().contains("pulled"));
-        let shown = view(&catalog, &load(dir.path()), |_| Some(("installed".into(), "1.0.0".into())));
+        let shown = view(&catalog, &load(dir.path()), |_| Some(Here { origin: "installed".into(), version: "1.0.0".into(), grants: BTreeSet::new() }));
         assert_eq!(shown["plugins"][0]["pulled"], "Leaks keys.");
         assert!(shown["plugins"][0]["available"].is_null());
 
@@ -493,6 +590,45 @@ pub mod tests {
         files.insert("catalog.json".into(), bytes);
         drop(files);
         assert!(block(fetch_catalog(&server.registry, dir.path())).unwrap_err().contains("older"));
+    }
+
+    #[test]
+    fn a_check_updates_quietly_asks_for_new_grants_and_turns_off_pulled_versions() {
+        let server = TestRegistry::start();
+        let id = "plugin.alice.queue";
+        let v1 = server.publish(&[(id, "1.0.0", json!({}))], vec![], None, 3600);
+        let dir = tempfile::tempdir().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        block(install(&server.registry, dir.path(), root.path(), id, "1.0.0")).unwrap();
+
+        let v2 = server.publish(&[(id, "1.0.0", json!({})), (id, "1.1.0", json!({}))], vec![], Some(v1), 3600);
+        let checked = block(check(&server.registry, dir.path(), root.path())).unwrap();
+        assert_eq!(checked.updated, [id], "an update that adds nothing installs on its own");
+        assert_eq!(load(dir.path()).installed[id].version, "1.1.0");
+
+        let host = json!({"connector": {"entry": "connector.js", "hosts": ["https://api.example.com"]}});
+        let v3 = server.publish(&[(id, "1.0.0", json!({})), (id, "1.1.0", json!({})), (id, "1.2.0", host.clone())],
+            vec![Revoked { id: id.into(), version: "1.1.0".into(), reason: "Crashes the Edge.".into() }], Some(v2), 3600);
+        let checked = block(check(&server.registry, dir.path(), root.path())).unwrap();
+        assert_eq!((checked.pulled.as_slice(), checked.needs_approval.as_slice(), checked.updated.len()), ([id.to_string()].as_slice(), [id.to_string()].as_slice(), 0));
+        let disabled = package_store::read_disabled(root.path());
+        assert_eq!(disabled[id].reason, "Crashes the Edge.");
+        let listed = package_store::read_root(root.path(), dashledge_package_core::manifest::Origin::Installed);
+        assert_eq!(package_store::disabled_reason(&disabled, &listed[0].manifest).as_deref(), Some("Crashes the Edge."));
+        let here = |_: &str| Some(Here { origin: "installed".into(), version: "1.1.0".into(), grants: grants(&listed[0].manifest) });
+        let shown = view(&v3, &load(dir.path()), here);
+        assert_eq!(shown["plugins"][0]["update"], "1.2.0");
+        assert_eq!(shown["plugins"][0]["updateAdds"].as_array().unwrap().len(), 2, "the connector and its host");
+
+        // Approving installs 1.2.0, which the pulled entry doesn't name, so it runs again.
+        block(install(&server.registry, dir.path(), root.path(), id, "1.2.0")).unwrap();
+        let listed = package_store::read_root(root.path(), dashledge_package_core::manifest::Origin::Installed);
+        assert!(package_store::disabled_reason(&package_store::read_disabled(root.path()), &listed[0].manifest).is_none());
+        let mut record = load(dir.path());
+        record.auto_update = false;
+        save(dir.path(), &record).unwrap();
+        let checked = block(check(&server.registry, dir.path(), root.path())).unwrap();
+        assert!(checked.pulled.is_empty() && package_store::read_disabled(root.path()).is_empty(), "nothing installed is pulled now");
     }
 
     #[test]

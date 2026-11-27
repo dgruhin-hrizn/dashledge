@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {recordPackage, packageEntry, installed, widgetInfo} from '../ui/widget-catalog.js';
+import {recordPackage, packageEntry, installed, widgetInfo, syncInstalled} from '../ui/widget-catalog.js';
 import {initial} from '../ui/model.js';
 
 const info = {apiVersion: 2, id: 'plugin.status', title: 'Status', tier: 'declarative', origin: 'installed',
@@ -36,6 +36,21 @@ test('replacing a v1 package with v2 clears its JSON-feed connections', () => {
   config.pages[0].slots[0] = {...config.pages[0].slots[0], kind: 'plugin.status', source: 'json-1'};
   recordPackage(config, info);
   assert.equal(config.pages[0].slots[0].source, '');
+});
+
+test('background updates and pulled versions reach the layout, and placements stay', () => {
+  const config = initial();
+  recordPackage(config, {...info, version: '1.0.0'});
+  config.pages[0].slots[0] = {...config.pages[0].slots[0], kind: 'plugin.status', source: 'status-1'};
+  assert.equal(syncInstalled(config, [{...info, version: '1.0.0'}]), 0, 'nothing changed on disk');
+  assert.equal(syncInstalled(config, [{...info, version: '1.1.0'}, {...info, id: 'plugin.not-placed'}]), 1);
+  assert.equal(config.plugins.find(p => p.id === 'plugin.status').version, '1.1.0');
+  assert.equal(config.pages[0].slots[0].source, 'status-1', 'an update keeps the placement and its connection');
+  syncInstalled(config, [{...info, version: '1.1.0', disabled: 'Leaks keys.'}]);
+  assert.equal(config.plugins.find(p => p.id === 'plugin.status').disabled, 'Leaks keys.');
+  syncInstalled(config, [{...info, version: '1.2.0'}]);
+  assert.equal(config.plugins.find(p => p.id === 'plugin.status').disabled, undefined, 'an update lifts it');
+  assert.ok(!config.plugins.some(p => p.id === 'plugin.not-placed'), 'packages the layout never recorded stay out');
 });
 
 test('connection types reach the catalog without their auth or Test routes', () => {
