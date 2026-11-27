@@ -96,6 +96,7 @@ export function renderMarketplace(ui, state) {
     try {
       state.view = await invoke('marketplace_catalog', {refresh});
       state.error = '';
+      await ui.syncLayout?.();
     } catch (e) {
       state.error = e?.message || String(e);
     } finally {
@@ -112,11 +113,8 @@ export function renderMarketplace(ui, state) {
   const install = async (plugin, version) => {
     try {
       const sheet = await invoke('marketplace_inspect', {id: plugin.id, version});
-      ui.installSheet(sheet, async () => {
-        const info = await invoke('marketplace_install', {id: plugin.id, version});
-        await load(false);
-        return info;
-      });
+      // Refresh only after Settings has recorded the package in the layout.
+      ui.installSheet(sheet, () => invoke('marketplace_install', {id: plugin.id, version}), () => load(false));
     } catch (e) { notice(e?.message || String(e)); }
   };
 

@@ -43,14 +43,23 @@ test('background updates and pulled versions reach the layout, and placements st
   recordPackage(config, {...info, version: '1.0.0'});
   config.pages[0].slots[0] = {...config.pages[0].slots[0], kind: 'plugin.status', source: 'status-1'};
   assert.equal(syncInstalled(config, [{...info, version: '1.0.0'}]), 0, 'nothing changed on disk');
-  assert.equal(syncInstalled(config, [{...info, version: '1.1.0'}, {...info, id: 'plugin.not-placed'}]), 1);
+  assert.equal(syncInstalled(config, [{...info, version: '1.1.0'}]), 1);
   assert.equal(config.plugins.find(p => p.id === 'plugin.status').version, '1.1.0');
   assert.equal(config.pages[0].slots[0].source, 'status-1', 'an update keeps the placement and its connection');
   syncInstalled(config, [{...info, version: '1.1.0', disabled: 'Leaks keys.'}]);
   assert.equal(config.plugins.find(p => p.id === 'plugin.status').disabled, 'Leaks keys.');
   syncInstalled(config, [{...info, version: '1.2.0'}]);
   assert.equal(config.plugins.find(p => p.id === 'plugin.status').disabled, undefined, 'an update lifts it');
-  assert.ok(!config.plugins.some(p => p.id === 'plugin.not-placed'), 'packages the layout never recorded stay out');
+});
+
+test('a package installed on disk but missing from the layout is recorded again', () => {
+  const config = initial();
+  assert.equal(syncInstalled(config, [{...info, id: 'plugin.lost', version: '1.0.0'}]), 1);
+  assert.equal(config.plugins.find(p => p.id === 'plugin.lost').version, '1.0.0', 'it shows in the widget library again');
+  assert.equal(syncInstalled(config, [{...info, id: 'plugin.lost', version: '1.0.0'}]), 0, 'once');
+  assert.equal(syncInstalled(config, [{...info, id: 'emby', origin: 'bundled'}]), 0, 'bundled widgets have their own catalog');
+  config.plugins.push({apiVersion: 1, id: 'plugin.old', title: 'Old', feed: 'json'});
+  assert.equal(syncInstalled(config, [{...info, id: 'plugin.old'}]), 0, 'a version 1 entry is never replaced behind the user’s back');
 });
 
 test('connection types reach the catalog without their auth or Test routes', () => {

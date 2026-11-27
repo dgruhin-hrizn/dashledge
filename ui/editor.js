@@ -25,6 +25,11 @@ if(syncInstalled(config,[...installedPackages.values()]))save(config);
 // The Marketplace tab's loaded catalog, search and open plugin; IDs installed from it label Studio cards.
 const marketState={};
 let marketIds=new Set();
+// Record installed packages the layout is missing (see syncInstalled) and keep their entries current.
+async function syncLayout(){
+  const list=await invoke('list_packages');
+  if(syncInstalled(config,list)){save(config);syncSourceTables();if(tab!=='Marketplace')render()}
+}
 function loadMarketIds(){invoke('marketplace_installed').then(ids=>{marketIds=new Set(ids);if(tab==='Widget Studio')render()}).catch(()=>{})}
 loadMarketIds();
 let tab='General',chosen=current(config).id,index=0,undo=[],statusTimer;
@@ -584,7 +589,8 @@ function widgetDetail(kind){
 function removePackage(info,done){
   const uses=placements(config,info.kind),count=uses.length;
   const message=count?'Removing this widget will clear '+count+' '+(count===1?'section':'sections')+' across your pages.':'This widget isn’t used on any pages.';
-  const v2=config.plugins.find(p=>p.id===info.kind)?.apiVersion===2;
+  // A package's files go too. `info.package` says so even when the layout lost its entry.
+  const v2=info.package||config.plugins.find(p=>p.id===info.kind)?.apiVersion===2;
   formDialog('Remove '+info.title+'?',[el('p','',message+' Saved connections are kept.')],async()=>{
     if(v2)await invoke('remove_widget_package',{id:info.kind});
     change(()=>removeWidget(config,info.kind),false);
@@ -598,7 +604,8 @@ function installV2(info,bytes){
 }
 // The install sheet for a checked package from a file or the Marketplace. `install`
 // installs it and returns the installed package's info.
-function installSheet(info,install){
+// `after` runs once the package is recorded in the layout, for example to redraw the Marketplace.
+function installSheet(info,install,after){
   const old=config.plugins.find(p=>p.id===info.id);
   if(info.origin==='bundled'||Object.hasOwn(titles,info.id))throw Error('A built-in widget already uses this ID.');
   const permissions=el('ul','package-permissions');
@@ -613,6 +620,7 @@ function installSheet(info,install){
     const saved=change(()=>recordPackage(config,installedInfo),false);
     if(!saved)throw Error('Could not save this package.');
     syncSourceTables();loadMarketIds();
+    try{await after?.()}catch{}
   },old?'Update widget':'Install widget');
 }
 // A package connector's recent console output, refreshed while the dialog is open.
@@ -901,7 +909,7 @@ function render(){
   if(tab==='Layouts'){const h=heading('Pages & layouts');if(keep)main.insertBefore(h,keep);else main.append(h);layouts()}else discardDraft();
   if(tab==='Widget Studio'){if(detail&&installed(config,detail))widgetDetail(detail);else plugins()}
   if(tab==='General')generalTab();
-  if(tab==='Marketplace')renderMarketplace({main,invoke,el,button,row,heading,notice,installSheet,removePackage:(id,title,done)=>removePackage({kind:id,title},done),rerender:()=>{if(tab==='Marketplace')render()}},marketState);
+  if(tab==='Marketplace')renderMarketplace({main,invoke,el,button,row,heading,notice,installSheet,removePackage:(id,title,done)=>removePackage({kind:id,title,package:true},done),syncLayout,rerender:()=>{if(tab==='Marketplace')render()}},marketState);
   if(tab==='Voice')voiceTab();
   if(tab==='Preview'){
     main.append(heading('Live preview',row(button('Edit layout',()=>go('Layouts')),previewButton())));
