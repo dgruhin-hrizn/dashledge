@@ -14,7 +14,7 @@ import {connectionLabel} from './display-name.js';
 import {guestRows,parseGuests} from './proxmox-guests.js';
 import {general,loadGeneral,updateGeneral,fitDashboard,dimensions,onGeneral} from './general.js';
 import {icon} from './admin-icons.js';
-import {renderMarketplace,submissionFields} from './marketplace.js';
+import {renderMarketplace,submissionFields,isFirstParty} from './marketplace.js';
 import {appendPage,assignWidget,pickWidget} from './page-actions.js';
 import {presets,titles,id,resize,split,removeSection,layout,plugin} from './model.js';
 import {addBundledDmdPage,ensure,state,current,activate,save,invoke,el,button,field,select} from './common.js';
@@ -727,8 +727,8 @@ function plugins(){
       const info=widgetInfo(config,kind),card=el('article','panel studio-card');
       const title=el('div','card-title');title.append(tag(kind),el('h3','',info.title));
       const count=new Set(placements(config,kind).map(u=>u.page.id)).size;
-      // Where an installed package came from: the Marketplace, a folder, or a file nobody reviewed.
-      const origin=info.apiVersion!==2?null:info.disabled?'Pulled':info.unpacked?'Unpacked':marketIds.has(kind)?'Marketplace':'Unverified';
+      // Where an installed package came from: Dashledge itself, the Marketplace, a folder, or a file nobody reviewed.
+      const origin=info.apiVersion!==2?null:info.disabled?'Pulled':info.unpacked?'Unpacked':marketIds.has(kind)?(isFirstParty(kind)?'Dashledge':'Marketplace'):'Unverified';
       const meta=[origin,info.version?'v'+info.version:null,count?count+' '+(count===1?'page':'pages'):'Unplaced'].filter(Boolean).join(' · ');
       card.append(title,el('p','card-description',info.description||(info.feed==='json'?'Reads '+info.field+' from a JSON connection.':'Reads '+info.field+' from this Mac.')),el('small','card-meta',meta));
       const settings=button('Settings',()=>widgetSettings(kind)),remove=button('Remove',()=>removePackage(info),'quiet');

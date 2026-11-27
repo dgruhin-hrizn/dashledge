@@ -4,6 +4,16 @@
 // shows what Rust returns and asks it to act.
 import {packageFacts} from './package-manifest.js';
 
+// First-party plugins: built and released by Dashledge from dashledge-official-plugins.
+// The registry admits only Dashledge maintainers under this prefix, so a plugin from the
+// signed catalog with this ID is Dashledge's own. A copy installed from a file or loaded
+// from a folder is not: it shows as Unverified or Unpacked like any other.
+export const FIRST_PARTY = 'plugin.dashledge.';
+export const isFirstParty = (id, origin = 'marketplace') => origin === 'marketplace' && typeof id === 'string' && id.startsWith(FIRST_PARTY);
+
+// Who a catalog plugin is by. Every catalog entry comes from the signed catalog.
+export const pluginPublisher = plugin => isFirstParty(plugin.id) ? 'Dashledge' : plugin.publisher;
+
 // Group the catalog's plugins by category, filtered by a search query, with the
 // plugins that need attention (updates, pulled versions) listed first.
 export function marketplaceGroups(view, query = '') {
@@ -174,6 +184,12 @@ export function renderMarketplace(ui, state) {
   main.append(search, results);
   draw();
 
+  function firstPartyBadge() {
+    const badge = el('span', 'market-badge first-party', 'Dashledge');
+    badge.title = 'Built and released by Dashledge.';
+    return badge;
+  }
+
   function card(plugin) {
     const article = el('article', 'panel studio-card market-card');
     const title = el('div', 'card-title');
@@ -186,8 +202,9 @@ export function renderMarketplace(ui, state) {
     const status = pluginStatus(plugin), action = pluginAction(plugin);
     // A pulled version or an update that asks for more says why on the card itself.
     if (status && (status.tone === 'danger' || status.tone === 'warning')) article.append(el('p', 'market-status ' + status.tone, status.text));
-    article.append(el('small', 'card-meta', 'by ' + plugin.publisher + (plugin.available ? ' · v' + plugin.available : '')));
+    article.append(el('small', 'card-meta', 'by ' + pluginPublisher(plugin) + (plugin.available ? ' · v' + plugin.available : '')));
     const actions = row();
+    if (isFirstParty(plugin.id)) actions.append(firstPartyBadge());
     if (status) {
       const badge = el('span', 'market-badge ' + status.tone, status.label);
       badge.title = status.text;
@@ -229,7 +246,9 @@ export function renderMarketplace(ui, state) {
     const section = el('section', 'panel market-detail');
     const top = el('div', 'card-title');
     const name = el('div');
-    name.append(el('h2', '', plugin.title), el('p', 'card-meta', 'by ' + plugin.publisher));
+    const by = el('p', 'card-meta', 'by ' + pluginPublisher(plugin));
+    if (isFirstParty(plugin.id)) by.append(' ', firstPartyBadge());
+    name.append(el('h2', '', plugin.title), by);
     top.append(image(plugin.icon, '', 'market-icon large'), name);
     section.append(top);
     if (plugin.summary) section.append(el('p', '', plugin.summary));

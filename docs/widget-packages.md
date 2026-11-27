@@ -209,7 +209,10 @@ The Marketplace distributes reviewed plugins from the registry repository [dgruh
   - It installs only bytes it verified itself, through `package_store::install_bytes`. The settings UI never passes package bytes or URLs to the Marketplace commands.
 - **Expiry.** The catalog expires after 30 days, and the registry re-signs it weekly. An expired catalog still applies pulled versions but offers no installs or updates. Until it is re-signed, a replayed copy can hide a pull for at most that long.
 
+**First-party and third-party.** Dashledge's own plugins use `plugin.dashledge.<name>` IDs and come from [dgruhin-hrizn/dashledge-official-plugins](https://github.com/dgruhin-hrizn/dashledge-official-plugins). The registry lists that prefix only from a maintainer (`MAINTAINERS`, checked by `catalog::check_listing`), so the signed catalog vouches for it. `isFirstParty(id, origin)` in `ui/marketplace.js` is true only for a catalog entry or a Marketplace install with that prefix. The Marketplace then shows **by Dashledge** with a Dashledge badge, and Widget Studio labels the install **Dashledge**. The catalog carries no extra field for this. The first-party spec, which that repository's CI enforces, is in its `AGENTS.md`.
+
 **Origins.** Widget Studio labels installed packages:
+- **Dashledge:** a Marketplace install with a `plugin.dashledge.` ID.
 - **Marketplace:** recorded in `marketplace.json` at that version.
 - **Unverified:** installed from a file. A file install over a Marketplace package clears its record.
 - **Unpacked**.

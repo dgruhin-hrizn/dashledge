@@ -32,6 +32,29 @@ Dashledge is moving every widget to a true plugin system. A plugin is a package 
 - **Package rules live in `src-tauri/package-core/`**, a crate without Tauri that the app and the Marketplace registry's `dashledge-package` checker share. Change a manifest field, limit or archive rule there, with its tests, and keep `cargo build --manifest-path src-tauri/package-core/Cargo.toml --bin dashledge-package` working. The Marketplace's trust chain is in `docs/widget-packages.md` → Marketplace.
 - **Migrating a bundled widget to a plugin** is its own branch and PR, like any widget. The PR says what happens to existing placements and saved connections.
 
+### First-party and third-party plugins
+
+Every plugin this project builds is **first-party**: Dashledge's own, built in [dgruhin-hrizn/dashledge-official-plugins](https://github.com/dgruhin-hrizn/dashledge-official-plugins) to the first-party spec in that repository's `AGENTS.md`. **Third-party** plugins come from outside authors through the Marketplace's review.
+
+| | First-party | Third-party |
+|---|---|---|
+| ID | `plugin.dashledge.<name>`. The registry lists it only from a maintainer. | `plugin.<GitHub login>.<name>` |
+| Source | `plugins/<name>/` in dashledge-official-plugins | The author's own repository |
+| Release | Tag `<name>-v<version>`. CI packs it with `dashledge-package pack` and creates the GitHub release. | Widget Studio's **Submit to Marketplace**, or `dashledge-package pack` |
+| Listing | A maintainer's pull request to the registry | The author's pull request, reviewed by a maintainer |
+| Rules | The first-party spec, enforced by that repository's CI | The validator's rules. The spec's look and behaviour are recommendations. |
+| In the app | **by Dashledge** with a Dashledge badge in the Marketplace. Widget Studio labels it **Dashledge**. | **by** the author's login. Widget Studio labels it **Marketplace**. |
+
+- **Never build a plugin in this repository.** `widgets/example` is the third-party author template that ships in the downloadable example. It isn't a Marketplace plugin.
+- **The first-party spec** requires, among other things:
+  - a complete manifest: description, category, icon, semver version, `license`, `homepage` and `minAppVersion`;
+  - Dashledge's look: the `ui` kit, `view.theme` and the native viewport;
+  - a README, plus tests with recorded server replies that run in CI;
+  - this file's widget design principles and settings rules.
+- **The app derives first-party from the ID and the origin.** Only a Marketplace install, or a catalog entry, with a `plugin.dashledge.` ID shows as Dashledge (`isFirstParty` in `ui/marketplace.js`). A copy with that ID installed from a file or loaded from a folder stays Unverified or Unpacked.
+- **A new platform piece a first-party plugin needs lands here first.** Merge it, release Dashledge, then raise the plugin's `minAppVersion` to that release.
+- **Migrating a bundled widget** produces a first-party plugin in dashledge-official-plugins, plus a Dashledge PR that retires the bundled package and carries over its placements and connections.
+
 ### Package layout and the host
 
 - Bundled widgets live in `widgets/packages/<kind>/` with `widget.json`, `view/`, and a Node `collector/`. Shared collector code lives in `widgets/packages/_shared/`. Installed packages are extracted to `<app_data>/packages/<id>/` and may not declare a collector.
