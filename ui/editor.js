@@ -579,13 +579,17 @@ function widgetDetail(kind){
   if(!uses.length)locations.append(el('p','sub','This widget hasn’t been placed on a page.'),button('Open layouts',()=>go('Layouts')));
   main.append(locations);
 }
-function removePackage(info){
+// Remove a widget after confirming. `done` runs after it's gone, for example to redraw
+// the Marketplace.
+function removePackage(info,done){
   const uses=placements(config,info.kind),count=uses.length;
   const message=count?'Removing this widget will clear '+count+' '+(count===1?'section':'sections')+' across your pages.':'This widget isn’t used on any pages.';
   const v2=config.plugins.find(p=>p.id===info.kind)?.apiVersion===2;
   formDialog('Remove '+info.title+'?',[el('p','',message+' Saved connections are kept.')],async()=>{
     if(v2)await invoke('remove_widget_package',{id:info.kind});
     change(()=>removeWidget(config,info.kind),false);
+    loadMarketIds();
+    await done?.();
   },'Remove widget');
 }
 // API version 2: show what the package may do, then install its files on confirm.
@@ -897,7 +901,7 @@ function render(){
   if(tab==='Layouts'){const h=heading('Pages & layouts');if(keep)main.insertBefore(h,keep);else main.append(h);layouts()}else discardDraft();
   if(tab==='Widget Studio'){if(detail&&installed(config,detail))widgetDetail(detail);else plugins()}
   if(tab==='General')generalTab();
-  if(tab==='Marketplace')renderMarketplace({main,invoke,el,button,row,heading,notice,installSheet,rerender:()=>{if(tab==='Marketplace')render()}},marketState);
+  if(tab==='Marketplace')renderMarketplace({main,invoke,el,button,row,heading,notice,installSheet,removePackage:(id,title,done)=>removePackage({kind:id,title},done),rerender:()=>{if(tab==='Marketplace')render()}},marketState);
   if(tab==='Voice')voiceTab();
   if(tab==='Preview'){
     main.append(heading('Live preview',row(button('Edit layout',()=>go('Layouts')),previewButton())));

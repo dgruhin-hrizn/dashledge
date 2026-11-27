@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {marketplaceGroups, pluginStatus, pluginAction, submissionSteps} from '../ui/marketplace.js';
+import {marketplaceGroups, pluginStatus, pluginAction, pluginCanRemove, submissionSteps} from '../ui/marketplace.js';
 
 const plugin = (over = {}) => ({id: 'plugin.alice.queue', title: 'Queue', publisher: 'alice', summary: 'Downloads now.',
   category: 'Music & media', available: '1.1.0', versions: [{version: '1.1.0', published: 0}], ...over});
@@ -56,4 +56,11 @@ test('the submission sheet walks the author from release to review', () => {
   assert.equal(steps[0], 'Saved queue-1.2.0.zip (21 KiB, sha256 abcdef012345…).');
   assert.match(steps[1], /tagged v1\.2\.0 in github\.com\/alice\/queue and attach queue-1\.2\.0\.zip/);
   assert.match(steps[2], /listings\/plugin\.alice\.queue\/1\.2\.0\.json/);
+});
+
+test('installed plugins can be removed from the Marketplace, but not an author’s folder', () => {
+  assert.equal(pluginCanRemove(plugin()), false, 'nothing to remove');
+  assert.equal(pluginCanRemove(plugin({installed: '1.0.0', origin: 'marketplace'})), true);
+  assert.equal(pluginCanRemove(plugin({installed: '1.0.0', origin: 'installed', pulled: 'x'})), true, 'a pulled or file-installed copy too');
+  assert.equal(pluginCanRemove(plugin({installed: '1.0.0', origin: 'unpacked'})), false);
 });

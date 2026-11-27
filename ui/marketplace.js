@@ -71,6 +71,10 @@ export function submissionFields(el, prepared) {
   return [steps, listing];
 }
 
+// Installed plugins can be removed from the Marketplace too. An author's unpacked folder
+// is only unlinked, which Widget Studio does.
+export const pluginCanRemove = plugin => !!plugin.installed && plugin.origin !== 'unpacked';
+
 export const publishedDate = seconds => new Date(seconds * 1000).toLocaleDateString(undefined, {year: 'numeric', month: 'short', day: 'numeric'});
 
 // Render the tab. `ui` carries the Settings page's helpers so this module has no
@@ -98,6 +102,12 @@ export function renderMarketplace(ui, state) {
       state.loading = false;
       ui.rerender();
     }
+  };
+  const remove = plugin => ui.removePackage(plugin.id, plugin.title, () => load(false));
+  const removeButton = plugin => {
+    const b = button('Remove', () => remove(plugin), 'quiet');
+    b.setAttribute('aria-label', 'Remove ' + plugin.title);
+    return b;
   };
   const install = async (plugin, version) => {
     try {
@@ -186,6 +196,7 @@ export function renderMarketplace(ui, state) {
       actions.append(badge);
     }
     if (action) actions.append(button(action.label, () => install(plugin, action.version), 'primary'));
+    if (pluginCanRemove(plugin)) actions.append(removeButton(plugin));
     article.append(actions);
     return article;
   }
@@ -230,7 +241,10 @@ export function renderMarketplace(ui, state) {
     if (facts) section.append(el('p', 'package-facts', facts));
     const status = pluginStatus(plugin), action = pluginAction(plugin);
     if (status) section.append(el('p', 'market-status ' + status.tone, status.text));
-    if (action) section.append(row(button(action.label, () => install(plugin, action.version), 'primary')));
+    const buttons = row();
+    if (action) buttons.append(button(action.label, () => install(plugin, action.version), 'primary'));
+    if (pluginCanRemove(plugin)) buttons.append(removeButton(plugin));
+    if (buttons.childElementCount) section.append(buttons);
     if (plugin.screenshots?.length) {
       const shots = el('div', 'market-shots');
       plugin.screenshots.forEach((path, i) => shots.append(image(path, plugin.title + ' screenshot ' + (i + 1), 'market-shot')));
