@@ -112,7 +112,7 @@ test('Reminders reach only views that declare them, with checked arguments', asy
   window.__TAURI__.core.invoke = async (name, args) => { calls.push([name, args]); return {permission: 'allowed', items: []}; };
   try {
     const bystander = frameFor({permissions: []});
-    for (const name of ['reminders.read', 'reminders.changes', 'reminders.complete', 'reminders.add', 'reminders.privacy', 'reminders.voice', 'reminders.voice.set', 'reminders.voice.test'])
+    for (const name of ['reminders.read', 'reminders.changes', 'reminders.complete', 'reminders.add', 'reminders.privacy', 'reminders.voice', 'reminders.voice.set', 'reminders.voice.test', 'reminders.voice.more'])
       assert.equal((await command(bystander.entry, bystander.posted, name, {})).error, 'Unknown widget command', name);
     assert.equal(calls.length, 0, 'nothing reaches EventKit without the permission');
 
@@ -141,6 +141,8 @@ test('Reminders reach only views that declare them, with checked arguments', asy
       quietStart: 1320, quietEnd: 420, volume: 0.5, voice: ''}}], 'only known fields, typed, reach Rust');
     await command(entry, posted, 'reminders.voice.test');
     assert.deepEqual(calls.at(-1), ['reminders_voice_test', {}]);
+    await command(entry, posted, 'reminders.voice.more');
+    assert.deepEqual(calls.at(-1), ['reminders_voice_more', {}]);
   } finally {
     window.__TAURI__.core.invoke = original;
   }

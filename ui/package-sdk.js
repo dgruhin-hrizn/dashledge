@@ -108,6 +108,8 @@
       get: () => api.command('reminders.voice'),
       set: settings => api.command('reminders.voice.set', {settings}),
       test: settings => api.command('reminders.voice.test', settings ? {settings} : {}),
+      // Opens Spoken Content in System Settings, where Siri and Premium voices download.
+      more: () => api.command('reminders.voice.more'),
     },
   };
   // keyboard: the shared touch keyboard. Resolves with the text, or null when closed.

@@ -38,7 +38,7 @@ pub struct Voice {
     pub quiet_end: u32,
     /// 0…1, relative to the system volume.
     pub volume: f32,
-    /// An installed voice's identifier, or empty for the system voice.
+    /// An installed voice's identifier, or empty for the best one installed.
     pub voice: String,
 }
 
@@ -233,6 +233,17 @@ pub fn reminders_voice_set(settings: Voice) -> Result<Voice, String> {
     }
     store.voice = next.clone();
     Ok(next)
+}
+
+/// Opens Accessibility › Spoken Content, where Siri and Premium voices are downloaded
+/// (System voice › Manage Voices).
+#[tauri::command]
+pub fn reminders_voice_more() -> Result<(), String> {
+    std::process::Command::new("/usr/bin/open")
+        .arg("x-apple.systempreferences:com.apple.Accessibility-Settings.extension?SpokenContent")
+        .status()
+        .map_err(|e| e.to_string())
+        .map(|_| ())
 }
 
 /// Says a sample even while muted, with `settings` when given (an unsaved draft) or

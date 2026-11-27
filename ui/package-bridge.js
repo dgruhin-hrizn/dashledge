@@ -143,6 +143,7 @@ async function reminders(entry, name, args) {
     return invoke('reminders_create', {title: args.title, list: text('list') || null, due: text('due') || null, time: text('time') || null, priority});
   }
   if (name === 'reminders.voice.set') return invoke('reminders_voice_set', {settings: voiceSettings(args.settings)});
+  if (name === 'reminders.voice.more') return invoke('reminders_voice_more');
   if (name === 'reminders.voice.test') return invoke('reminders_voice_test', args.settings ? {settings: voiceSettings(args.settings)} : {});
   if (name === 'reminders.privacy') return invoke('reminders_privacy');
   throw new Error('Unknown widget command');

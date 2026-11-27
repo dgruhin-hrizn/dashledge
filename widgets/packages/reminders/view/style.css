@@ -216,6 +216,8 @@ button{font:inherit;color:inherit;-webkit-tap-highlight-color:transparent}
 .rm-switch-knob::after{content:"";position:absolute;top:calc(3px*var(--s));left:calc(3px*var(--s));width:calc(28px*var(--s));height:calc(28px*var(--s));border-radius:50%;background:#fff;box-shadow:0 2px 6px #0006}
 .rm-switch[aria-checked=true] .rm-switch-knob{background:var(--hi)}
 .rm-switch[aria-checked=true] .rm-switch-knob::after{left:calc(29px*var(--s))}
+#voiceMore{justify-self:start}
+.rm-voice-hint{margin:0;color:#e5cf92;font-size:calc(15px*var(--s))}
 .rm-quiet-times{display:flex;flex-wrap:wrap;gap:calc(14px*var(--s))}
 .rm-quiet-times[data-off=true]{opacity:.4;pointer-events:none}
 .rm-meter{display:inline-block;width:calc(120px*var(--s));height:calc(8px*var(--s));border-radius:999px;background:color-mix(in srgb,var(--ink) 14%,transparent);overflow:hidden}
