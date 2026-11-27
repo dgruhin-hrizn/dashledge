@@ -23,6 +23,7 @@ use tauri::Manager;
 
 pub use dashledge_package_core::archive::{check, extract, icon_data, Files, MAX_PACKAGE};
 use dashledge_package_core::archive::{allowed_name, MAX_FILE, MAX_FILES};
+use dashledge_package_core::grants;
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -331,9 +332,25 @@ pub fn inspect_widget_package(window: tauri::WebviewWindow, request: tauri::ipc:
         return crate::widget_package::unpack(bytes.to_vec());
     }
     let manifest = check_for_this_app(&raw, &files)?;
+    sheet_info(manifest, &files, lookup_installed)
+}
+
+/// The installed or unpacked package with this ID, if any.
+fn lookup_installed(id: &str) -> Option<Manifest> {
+    lookup(id).filter(|(p, _)| p.origin != "bundled").map(|(p, _)| p.manifest)
+}
+
+/// What the install sheet shows for a checked package: its info, and `added`, the grants
+/// it declares that the installed version with the same ID doesn't.
+pub fn sheet_info(manifest: Manifest, files: &Files, installed: impl Fn(&str) -> Option<Manifest>) -> Result<Value, String> {
     let icon = icon_data(&manifest.icon, &files[&manifest.icon]).ok_or("The icon must be a PNG or SVG up to 256 KiB.")?;
-    serde_json::to_value(PackageInfo { tier: manifest.tier(), origin: "installed", icon_data: Some(icon), manifest, path: None })
-        .map_err(|e| e.to_string())
+    let added = installed(&manifest.id).map(|old| grants::added_grants(&old, &manifest));
+    let mut value = serde_json::to_value(PackageInfo { tier: manifest.tier(), origin: "installed", icon_data: Some(icon), manifest, path: None })
+        .map_err(|e| e.to_string())?;
+    if let Some(added) = added {
+        value["added"] = serde_json::to_value(added).map_err(|e| e.to_string())?;
+    }
+    Ok(value)
 }
 
 #[tauri::command]
@@ -530,6 +547,20 @@ mod tests {
         assert!(listed[0].icon_data.as_deref().unwrap().starts_with("data:image/png;base64,"));
         let names: Vec<_> = fs::read_dir(root.path()).unwrap().flatten().map(|e| e.file_name()).collect();
         assert_eq!(names, ["plugin.status"], "no staging or previous folders are left behind");
+    }
+
+    #[test]
+    fn the_install_sheet_lists_grants_an_update_adds() {
+        let (raw, files) = extract(&good("")).unwrap();
+        let old = check(&raw, &files).unwrap();
+        let fresh = sheet_info(old.clone(), &files, |_| None).unwrap();
+        assert!(fresh.get("added").is_none(), "a first install has nothing to compare");
+        let mut newer = old.clone();
+        newer.images = vec!["https://api.example.com/*.png".into()];
+        let sheet = sheet_info(newer, &files, |id| (id == "plugin.status").then(|| old.clone())).unwrap();
+        assert_eq!(sheet["added"], serde_json::json!([{"kind": "image", "value": "https://api.example.com/*.png"}]));
+        let same = sheet_info(old.clone(), &files, |_| Some(old.clone())).unwrap();
+        assert_eq!(same["added"], serde_json::json!([]));
     }
 
     #[test]
