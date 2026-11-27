@@ -12,7 +12,7 @@
 // ---------------------------------------------------------------- views ----
 
 declare namespace DashledgeView {
-  type Permission = 'settings' | 'settings.choices' | 'keyboard' | 'ui' | 'mac.metrics' | 'reminders' | 'speech';
+  type Permission = 'settings' | 'settings.choices' | 'keyboard' | 'ui' | 'mac.metrics' | 'reminders' | 'images' | 'stream' | 'speech';
   /** `multi` settings hold a list (`["*"]` is every option, including later ones); `names` settings map option values to names. */
   type SettingValue = string | number | boolean | string[] | Record<string, string>;
 
@@ -44,6 +44,8 @@ declare namespace DashledgeView {
     serverName: string;
     /** The connection address's host. */
     host: string;
+    /** The `sources.types` ID of the placement's connection, or ''. */
+    connectionType: string;
     /** 'native' when the widget fills the display at its real size, else 'reference' (1920 × 540, scaled). */
     viewport: 'native' | 'reference';
     theme: Theme;
@@ -141,16 +143,36 @@ declare namespace DashledgeView {
     chip: string | null;
   }
 
+  /** For a widget whose placement holds several connections (`sources.max` > 1): which one, by position. The first is the one the placement chose. */
+  interface ConnectionOption {
+    connection?: number;
+  }
+
+  /** An open stream. Set the handlers right after `open()` resolves; events that arrived earlier follow. */
+  interface Stream {
+    readonly id: number;
+    onopen: ((event: {type: 'open'}) => void) | null;
+    /** Text frames arrive as strings, binary frames (such as fMP4 video segments) as ArrayBuffers. */
+    onmessage: ((event: {type: 'message'; data: string | ArrayBuffer}) => void) | null;
+    onerror: ((event: {type: 'error'; message: string}) => void) | null;
+    onclose: ((event: {type: 'close'; code: number}) => void) | null;
+    /** Send a text frame of up to 64 KiB. */
+    send(text: string): Promise<unknown>;
+    close(): Promise<unknown>;
+  }
+
   interface API {
     /** Called now and whenever theme, names, viewport or settings change. Returns an unsubscribe function. */
     subscribe(callback: (state: State) => void): () => void;
     /** Data from the package's declarative polls or connector. Called with the latest snapshot right away when there is one. */
     onData<T = unknown>(callback: (data: Data<T>) => void): () => void;
     /** Run an action the manifest declares, filling its {placeholders} from `args`. */
-    action(id: string, args?: Record<string, string | number | boolean>): Promise<{status: number}>;
+    action(id: string, args?: Record<string, string | number | boolean>, options?: ConnectionOption): Promise<{status: number}>;
     /** The name to show for this placement's server: the user's name, else the server's, else the host. */
     displayName(serverName?: string): string;
-    /** Low-level: send a host command. Prefer the helpers. */
+    /** The `sources.types` ID the placement's connection was made for, such as 'jellyfin', or '' when the manifest declares no types. */
+    connectionType(): string;
+    /** Send a command the connector declares in `connector.commands` (it answers with `dashledge.onCommand`), or a low-level host command. Prefer the helpers for host features. */
     command(name: string, args?: unknown): Promise<unknown>;
 
     /** Requires the `settings` permission. */
@@ -163,6 +185,13 @@ declare namespace DashledgeView {
       offer(setting: string, options: Choice[]): Promise<true>;
       /** Requires `settings.choices`. Called when someone taps Check now in this placement's settings: look again, then offer. Returns an unsubscribe function. */
       onRefresh(callback: () => void): () => void;
+    };
+    /** Requires the `images` permission. Load an image the manifest's `images` patterns allow: a path under the connection's address (`api/v3/mediacover/12/poster-250.jpg`) or a full URL on a connector host. Resolves with a `blob:` URL for `<img src>` or CSS. The same path reuses its URL; `{fresh: true}` fetches again, as for a camera snapshot, and revokes the previous URL. Only JPEG, PNG, GIF and WebP load. */
+    image(path: string, options?: {fresh?: boolean} & ConnectionOption): Promise<string>;
+    /** Requires the `stream` permission. */
+    stream: {
+      /** Open a WebSocket route the manifest's `streams` declare, on the placement's connection, filling its {placeholders} from `params`. Dashledge adds the credential. At most 4 per widget. */
+      open(id: string, params?: Record<string, string | number>, options?: ConnectionOption): Promise<Stream>;
     };
     /** Requires the `keyboard` permission. */
     keyboard: {
@@ -220,15 +249,21 @@ declare var Dashledge: DashledgeView.API;
 
 declare namespace DashledgeConnector {
   interface Connection {
-    /** The placement's connection address, as the user entered it. */
+    /** The placement's connection address, resolved with the manifest's `sources.address` mode (a directory URL ending in `/` for `path`). Join routes to it. */
     address: string;
     /** The connection's name, or '' when automatic. */
     name: string;
+    /** The `sources.types` ID this connection was made for, or null when the manifest declares no types. */
+    type: string | null;
   }
 
   interface Host {
-    /** The placement's connection, or null when the package declares no sources. */
+    /** The placement's chosen connection, or null when the package declares no sources. */
     readonly connection: Readonly<Connection> | null;
+    /** Every connection the placement holds, its chosen one first, up to `sources.max`. */
+    readonly connections: ReadonlyArray<Readonly<Connection>>;
+    /** Answer a command the manifest's `connector.commands` declares. The view sends it with `Dashledge.command(name, args)` and receives what the handler returns (or a promise of it); a thrown error rejects the view's call. */
+    onCommand(name: string, handler: (args: unknown) => unknown): void;
     /** Send data to every view of this connector. Views receive it through `Dashledge.onData`. */
     emit(data: unknown): void;
     /** A small per-package store that survives restarts (`connector.storage` bytes, default 64 KiB). */
@@ -245,14 +280,20 @@ declare namespace DashledgeConnector {
     readonly headers: {get(name: string): string | null};
     text(): Promise<string>;
     json<T = unknown>(): Promise<T>;
+    /** The body's bytes, for images and other binary responses. */
+    arrayBuffer(): Promise<ArrayBuffer>;
   }
   interface RequestInit {
     method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
     headers?: Record<string, string>;
-    body?: string;
+    body?: string | ArrayBuffer | ArrayBufferView;
+    /** Which of `dashledge.connections` to send it to. Without it, the connection whose address the URL falls under. */
+    connection?: number;
+    /** Seconds to wait for the reply, up to 600 (default 15), for slow operations such as loading a model. */
+    timeout?: number;
   }
 
-  /** Text-frame WebSocket to the connection or a declared host. Binary frames arrive base64-encoded. */
+  /** WebSocket to the connection or a declared host. Text frames arrive as strings, binary frames as ArrayBuffers. */
   class WebSocket {
     static readonly CONNECTING: 0;
     static readonly OPEN: 1;
@@ -261,11 +302,12 @@ declare namespace DashledgeConnector {
     constructor(url: string);
     readonly url: string;
     readonly readyState: 0 | 1 | 2 | 3;
+    readonly binaryType: 'arraybuffer';
     onopen: ((event: {type: 'open'}) => void) | null;
-    onmessage: ((event: {type: 'message'; data: string}) => void) | null;
+    onmessage: ((event: {type: 'message'; data: string | ArrayBuffer}) => void) | null;
     onclose: ((event: {type: 'close'; code: number}) => void) | null;
     onerror: ((event: {type: 'error'; message: string}) => void) | null;
-    send(text: string): void;
+    send(data: string | ArrayBuffer | ArrayBufferView): void;
     close(): void;
   }
 

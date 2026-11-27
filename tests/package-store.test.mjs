@@ -12,6 +12,8 @@ test('a v2 package records only catalog fields in the layout', () => {
     sources: {min: 1, max: 1, auth: 'bearer', addressLabel: 'Hub URL', test: ['api/']}}), {apiVersion: 2, id: 'plugin.status',
     title: 'Status', tier: 'declarative', description: 'Server status', version: '1.0.0', iconData: 'data:image/png;base64,iVBOR',
     feed: 'plugin.status', sources: {min: 1, max: 1, addressLabel: 'Hub URL'}, viewport: 'native', actions: ['toggle']});
+  assert.equal(packageEntry({...info, sources: {min: 1, max: 1, auth: 'basic', usernameLabel: 'Username'}}).sources.usernameLabel, 'Username',
+    'the connection form asks for a username when the manifest labels one');
   const view = packageEntry({...info, sources: undefined});
   assert.equal(view.feed, undefined, 'a view-only package needs no connection');
 });
@@ -34,4 +36,11 @@ test('replacing a v1 package with v2 clears its JSON-feed connections', () => {
   config.pages[0].slots[0] = {...config.pages[0].slots[0], kind: 'plugin.status', source: 'json-1'};
   recordPackage(config, info);
   assert.equal(config.pages[0].slots[0].source, '');
+});
+
+test('connection types reach the catalog without their auth or Test routes', () => {
+  const entry = packageEntry({...info, sources: {min: 1, max: 1, auth: 'none', types: [
+    {id: 'sabnzbd', label: 'SABnzbd', auth: {query: 'apikey'}, test: ['api?mode=version'], credentialLabel: 'API key'},
+    {id: 'nzbget', label: 'NZBGet', auth: 'basic', usernameLabel: 'Username'}]}});
+  assert.deepEqual(entry.sources.types, [{id: 'sabnzbd', label: 'SABnzbd', credentialLabel: 'API key'}, {id: 'nzbget', label: 'NZBGet', usernameLabel: 'Username'}]);
 });

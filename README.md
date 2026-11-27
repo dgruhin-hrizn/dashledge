@@ -72,14 +72,27 @@ Add **Run-DMD** to a page and tap the dot matrix to open its menu. Under **Anima
 
 ### Add your own widget
 
-Open **Widget Studio → Download example** for a working package and its guide, `README.md`, which is also in [`widgets/example/`](widgets/example/README.md). Edit the package and use **Install package** to add it. Keep its package ID to update an existing widget; its placements stay.
+Widgets are plugins: a folder with a manifest, an HTML view and, if needed, a small JavaScript connector. You give a plugin a server’s address and its API key or sign-in. **[Build widgets for Dashledge](widgets/README.md)** walks through writing, testing and sharing one, and [`widgets/example/`](widgets/example/README.md) holds the full reference. **Widget Studio → Download example** gives you the same working package as a ZIP. Edit it and use **Install package** to add it. Keep its package ID to update an existing widget; its placements stay.
 
 Every widget view runs in a sandbox. It can’t reach the network, your files, your credentials or other widgets. A package gets its data in one of two ways, and the install sheet says which before you confirm:
 
 - **Declarative.** The manifest lists routes for Dashledge to poll on the connection you choose, and actions it may send when you tap. No package code runs outside the view.
 - **Connector.** Package JavaScript runs in its own sandboxed context. It can reach only the connection’s address and the hosts the manifest names. Dashledge adds the saved credential itself.
 
-Packages can also ask for Dashledge capabilities, listed at install: **settings** for each placement, edited in Pages & layouts or from the widget’s own gear; the shared on-screen **keyboard**; Dashledge’s **UI** styles; and this Mac’s CPU, GPU, memory and network readings (**mac.metrics**).
+Dashledge keeps the credential in the Keychain and sends it the way the server expects:
+- a bearer token, a custom header such as `X-Api-Key`, or a key in the URL;
+- Basic auth with a username;
+- a sign-in form whose cookie or token session it keeps.
+
+The plugin’s code never sees it. One plugin can serve several products, such as SABnzbd, NZBGet and qBittorrent: the connection form asks which one you have. A placement can also hold several connections.
+
+Packages can also ask for Dashledge capabilities, listed at install:
+- **settings** for each placement, edited in Pages & layouts or from the widget’s own gear, with choices the widget can discover (**settings.choices**);
+- the shared on-screen **keyboard**;
+- Dashledge’s **UI** styles;
+- **images** such as posters and camera snapshots from the connection;
+- **stream**: live WebSocket data such as camera video;
+- this Mac’s CPU, GPU, memory and network readings (**mac.metrics**).
 
 For widget authors, **Load unpacked package** runs a package straight from its folder and reloads it when files change. A connector widget’s page in Widget Studio shows its recent console output. `dashledge.d.ts` in the example declares the view and connector APIs for TypeScript.
 

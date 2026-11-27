@@ -17,6 +17,8 @@ const capabilityLines = {
   keyboard: 'Can open the on-screen keyboard to ask you for text.',
   'mac.metrics': 'Reads this Mac’s CPU, GPU, memory and network activity.',
   reminders: 'Reads, checks off and adds your Apple Reminders, and can say them aloud when they’re due. Bundled widgets only.',
+  images: 'Shows images from that connection, such as posters and camera snapshots.',
+  stream: 'Plays live streams from that connection, such as camera video.',
   speech: 'Speak aloud: can say things in your Dashledge voice while it’s on screen.',
 };
 
@@ -26,6 +28,10 @@ export function permissionSummary(manifest, previous = null) {
   const lines = [];
   const sources = manifest.sources;
   if (sources?.max) lines.push(sources.max === 1 ? 'Uses one connection you choose.' : 'Uses up to ' + sources.max + ' connections you choose.');
+  if (sources?.types?.length) {
+    const names = sources.types.map(type => type.label);
+    lines.push('Connects to ' + (names.length > 1 ? names.slice(0, -1).join(', ') + ' or ' + names.at(-1) : names[0]) + '.');
+  }
   if (manifest.data?.length) lines.push('Reads ' + manifest.data.length + (manifest.data.length === 1 ? ' route' : ' routes') + ' from that connection.');
   if (manifest.actions?.length) lines.push('Can send ' + manifest.actions.length + (manifest.actions.length === 1 ? ' action' : ' actions') + ' to that connection when you tap.');
   if (manifest.connector) {

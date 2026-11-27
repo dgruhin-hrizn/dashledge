@@ -5,7 +5,7 @@ import {mkdtemp,rm} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {addOriginalPages,initial,originalKinds,pagelessKinds} from '../ui/model.js';
-import {widgetSources} from '../ui/original-widgets.js';
+import {widgetSources, placementConnections} from '../ui/original-widgets.js';
 import {modelControls} from '../widgets/packages/omlx/collector/model-control.mjs';
 
 test('upgrade adds missing full-screen dashboards once and honors later edits', () => {
@@ -78,4 +78,17 @@ test('a ComfyUI connection’s SSH telemetry reaches its collector beside any Pr
     {id: 'p1', kind: 'proxmox', name: 'PVE', address: 'https://pve.local:8006', gpuGuests: {101: 'root@worker.local'}},
   ];
   assert.deepEqual(widgetSources('comfy', 'c1', sources)[0].gpuGuests, {worker: 'root@worker.local', ssh: {target: 'me@worker.local'}});
+});
+
+test('an installed package gets its chosen connection first, then its others, one per address', () => {
+  const sources = [
+    {id: 'a', kind: 'plugin.media', address: 'http://media.local/radarr/', type: 'radarr'},
+    {id: 'b', kind: 'plugin.media', address: 'http://media.local/sonarr', type: 'sonarr'},
+    {id: 'c', kind: 'plugin.media', address: 'http://media.local/sonarr/'},
+    {id: 'd', kind: 'plugin.other', address: 'http://x.local/'},
+    {id: 'e', kind: 'plugin.media', address: 'http://sab.local:8080/'},
+  ];
+  assert.deepEqual(placementConnections('plugin.media', 'b', sources, 4).map(s => s.id), ['b', 'a', 'e']);
+  assert.deepEqual(placementConnections('plugin.media', 'b', sources, 1).map(s => s.id), ['b']);
+  assert.deepEqual(placementConnections('plugin.media', 'missing', sources, 4), []);
 });

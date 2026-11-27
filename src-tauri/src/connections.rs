@@ -52,12 +52,14 @@ pub(crate) fn account_ids(kind: &str, base: &Url) -> Vec<String> {
 pub(crate) fn plain_client() -> Client {
     http().clone()
 }
-/// The stored credential for a connection, or an empty string.
-pub(crate) fn credential(kind: &str, base: &Url) -> Result<String, String> {
-    String::from_utf8(secret_for(kind, base)?.unwrap_or_default()).map_err(|_| "Invalid credential".into())
+/// The stored username and key for a connection; empty when none are saved.
+pub(crate) fn secret(kind: &str, base: &Url) -> Result<crate::package_connector::Secret, String> {
+    Ok(secret_and_ca(kind, base)?.0)
 }
-fn secret_for(kind: &str, base: &Url) -> Result<Option<Vec<u8>>, String> {
-    Ok(crate::vault::get(kind, base)?.key.map(String::into_bytes))
+/// The stored username, key and CA certificate for a connection.
+pub(crate) fn secret_and_ca(kind: &str, base: &Url) -> Result<(crate::package_connector::Secret, Option<String>), String> {
+    let value = crate::vault::get(kind, base)?;
+    Ok((crate::package_connector::Secret { user: value.user.unwrap_or_default(), key: value.key.unwrap_or_default() }, value.ca))
 }
 pub(crate) fn widget_credentials(
     kind: &str,
@@ -73,13 +75,27 @@ pub fn set_secret(
     kind: String,
     address: String,
     secret: String,
+    user: Option<String>,
 ) -> Result<(), String> {
     if window.label() != "settings" {
         return Err("Open Settings to change credentials".into());
     }
     let base = endpoint(&address)?;
-    crate::vault::set(&kind, &base, secret)?;
+    match user {
+        // A username alone keeps the saved key; an empty secret with no username removes everything.
+        Some(user) => {
+            if user.len() > 256 || user.chars().any(char::is_control) {
+                return Err("Enter a username of up to 256 characters.".into());
+            }
+            if !secret.is_empty() {
+                crate::vault::set(&kind, &base, secret)?;
+            }
+            crate::vault::set_user(&kind, &base, Some(user))?;
+        }
+        None => crate::vault::set(&kind, &base, secret)?,
+    }
     crate::widget_host::invalidate(&kind, &base);
+    crate::sessions::forget(&kind, &base);
     Ok(())
 }
 /// Subject and expiry of the first certificate in a PEM bundle, read with the
@@ -168,14 +184,15 @@ pub(crate) fn service_client(kind: &str, base: &Url) -> Result<Client, String> {
     }
 }
 
-/// How a connection sends its credential: from its widget's manifest, else a bearer token.
-fn auth_for(kind: &str) -> crate::package_manifest::Auth {
+/// How a connection sends its credential: from its widget's manifest (and the
+/// connection's type, when the widget has types), else a bearer token.
+fn auth_for(kind: &str, source_type: Option<&str>) -> crate::package_manifest::Auth {
     crate::package_store::lookup(kind)
-        .and_then(|(info, _)| info.manifest.sources.map(|s| s.auth))
+        .and_then(|(info, _)| info.manifest.sources.map(|s| s.auth_for(source_type)))
         .unwrap_or(crate::package_manifest::Auth::Bearer)
 }
 
-async fn get(kind: &str, account: &Url, base: &Url, path: &str, key: &str) -> Result<Value, String> {
+async fn get(kind: &str, source_type: Option<&str>, account: &Url, base: &Url, path: &str, secret: &crate::package_connector::Secret) -> Result<Value, String> {
     let client = service_client(kind, account)?;
     let mut url = base.clone();
     if !path.is_empty() {
@@ -185,15 +202,19 @@ async fn get(kind: &str, account: &Url, base: &Url, path: &str, key: &str) -> Re
         url.set_path(&format!("{}/{}", base.path().trim_end_matches('/'), route));
         url.set_query(query);
     }
+    // The same credential the widget's connector, declarative routes and actions send:
+    // for a sign-in form, a session Test signs in for (source_read forgets the old one).
+    let credential = match auth_for(kind, source_type) {
+        crate::package_manifest::Auth::Login(login) => {
+            let target = crate::package_connector::Target { base: base.clone(), account: account.clone() };
+            Some(crate::sessions::credential(kind, &target, &login, secret, &client, false).await?)
+        }
+        auth => crate::package_connector::Credential::for_auth(&auth, secret),
+    };
+    let header = credential.as_ref().and_then(|c| c.apply(&mut url));
     let mut request = client.get(url);
-    if !key.is_empty() {
-        use crate::package_manifest::Auth;
-        request = match auth_for(kind) {
-            Auth::EmbyToken => request.header("X-Emby-Token", key),
-            Auth::PveToken => request.header("Authorization", format!("PVEAPIToken={key}")),
-            Auth::Bearer => request.bearer_auth(key),
-            Auth::None => request,
-        };
+    if let Some((name, value)) = header {
+        request = request.header(name, value);
     }
     let mut res = request
         .send()
@@ -228,29 +249,32 @@ pub async fn widget_source_read(kind:String,address:String)->Result<Value,String
     if let Some((at,value))=&*sample{
         if at.elapsed()<Duration::from_secs(5){return value.clone();}
     }
-    let result=source_read(kind,address).await;
+    let result=source_read(kind,address,None).await;
     *sample=Some((std::time::Instant::now(),result.clone()));
     result
 }
 
 /// Test a connection: read every route its widget's manifest declares for Test.
 #[tauri::command]
-pub async fn source_read(kind: String, address: String) -> Result<Value, String> {
+pub async fn source_read(kind: String, address: String, source_type: Option<String>) -> Result<Value, String> {
     let base = endpoint(&address)?;
-    let key = String::from_utf8(secret_for(&kind, &base)?.unwrap_or_default())
-        .map_err(|_| "Invalid credential")?;
+    let key = secret(&kind, &base)?;
+    let source_type = source_type.as_deref();
+    // Test signs in afresh, so it checks the saved username and password.
+    crate::sessions::forget(&kind, &base);
     if kind == "json" {
-        return get(&kind, &base, &base, "", &key).await;
+        return get(&kind, None, &base, &base, "", &key).await;
     }
     let (info, _) = crate::package_store::lookup(&kind).ok_or("Unknown provider")?;
     // The same base the widget's collector or connector receives.
     let requests = resolve(&kind, &address)?;
-    let routes = info.manifest.sources.map(|s| s.test).unwrap_or_default();
+    // A connection type brings its own Test routes.
+    let routes = info.manifest.sources.map(|s| s.test_for(source_type)).unwrap_or_default();
     for route in &routes {
-        get(&kind, &base, &requests, route, &key).await?;
+        get(&kind, source_type, &base, &requests, route, &key).await?;
     }
     if routes.is_empty() {
-        get(&kind, &base, &requests, "", &key).await?;
+        get(&kind, source_type, &base, &requests, "", &key).await?;
     }
     Ok(json!({"ok": true, "routes": routes.len().max(1)}))
 }
@@ -289,9 +313,9 @@ mod tests {
     #[test]
     fn auth_style_comes_from_the_widget_manifest() {
         use crate::package_manifest::Auth;
-        assert_eq!(auth_for("emby"), Auth::EmbyToken);
-        assert_eq!(auth_for("proxmox"), Auth::PveToken);
-        assert_eq!(auth_for("unraid"), Auth::Bearer);
-        assert_eq!(auth_for("json"), Auth::Bearer);
+        assert_eq!(auth_for("emby", None), Auth::EmbyToken);
+        assert_eq!(auth_for("proxmox", None), Auth::PveToken);
+        assert_eq!(auth_for("unraid", None), Auth::Bearer);
+        assert_eq!(auth_for("json", None), Auth::Bearer);
     }
 }

@@ -28,6 +28,9 @@ pub struct Source {
     address: String,
     #[serde(default)]
     gpu_guests: Value,
+    /// The manifest's connection type this connection was made for, if it has types.
+    #[serde(default, rename = "type", skip_serializing_if = "Option::is_none")]
+    source_type: Option<String>,
 }
 
 struct Feed {
@@ -173,7 +176,7 @@ fn launch(kind: &str, sources: &[Source], assets: &Path, node: &Path) -> Result<
         // the same one Test uses.
         let (key, ca) = widget_credentials(kind, &endpoint(&source.address)?)?;
         let base = resolve(kind, &source.address)?;
-        settings.push(json!({"address":base.as_str(),"name":source.name,"key":key,"ca":ca,"gpuGuests":source.gpu_guests}));
+        settings.push(json!({"address":base.as_str(),"name":source.name,"key":key,"ca":ca,"gpuGuests":source.gpu_guests,"type":source.source_type}));
     }
     let directory = tempfile::Builder::new()
         .permissions(std::os::unix::fs::PermissionsExt::from_mode(0o700))

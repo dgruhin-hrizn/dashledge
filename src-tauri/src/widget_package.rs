@@ -76,6 +76,7 @@ fn example() -> Result<Vec<u8>, String> {
         ("README.md", include_bytes!("../../widgets/example/README.md").as_slice()),
         ("dashledge.d.ts", include_bytes!("../../widgets/example/dashledge.d.ts").as_slice()),
         ("samples/declarative.widget.json", include_bytes!("../../widgets/example/samples/declarative.widget.json").as_slice()),
+        ("samples/mse-player.js", include_bytes!("../../widgets/example/samples/mse-player.js").as_slice()),
     ] {
         zip.start_file(name, FileOptions::default())
             .map_err(|e| e.to_string())?;

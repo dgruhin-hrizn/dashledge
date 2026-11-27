@@ -64,6 +64,92 @@ test('undeclared capabilities are refused', async () => {
     'settings.open needs an editor to open');
 });
 
+test('images load only with the permission and move into the frame by transfer', async () => {
+  const refused = frameFor({permissions: []});
+  assert.equal((await command(refused.entry, refused.posted, 'image', {path: 'api/a.jpg'})).error, 'Unknown widget command');
+
+  const calls = [], sent = [];
+  const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]).buffer;
+  const previous = window.__TAURI__.core.invoke;
+  window.__TAURI__.core.invoke = async (cmd, args) => { calls.push([cmd, args]); return jpeg; };
+  try {
+    const frame = new EventTarget();
+    frame.contentWindow = {postMessage: (message, _origin, transfer) => sent.push({message, transfer})};
+    const {entry} = registerFrame(frame, {viewer: 'v', feed: 'pkg-9', kind: 'plugin.posters', permissions: ['images']});
+    frame.dispatchEvent(new Event('load'));
+    await handleMessage(entry, {dashledge: 1, type: 'command', id: 3, name: 'image', args: {path: 'api/v3/mediacover/1/poster.jpg', fresh: true}});
+    assert.deepEqual(calls, [['package_image', {id: 'pkg-9', viewer: 'v', path: 'api/v3/mediacover/1/poster.jpg', fresh: true}]]);
+    const {message, transfer} = sent.at(-1);
+    assert.equal(message.type, 'reply');
+    assert.equal(message.value.type, 'image/jpeg');
+    assert.equal(transfer[0], message.value.bytes, 'the bytes are transferred, not copied');
+    await handleMessage(entry, {dashledge: 1, type: 'command', id: 4, name: 'image', args: {path: 'api/a.jpg', connection: 2}});
+    assert.equal(calls.at(-1)[1].connection, 2, 'a view may name one of its connections');
+    await handleMessage(entry, {dashledge: 1, type: 'command', id: 5, name: 'image', args: {path: 'api/a.jpg', connection: 'x'}});
+    assert.equal('connection' in calls.at(-1)[1], false, 'anything but a small index means the first');
+  } finally {
+    window.__TAURI__.core.invoke = previous;
+  }
+});
+
+test('a stream relays frames into the frame, binary ones by transfer, and closes with it', async () => {
+  const refused = frameFor({permissions: []});
+  assert.equal((await command(refused.entry, refused.posted, 'stream.open', {stream: 'live'})).error, 'Unknown widget command');
+
+  const calls = [], sent = [];
+  let channel = null;
+  const previous = window.__TAURI__.core;
+  window.__TAURI__.core = {
+    Channel: class { constructor() { channel = this; this.onmessage = null; } },
+    invoke: async (cmd, args) => { calls.push([cmd, args]); return cmd === 'package_stream_open' ? 41 : null; },
+  };
+  try {
+    const frame = new EventTarget();
+    frame.contentWindow = {postMessage: (message, _origin, transfer) => sent.push({message, transfer})};
+    const registered = registerFrame(frame, {viewer: 'v', feed: 'pkg-3', kind: 'plugin.cameras', permissions: ['stream']});
+    frame.dispatchEvent(new Event('load'));
+    const entry = registered.entry;
+    await handleMessage(entry, {dashledge: 1, type: 'command', id: 1, name: 'stream.open', args: {stream: 'live', params: {camera: 'front', bad: {x: 1}}}});
+    assert.deepEqual(calls[0].slice(0, 1), ['package_stream_open']);
+    assert.deepEqual(calls[0][1].params, {camera: 'front'}, 'only string and number params pass');
+    assert.equal(sent.at(-1).message.value, 41);
+    const segment = new Uint8Array([0, 0, 0, 24, 102, 116, 121, 112]).buffer;
+    channel.onmessage({event: 'open'});
+    channel.onmessage(segment);
+    const [open, binary] = sent.slice(-2);
+    assert.deepEqual([open.message.type, open.message.stream, open.message.event], ['stream', 41, 'open']);
+    assert.equal(binary.message.event, 'binary');
+    assert.equal(binary.transfer[0], segment, 'video segments move by transfer');
+    await handleMessage(entry, {dashledge: 1, type: 'command', id: 2, name: 'stream.send', args: {stream: 41, text: '{"type":"mse"}'}});
+    assert.deepEqual(calls.at(-1), ['package_stream_send', {id: 'pkg-3', viewer: 'v', stream: 41, text: '{"type":"mse"}'}]);
+    await handleMessage(entry, {dashledge: 1, type: 'command', id: 3, name: 'stream.send', args: {stream: 99, text: 'x'}});
+    assert.equal(sent.at(-1).message.error, 'That stream is closed', 'a view can only use streams it opened');
+    registered();
+    assert.deepEqual(calls.at(-1), ['package_stream_close', {id: 'pkg-3', viewer: 'v', stream: 41}], 'removing the frame closes its streams');
+  } finally {
+    window.__TAURI__.core = previous;
+  }
+});
+
+test('only commands the connector declares reach it', async () => {
+  const calls = [];
+  const previous = window.__TAURI__.core.invoke;
+  window.__TAURI__.core.invoke = async (cmd, args) => { calls.push([cmd, args]); return {paused: true}; };
+  try {
+    const {entry, posted} = frameFor({connectorCommands: ['pause']});
+    assert.deepEqual((await command(entry, posted, 'pause', {minutes: 30})).value, {paused: true});
+    assert.deepEqual(calls, [['package_command', {id: 'pkg-1', viewer: 'v', name: 'pause', args: {minutes: 30}}]]);
+    assert.equal((await command(entry, posted, 'delete-everything', {})).error, 'Unknown widget command');
+    assert.equal(calls.length, 1, 'an undeclared command never reaches the host');
+  } finally {
+    window.__TAURI__.core.invoke = previous;
+  }
+});
+
+test('the install sheet names the images capability', () => {
+  assert.ok(permissionSummary({permissions: ['images'], images: ['api/*.jpg']}).some(line => line.includes('images from that connection')));
+});
+
 test('the settings gear opens the placement editor', async () => {
   const {entry, posted} = frameFor({permissions: ['settings'], schema, openSettings: async () => ({metric: 'cpu'})});
   const reply = await command(entry, posted, 'settings.open');

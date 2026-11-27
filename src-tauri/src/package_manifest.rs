@@ -39,6 +39,14 @@ pub struct Manifest {
     pub data: Vec<DataPoll>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub actions: Vec<Action>,
+    /// Image routes a view may load with the `images` permission: paths under the
+    /// connection's address, or full URLs on a connector host. `*` matches any run of
+    /// characters within one path segment.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<String>,
+    /// WebSocket routes on the connection a view may open with the `stream` permission.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub streams: Vec<StreamRoute>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub connector: Option<Connector>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -82,6 +90,14 @@ pub enum Permission {
     /// an installed view could pass reminder text to its connection in an action.
     #[serde(rename = "reminders")]
     Reminders,
+    /// Images the manifest's `images` patterns allow, fetched by Dashledge and handed to
+    /// the view as `blob:` URLs by `Dashledge.image()`.
+    #[serde(rename = "images")]
+    Images,
+    /// Live WebSocket streams the manifest's `streams` declare, relayed to the view by
+    /// `Dashledge.stream.open()`: camera video (MSE fMP4), event feeds.
+    #[serde(rename = "stream")]
+    Stream,
     /// Say a line aloud in the user's Dashledge voice, with `Dashledge.speech.say()`.
     /// Mute, quiet hours and a once-a-second limit apply; only while on screen.
     #[serde(rename = "speech")]
@@ -172,13 +188,250 @@ pub struct View {
     pub theme: bool,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
+/// How a connection's saved credential goes on each request. Dashledge adds it; package
+/// code never sees it. In widget.json: `"bearer"`, `"emby-token"`, `"pve-token"`,
+/// `"basic"` (the saved username and key), `"none"`, `{"header": "X-Api-Key"}` with an
+/// optional `"format": "MediaBrowser Token=\"{key}\""`, `{"query": "apikey"}`, or
+/// `{"login": {…}}` to sign in with the saved username and key and keep the session.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Auth {
     Bearer,
     EmbyToken,
     PveToken,
+    Basic,
     None,
+    Header { name: String, format: Option<String> },
+    Query { name: String },
+    Login(Login),
+}
+
+/// A sign-in form Dashledge posts with the saved username and key. The session it
+/// returns (cookies, or a token from the JSON reply) goes on later requests to the
+/// connection; a 401 or 403 signs in again once.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Login {
+    /// Relative route of the sign-in form, such as `api/v2/auth/login`.
+    pub path: String,
+    #[serde(default)]
+    pub body: LoginBody,
+    /// Form or JSON fields. `{user}` and `{key}` are replaced by the saved values.
+    pub fields: std::collections::BTreeMap<String, String>,
+    pub session: LoginSession,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum LoginBody {
+    #[default]
+    Form,
+    Json,
+}
+
+/// What the sign-in returns: `"cookie"` (its Set-Cookie values) or a token at a JSON
+/// pointer, sent as `header` with an optional `format` holding `{token}`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LoginSession {
+    Cookie,
+    Token { pointer: String, header: String, format: Option<String> },
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TokenSession {
+    token: String,
+    #[serde(default = "authorization")]
+    header: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    format: Option<String>,
+}
+fn authorization() -> String {
+    "Authorization".into()
+}
+#[derive(Deserialize, Serialize)]
+#[serde(untagged)]
+enum SessionForm {
+    Named(String),
+    Token(TokenSession),
+}
+impl Serialize for LoginSession {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            LoginSession::Cookie => SessionForm::Named("cookie".into()),
+            LoginSession::Token { pointer, header, format } => SessionForm::Token(TokenSession { token: pointer.clone(), header: header.clone(), format: format.clone() }),
+        }
+        .serialize(serializer)
+    }
+}
+impl<'de> Deserialize<'de> for LoginSession {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::Error;
+        match SessionForm::deserialize(deserializer).map_err(|_| D::Error::custom("session must be \"cookie\" or {\"token\": \"/json/pointer\"}"))? {
+            SessionForm::Named(name) if name == "cookie" => Ok(LoginSession::Cookie),
+            SessionForm::Named(other) => Err(D::Error::custom(format!("unknown session “{other}”"))),
+            SessionForm::Token(t) => Ok(LoginSession::Token { pointer: t.token, header: t.header, format: t.format }),
+        }
+    }
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct HeaderAuth {
+    header: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    format: Option<String>,
+}
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct QueryAuth {
+    query: String,
+}
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct LoginAuth {
+    login: Login,
+}
+#[derive(Deserialize, Serialize)]
+#[serde(untagged)]
+enum AuthForm {
+    Named(String),
+    Header(HeaderAuth),
+    Query(QueryAuth),
+    Login(LoginAuth),
+}
+
+impl Serialize for Auth {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let named = |n: &str| AuthForm::Named(n.into());
+        match self {
+            Auth::Bearer => named("bearer"),
+            Auth::EmbyToken => named("emby-token"),
+            Auth::PveToken => named("pve-token"),
+            Auth::Basic => named("basic"),
+            Auth::None => named("none"),
+            Auth::Header { name, format } => AuthForm::Header(HeaderAuth { header: name.clone(), format: format.clone() }),
+            Auth::Query { name } => AuthForm::Query(QueryAuth { query: name.clone() }),
+            Auth::Login(login) => AuthForm::Login(LoginAuth { login: login.clone() }),
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Auth {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::Error;
+        let form = AuthForm::deserialize(deserializer)
+            .map_err(|_| D::Error::custom("auth must be bearer, emby-token, pve-token, basic, none, {\"header\": …}, {\"query\": …} or {\"login\": …}"))?;
+        Ok(match form {
+            AuthForm::Named(name) => match name.as_str() {
+                "bearer" => Auth::Bearer,
+                "emby-token" => Auth::EmbyToken,
+                "pve-token" => Auth::PveToken,
+                "basic" => Auth::Basic,
+                "none" => Auth::None,
+                other => return Err(D::Error::custom(format!("unknown auth “{other}”"))),
+            },
+            AuthForm::Header(h) => Auth::Header { name: h.header, format: h.format },
+            AuthForm::Query(q) => Auth::Query { name: q.query },
+            AuthForm::Login(l) => Auth::Login(l.login),
+        })
+    }
+}
+
+/// A full `http(s)://host[:port]/path` pattern split into its origin and path.
+pub fn split_origin(pattern: &str) -> Option<(&str, &str)> {
+    let rest = pattern.strip_prefix("https://").or_else(|| pattern.strip_prefix("http://"))?;
+    let end = pattern.len() - rest.len() + rest.find('/').unwrap_or(rest.len());
+    Some((&pattern[..end], pattern[end..].trim_start_matches('/')))
+}
+
+/// An image route or pattern: relative segments of URL-safe characters (`*` in a pattern).
+fn image_path(path: &str, pattern: bool) -> Result<(), String> {
+    let ok = !path.is_empty() && path.len() <= 200 && !path.starts_with('/')
+        && path.split('/').all(|s| !s.is_empty() && s != "." && s != ".."
+            && s.bytes().all(|b| b.is_ascii_alphanumeric() || b"-_.~".contains(&b) || (pattern && b == b'*')));
+    if ok { Ok(()) } else { fail(format!("Image route “{path}” must be a relative path of letters, digits and - _ . ~")) }
+}
+
+/// Whether a requested image path (no query) fits a pattern, segment by segment.
+pub fn image_matches(pattern: &str, path: &str) -> bool {
+    fn glob(pattern: &[u8], text: &[u8]) -> bool {
+        match pattern.split_first() {
+            None => text.is_empty(),
+            Some((b'*', rest)) => (0..=text.len()).any(|i| glob(rest, &text[i..])),
+            Some((c, rest)) => text.first() == Some(c) && glob(rest, &text[1..]),
+        }
+    }
+    image_path(path, false).is_ok() && {
+        let (p, t): (Vec<_>, Vec<_>) = (pattern.split('/').collect(), path.split('/').collect());
+        p.len() == t.len() && p.iter().zip(&t).all(|(p, t)| glob(p.as_bytes(), t.as_bytes()))
+    }
+}
+
+/// A query string an image request may carry: values views commonly pass for sizing
+/// and cache-busting, such as `h=360` or `lastWrite=638…`.
+pub fn image_query(query: &str) -> bool {
+    query.len() <= 200 && query.bytes().all(|b| b.is_ascii_alphanumeric() || b"-_.~=&,:%+".contains(&b))
+}
+
+/// Request headers the app owns. A package's credential header may not be one of them.
+pub const RESERVED_HEADERS: &[&str] = &["host", "cookie", "content-length", "content-type", "connection", "transfer-encoding", "origin", "proxy-authorization", "upgrade"];
+
+fn credential_header_name(name: &str) -> Result<(), String> {
+    if name.is_empty() || name.len() > 64 || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
+        return fail("An auth header name is 1–64 letters, digits or hyphens.");
+    }
+    if RESERVED_HEADERS.contains(&name.to_ascii_lowercase().as_str()) {
+        return fail(format!("“{name}” can’t carry the credential."));
+    }
+    Ok(())
+}
+
+fn check_auth(auth: &Auth) -> Result<(), String> {
+    match auth {
+        Auth::Login(login) => {
+            route(&login.path, "Sign-in route", false, false)?;
+            if login.fields.is_empty() || login.fields.len() > 8 {
+                return fail("A sign-in form has 1–8 fields.");
+            }
+            for (field, value) in &login.fields {
+                if field.is_empty() || field.len() > 40 || !field.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b)) {
+                    return fail("Sign-in field names are 1–40 letters, digits, _ . or -.");
+                }
+                if value.len() > 120 || value.chars().any(char::is_control) {
+                    return fail("Sign-in field values are up to 120 characters.");
+                }
+            }
+            if !login.fields.values().any(|v| v.contains("{key}")) {
+                return fail("A sign-in form must send the saved key as {key}.");
+            }
+            if let LoginSession::Token { pointer, header, format } = &login.session {
+                if !pointer.starts_with('/') || pointer.len() > 100 {
+                    return fail("A session token is a JSON pointer such as /access.");
+                }
+                credential_header_name(header)?;
+                if format.as_ref().is_some_and(|f| f.matches("{token}").count() != 1 || f.len() > 120 || f.chars().any(char::is_control)) {
+                    return fail("A session header format holds {token} once.");
+                }
+            }
+        }
+        Auth::Header { name, format } => {
+            credential_header_name(name)?;
+            if let Some(format) = format {
+                text(format, "Auth header format", 120)?;
+                if format.matches("{key}").count() != 1 || format.matches("{user}").count() > 1 {
+                    return fail("An auth header format holds {key} once and {user} at most once.");
+                }
+            }
+        }
+        Auth::Query { name } => {
+            if name.is_empty() || name.len() > 40 || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b)) {
+                return fail("An auth query parameter is 1–40 letters, digits, _ . or -.");
+            }
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -208,6 +461,61 @@ pub struct Sources {
     pub address_placeholder: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub credential_label: Option<String>,
+    /// Shown above a username field beside the credential. Without it the form asks for
+    /// the credential alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub username_label: Option<String>,
+    /// Products one widget can connect to, each with its own auth, Test routes and labels
+    /// (SABnzbd, NZBGet or qBittorrent). A connection stores the type it was made for.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub types: Vec<SourceType>,
+}
+
+/// One kind of server a widget's connection may be. Fields it leaves out come from
+/// `sources`.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SourceType {
+    pub id: String,
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth: Option<Auth>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub test: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub address_label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub address_placeholder: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential_label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub username_label: Option<String>,
+}
+
+impl Sources {
+    /// The type a connection was made for: the named one, else the first. None when the
+    /// widget declares no types, or the named one no longer exists in a type list.
+    pub fn type_of(&self, id: Option<&str>) -> Option<&SourceType> {
+        match id {
+            Some(id) => self.types.iter().find(|t| t.id == id).or(self.types.first()),
+            None => self.types.first(),
+        }
+    }
+    /// How a connection of that type sends its credential.
+    pub fn auth_for(&self, id: Option<&str>) -> Auth {
+        self.type_of(id).and_then(|t| t.auth.clone()).unwrap_or_else(|| self.auth.clone())
+    }
+    /// The routes Test reads for a connection of that type.
+    pub fn test_for(&self, id: Option<&str>) -> Vec<String> {
+        self.type_of(id).filter(|t| !t.test.is_empty()).map_or_else(|| self.test.clone(), |t| t.test.clone())
+    }
+}
+
+impl Manifest {
+    /// The auth a placement's connection uses; none without sources.
+    pub fn auth_for(&self, source_type: Option<&str>) -> Auth {
+        self.sources.as_ref().map_or(Auth::None, |s| s.auth_for(source_type))
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -233,6 +541,15 @@ pub enum Method {
     Delete,
 }
 
+/// A WebSocket route on the connection, opened as ws/wss. `{name}` placeholders in the
+/// path or query are filled from the view's arguments, as for actions.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StreamRoute {
+    pub id: String,
+    pub path: String,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Action {
@@ -254,6 +571,10 @@ pub struct Connector {
     /// Bytes of key-value storage.
     #[serde(default = "default_storage")]
     pub storage: u32,
+    /// Commands the view may send with `Dashledge.command(name, args)`; the connector
+    /// answers them with `dashledge.onCommand(name, handler)`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub commands: Vec<String>,
 }
 fn default_storage() -> u32 {
     64 * 1024
@@ -479,12 +800,35 @@ pub fn validate(raw: &Value, origin: Origin) -> Result<Manifest, String> {
         if sources.test.len() > 8 {
             return fail("Declare at most 8 Test routes.");
         }
+        check_auth(&sources.auth)?;
         for test in &sources.test {
             route(test, "Test route", false, true)?;
         }
         optional_text(&sources.address_label, "Address label", 40)?;
         optional_text(&sources.address_placeholder, "Address placeholder", 120)?;
         optional_text(&sources.credential_label, "Credential label", 40)?;
+        optional_text(&sources.username_label, "Username label", 40)?;
+        if sources.types.len() > 12 {
+            return fail("Declare at most 12 connection types.");
+        }
+        unique(sources.types.iter().map(|t| t.id.as_str()), "Connection type ID")?;
+        for kind in &sources.types {
+            name(&kind.id, "Connection type ID")?;
+            text(&kind.label, "Connection type label", 40)?;
+            if let Some(auth) = &kind.auth {
+                check_auth(auth)?;
+            }
+            if kind.test.len() > 8 {
+                return fail("Declare at most 8 Test routes.");
+            }
+            for test in &kind.test {
+                route(test, "Test route", false, true)?;
+            }
+            optional_text(&kind.address_label, "Address label", 40)?;
+            optional_text(&kind.address_placeholder, "Address placeholder", 120)?;
+            optional_text(&kind.credential_label, "Credential label", 40)?;
+            optional_text(&kind.username_label, "Username label", 40)?;
+        }
     }
     if let Some(display) = &manifest.display_name {
         let parts: Vec<_> = display.server_field.split('.').collect();
@@ -533,11 +877,59 @@ pub fn validate(raw: &Value, origin: Origin) -> Result<Manifest, String> {
         if connector.storage > 1024 * 1024 {
             return fail("Connector storage is limited to 1 MiB.");
         }
+        if connector.commands.len() > 16 {
+            return fail("A connector may declare at most 16 commands.");
+        }
+        unique(connector.commands.iter().map(String::as_str), "Connector command")?;
+        for command in &connector.commands {
+            name(command, "Connector command")?;
+            // The bridge's own command names stay the bridge's.
+            if ["action", "image", "model"].contains(&command.as_str()) {
+                return fail(format!("“{command}” is reserved; choose another command name."));
+            }
+        }
     }
     let mut granted = HashSet::new();
     for permission in &manifest.permissions {
         if !granted.insert(*permission) {
             return fail("A permission is declared twice.");
+        }
+    }
+    if granted.contains(&Permission::Stream) != !manifest.streams.is_empty() {
+        return fail("Declare the stream permission together with at least one stream.");
+    }
+    if manifest.streams.len() > 8 {
+        return fail("Declare at most 8 streams.");
+    }
+    if !manifest.streams.is_empty() && manifest.sources.is_none() {
+        return fail("Streams open on the connection, so they need sources.");
+    }
+    unique(manifest.streams.iter().map(|s| s.id.as_str()), "Stream ID")?;
+    for stream in &manifest.streams {
+        name(&stream.id, "Stream ID")?;
+        let (path, query) = stream.path.split_once('?').unwrap_or((&stream.path, ""));
+        route(path, "Stream route", true, false)?;
+        if !query.bytes().all(|b| b.is_ascii_alphanumeric() || b"-_.=&,:%{}".contains(&b)) || placeholder_names(query).is_none() {
+            return fail(format!("Stream route “{}” has an invalid query.", stream.path));
+        }
+    }
+    if granted.contains(&Permission::Images) != !manifest.images.is_empty() {
+        return fail("Declare the images permission together with at least one image route.");
+    }
+    if manifest.images.len() > 16 {
+        return fail("Declare at most 16 image routes.");
+    }
+    let hosts = manifest.connector.as_ref().map(|c| c.hosts.clone()).unwrap_or_default();
+    for pattern in &manifest.images {
+        match split_origin(pattern) {
+            Some((origin, path)) => {
+                if !hosts.iter().any(|h| h == origin) {
+                    return fail(format!("Image route “{pattern}” must be on a host the connector declares."));
+                }
+                image_path(path, true)?;
+            }
+            None if manifest.sources.is_none() => return fail("Image routes under the connection need sources."),
+            None => image_path(pattern, true)?,
         }
     }
     if granted.contains(&Permission::Settings) != !manifest.settings.is_empty() {
@@ -779,6 +1171,144 @@ mod tests {
         assert!(validate(&extra, Origin::Installed).is_err());
         assert!(validate(&with(installed(), "/title", json!("  ")), Origin::Installed).is_err());
         assert!(validate(&with(installed(), "/title", json!("x".repeat(65))), Origin::Installed).is_err());
+    }
+
+    #[test]
+    fn auth_takes_a_named_style_a_header_or_a_query_parameter() {
+        let auth = |value: Value| validate(&with(installed(), "/sources/auth", value), Origin::Installed).map(|m| m.sources.unwrap().auth);
+        assert_eq!(auth(json!("basic")).unwrap(), Auth::Basic);
+        assert_eq!(auth(json!({"header": "X-Api-Key"})).unwrap(), Auth::Header { name: "X-Api-Key".into(), format: None });
+        assert_eq!(auth(json!({"header": "Authorization", "format": "MediaBrowser Token=\"{key}\""})).unwrap(),
+            Auth::Header { name: "Authorization".into(), format: Some("MediaBrowser Token=\"{key}\"".into()) });
+        assert_eq!(auth(json!({"query": "apikey"})).unwrap(), Auth::Query { name: "apikey".into() });
+        for bad in [json!("token"), json!({"header": "Cookie"}), json!({"header": "X Api"}), json!({"header": "X-Key", "format": "no key"}),
+                    json!({"header": "X-Key", "format": "{key}{key}"}), json!({"query": "api key"}), json!({"query": "k", "header": "X"}), json!({"cookie": "sid"})] {
+            assert!(auth(bad.clone()).is_err(), "{bad}");
+        }
+        // Serialized back the way widget.json spells it, for the settings window.
+        assert_eq!(serde_json::to_value(Auth::Query { name: "apikey".into() }).unwrap(), json!({"query": "apikey"}));
+        assert_eq!(serde_json::to_value(Auth::EmbyToken).unwrap(), json!("emby-token"));
+    }
+
+    #[test]
+    fn image_routes_need_the_permission_and_stay_on_declared_hosts() {
+        let mut p = installed();
+        p["permissions"] = json!(["images"]);
+        p["images"] = json!(["api/v3/mediacover/*/poster-*.jpg", "https://api.example.com/t/p/*/*"]);
+        let m = validate(&p, Origin::Installed).unwrap();
+        assert_eq!(m.images.len(), 2);
+        let mut missing = p.clone();
+        missing["permissions"] = json!([]);
+        assert!(validate(&missing, Origin::Installed).is_err(), "images need the permission");
+        for bad in ["../secret.png", "/api/x.jpg", "api//x.jpg", "api/x.jpg?h=1", "https://elsewhere.example/x.jpg", "api/{id}.jpg"] {
+            let mut q = p.clone();
+            q["images"] = json!([bad]);
+            assert!(validate(&q, Origin::Installed).is_err(), "{bad}");
+        }
+        assert!(image_matches("api/v3/mediacover/*/poster-*.jpg", "api/v3/mediacover/12/poster-250.jpg"));
+        assert!(!image_matches("api/v3/mediacover/*/poster-*.jpg", "api/v3/mediacover/12/fanart.jpg"));
+        assert!(!image_matches("api/*/latest.jpg", "api/a/b/latest.jpg"), "* stays within a segment");
+        assert!(!image_matches("api/*/latest.jpg", "api/../latest.jpg"));
+        assert_eq!(split_origin("https://api.example.com/t/p/*"), Some(("https://api.example.com", "t/p/*")));
+        assert!(image_query("h=360&bbox=1") && !image_query("x=<script>"));
+    }
+
+    #[test]
+    fn streams_need_the_permission_a_connection_and_relative_routes() {
+        let mut p = installed();
+        p["permissions"] = json!(["stream"]);
+        p["streams"] = json!([{"id": "live", "path": "live/mse/api/ws?src={camera}"}, {"id": "events", "path": "ws"}]);
+        assert_eq!(validate(&p, Origin::Installed).unwrap().streams.len(), 2);
+        let mut missing = p.clone();
+        missing["permissions"] = json!([]);
+        assert!(validate(&missing, Origin::Installed).is_err());
+        for bad in [json!([{"id": "a", "path": "../ws"}]), json!([{"id": "a", "path": "wss://other/ws"}]), json!([{"id": "a", "path": "ws?src={x"}]),
+                    json!([{"id": "Live", "path": "ws"}]), json!([{"id": "a", "path": "ws"}, {"id": "a", "path": "ws2"}])] {
+            let mut q = p.clone();
+            q["streams"] = bad.clone();
+            assert!(validate(&q, Origin::Installed).is_err(), "{bad}");
+        }
+        let mut no_sources = p.clone();
+        no_sources.as_object_mut().unwrap().remove("sources");
+        no_sources.as_object_mut().unwrap().remove("data");
+        no_sources.as_object_mut().unwrap().remove("actions");
+        assert!(validate(&no_sources, Origin::Installed).is_err());
+    }
+
+    #[test]
+    fn connection_types_bring_their_own_auth_and_test_routes() {
+        let mut p = installed();
+        p["sources"]["types"] = json!([
+            {"id": "sabnzbd", "label": "SABnzbd", "auth": {"query": "apikey"}, "test": ["api?mode=version&output=json"]},
+            {"id": "nzbget", "label": "NZBGet", "auth": "basic", "usernameLabel": "Username"},
+            {"id": "plain", "label": "Plain"}
+        ]);
+        let m = validate(&p, Origin::Installed).unwrap();
+        let s = m.sources.as_ref().unwrap();
+        assert_eq!(s.auth_for(Some("sabnzbd")), Auth::Query { name: "apikey".into() });
+        assert_eq!(s.auth_for(Some("nzbget")), Auth::Basic);
+        assert_eq!(s.auth_for(Some("plain")), Auth::Bearer, "a type without auth uses the widget's");
+        assert_eq!(s.auth_for(None), Auth::Query { name: "apikey".into() }, "no type means the first");
+        assert_eq!(s.auth_for(Some("removed")), Auth::Query { name: "apikey".into() });
+        assert_eq!(s.test_for(Some("sabnzbd")), vec!["api?mode=version&output=json"]);
+        assert_eq!(s.test_for(Some("nzbget")), vec!["api/status"], "a type without Test routes uses the widget's");
+        assert_eq!(m.auth_for(Some("nzbget")), Auth::Basic);
+        for bad in [json!([{"id": "A", "label": "A"}]), json!([{"id": "a", "label": ""}]), json!([{"id": "a", "label": "A"}, {"id": "a", "label": "B"}]),
+                    json!([{"id": "a", "label": "A", "auth": {"header": "Cookie"}}]), json!([{"id": "a", "label": "A", "extra": 1}])] {
+            let mut q = p.clone();
+            q["sources"]["types"] = bad.clone();
+            assert!(validate(&q, Origin::Installed).is_err(), "{bad}");
+        }
+        assert_eq!(validate(&installed(), Origin::Installed).unwrap().auth_for(Some("x")), Auth::Bearer, "without types the widget's auth");
+    }
+
+    #[test]
+    fn a_sign_in_form_posts_the_saved_values_and_keeps_its_session() {
+        let auth = |value: Value| validate(&with(installed(), "/sources/auth", value), Origin::Installed).map(|m| m.sources.unwrap().auth);
+        let qbit = json!({"login": {"path": "api/v2/auth/login", "fields": {"username": "{user}", "password": "{key}"}, "session": "cookie"}});
+        let Auth::Login(login) = auth(qbit.clone()).unwrap() else { panic!("login") };
+        assert_eq!((login.body, login.session), (LoginBody::Form, LoginSession::Cookie));
+        let jwt = json!({"login": {"path": "api/accounts/token/", "body": "json", "fields": {"username": "{user}", "password": "{key}"},
+            "session": {"token": "/access", "format": "Bearer {token}"}}});
+        assert!(matches!(auth(jwt.clone()).unwrap(), Auth::Login(Login { session: LoginSession::Token { ref header, .. }, .. }) if header == "Authorization"));
+        assert_eq!(serde_json::to_value(auth(jwt).unwrap()).unwrap()["login"]["session"]["token"], "/access");
+        for bad in [
+            json!({"login": {"path": "/login", "fields": {"p": "{key}"}, "session": "cookie"}}),
+            json!({"login": {"path": "login", "fields": {"u": "{user}"}, "session": "cookie"}}),
+            json!({"login": {"path": "login", "fields": {"p": "{key}"}, "session": "jar"}}),
+            json!({"login": {"path": "login", "fields": {"p": "{key}"}, "session": {"token": "access"}}}),
+            json!({"login": {"path": "login", "fields": {"p": "{key}"}, "session": {"token": "/a", "header": "Cookie"}}}),
+            json!({"login": {"path": "login", "fields": {"p": "{key}"}, "session": "cookie", "extra": true}}),
+        ] {
+            assert!(auth(bad.clone()).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn connector_commands_are_plain_names_and_not_the_bridges_own() {
+        let commands = |list: Value| {
+            let mut p = installed();
+            p["connector"]["commands"] = list;
+            validate(&p, Origin::Installed)
+        };
+        assert_eq!(commands(json!(["load-model", "pause"])).unwrap().connector.unwrap().commands, vec!["load-model", "pause"]);
+        for bad in [json!(["image"]), json!(["Pause"]), json!(["a", "a"]), json!(["settings.open"])] {
+            assert!(commands(bad.clone()).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_username_label_is_short_plain_text() {
+        let labelled = |label: Value| {
+            let mut p = installed();
+            p["sources"]["usernameLabel"] = label;
+            p
+        };
+        let m = validate(&labelled(json!("Username")), Origin::Installed).unwrap();
+        assert_eq!(m.sources.unwrap().username_label.as_deref(), Some("Username"));
+        for bad in [json!("x".repeat(41)), json!("User\nname"), json!(7)] {
+            assert!(validate(&labelled(bad.clone()), Origin::Installed).is_err(), "{bad}");
+        }
     }
 
     #[test]

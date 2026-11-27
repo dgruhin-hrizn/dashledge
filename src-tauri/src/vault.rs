@@ -30,6 +30,10 @@ const LEGACY_CA: &str = "dev.edgeworkbench.proxmox-ca";
 pub struct Credential {
     pub key: Option<String>,
     pub ca: Option<String>,
+    /// The username sent with the key, for Basic auth and sign-in forms. Vaults saved
+    /// before it existed load with none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user: Option<String>,
 }
 type Entries = BTreeMap<String, Credential>;
 enum Session {
@@ -205,7 +209,7 @@ fn legacy(
     } else {
         None
     };
-    Ok(Credential { key, ca })
+    Ok(Credential { key, ca, user: None })
 }
 
 pub fn get(kind: &str, base: &reqwest::Url) -> Result<Credential, String> {
@@ -232,6 +236,10 @@ fn apply_secret(value: &mut Credential, secret: String) {
 fn apply_ca(value: &mut Credential, ca: Option<String>) {
     value.ca = ca;
 }
+/// Save or remove a connection's username, keeping its token and certificate.
+fn apply_user(value: &mut Credential, user: Option<String>) {
+    value.user = user.filter(|u| !u.is_empty());
+}
 pub fn set(kind: &str, base: &reqwest::Url, secret: String) -> Result<(), String> {
     if !secret.is_empty() {
         // Migrate any legacy entry first, so a new token keeps its CA.
@@ -239,6 +247,13 @@ pub fn set(kind: &str, base: &reqwest::Url, secret: String) -> Result<(), String
     }
     transaction(|entries| {
         apply_secret(entries.entry(id(kind, base)).or_default(), secret);
+        Ok(())
+    })
+}
+pub fn set_user(kind: &str, base: &reqwest::Url, user: Option<String>) -> Result<(), String> {
+    get(kind, base)?;
+    transaction(|entries| {
+        apply_user(entries.entry(id(kind, base)).or_default(), user);
         Ok(())
     })
 }
@@ -325,6 +340,7 @@ mod tests {
             Credential {
                 key: Some("fixture-private".into()),
                 ca: Some("fixture-ca".into()),
+                user: Some("fixture-user".into()),
             },
         );
         save(&path, &key, &entries).unwrap();
@@ -336,13 +352,31 @@ mod tests {
     }
     #[test]
     fn a_new_token_keeps_the_certificate_and_only_remove_clears_it() {
-        let mut value = Credential { key: Some("old".into()), ca: Some("pem".into()) };
+        let mut value = Credential { key: Some("old".into()), ca: Some("pem".into()), user: None };
         apply_secret(&mut value, "new".into());
-        assert!(value == Credential { key: Some("new".into()), ca: Some("pem".into()) });
+        assert!(value == Credential { key: Some("new".into()), ca: Some("pem".into()), user: None });
         apply_ca(&mut value, Some("pem-2".into()));
-        assert!(value == Credential { key: Some("new".into()), ca: Some("pem-2".into()) });
+        assert!(value == Credential { key: Some("new".into()), ca: Some("pem-2".into()), user: None });
         apply_ca(&mut value, None);
-        assert!(value == Credential { key: Some("new".into()), ca: None });
+        assert!(value == Credential { key: Some("new".into()), ca: None, user: None });
+        apply_secret(&mut value, String::new());
+        assert!(value == Credential::default());
+    }
+    #[test]
+    fn a_username_is_kept_beside_the_token_and_old_vaults_still_load() {
+        let mut value = Credential { key: Some("pass".into()), ca: None, user: None };
+        apply_user(&mut value, Some("admin".into()));
+        assert!(value.user.as_deref() == Some("admin") && value.key.as_deref() == Some("pass"));
+        apply_secret(&mut value, "new-pass".into());
+        assert!(value.user.as_deref() == Some("admin"));
+        apply_user(&mut value, Some(String::new()));
+        assert!(value.user.is_none());
+        // A vault written before usernames existed has no `user` field.
+        let old: Entries = serde_json::from_str(r#"{"plugin.x|http://h":{"key":"k","ca":null}}"#).unwrap();
+        assert!(old["plugin.x|http://h"].user.is_none());
+        // And one without a username doesn't write the field.
+        assert!(!serde_json::to_string(&old).unwrap().contains("user"));
+        apply_user(&mut value, Some("admin".into()));
         apply_secret(&mut value, String::new());
         assert!(value == Credential::default());
     }

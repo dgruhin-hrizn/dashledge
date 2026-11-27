@@ -28,6 +28,8 @@ export function packageState(entry) {
     displayName: entry.displayName || '',
     serverName: entry.serverName || '',
     host: entry.host || '',
+    // The manifest's connection type the placement's connection was made for, or ''.
+    connectionType: entry.connectionType || '',
     // 'native' when the widget fills the display at its real size; 'reference' in a
     // split page's 1920 × 540 canvas.
     viewport: entry.native ? 'native' : 'reference',
@@ -97,8 +99,19 @@ function openKeyboard(entry, options = {}) {
   });
 }
 
-function post(entry, message) {
-  entry.frame.contentWindow?.postMessage({dashledge: 1, ...message}, '*');
+// `transfer` moves ArrayBuffers (images, stream frames) into the frame instead of copying.
+function post(entry, message, transfer = []) {
+  entry.frame.contentWindow?.postMessage({dashledge: 1, ...message}, '*', transfer);
+}
+
+// The image type of raw bytes, as Rust checked them: JPEG, PNG, GIF or WebP.
+export function imageType(buffer) {
+  const b = new Uint8Array(buffer, 0, Math.min(12, buffer.byteLength));
+  if (b[0] === 0xff && b[1] === 0xd8) return 'image/jpeg';
+  if (b[0] === 0x89 && b[1] === 0x50) return 'image/png';
+  if (b[0] === 0x47 && b[1] === 0x49) return 'image/gif';
+  if (b[8] === 0x57 && b[9] === 0x45) return 'image/webp';
+  return 'application/octet-stream';
 }
 
 function track(entry, win) {
@@ -167,10 +180,12 @@ async function reminders(entry, name, args) {
 // Returns unregister(); `deliver(data)` sends a package feed's data, now or once ready,
 // and `settings(saved)` sends the placement's changed settings to the live view.
 export function registerFrame(frame, {viewer, feed, kind = '', title = '', commands = [], actions = [], permissions = [],
-  schema = [], saved = {}, source = '', openSettings = null, colors = null, displayName = '', host = '', serverField = '', native = false}) {
-  const entry = {frame, viewer, feed, kind, title: clean(title, 64) || 'Widget', commands, actions, permissions, schema, source,
+  schema = [], saved = {}, source = '', openSettings = null, colors = null, displayName = '', host = '', serverField = '', native = false,
+  connectionType = '', connectorCommands = []}) {
+  const entry = {frame, viewer, feed, kind, title: clean(title, 64) || 'Widget', commands, actions, permissions, schema, source, connectionType,
+    connectorCommands,
     settings: settingValues(schema, saved), openSettings, colors, displayName, host, serverField, native,
-    serverName: '', window: null, data: null, ready: false, metrics: false, keyboard: null};
+    serverName: '', window: null, data: null, ready: false, metrics: false, keyboard: null, streams: new Set()};
   entries.add(entry);
   // Readiness comes from the view's `ready`, which each new document sends; load fires
   // after it, so it only maps the window.
@@ -179,6 +194,8 @@ export function registerFrame(frame, {viewer, feed, kind = '', title = '', comma
     entries.delete(entry);
     if (entry.window) frames.delete(entry.window);
     entry.keyboard?.dialog.close();
+    for (const stream of entry.streams) invoke('package_stream_close', {id: entry.feed, viewer: entry.viewer, stream}).catch(() => {});
+    entry.streams.clear();
   };
   unregister.colors = next => {
     entry.colors = next || null;
@@ -199,6 +216,41 @@ export function registerFrame(frame, {viewer, feed, kind = '', title = '', comma
   };
   unregister.entry = entry;
   return unregister;
+}
+
+// Which of the placement's connections a command names, as invoke arguments; none means the first.
+const connectionIndex = value => (Number.isInteger(value) && value >= 0 && value < 20 ? {connection: value} : {});
+
+// Bytes from a Tauri channel, whichever form the IPC delivered them in.
+const toBuffer = body => body instanceof ArrayBuffer ? body
+  : ArrayBuffer.isView(body) ? body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength)
+  : Array.isArray(body) ? new Uint8Array(body).buffer : null;
+
+// Open a declared stream. Rust relays its frames on a channel; each reaches the frame as
+// {type: 'stream', stream, event, …}, binary frames by transfer. Events that arrive
+// before Rust returns the stream's ID wait, so the view sees them after its reply.
+async function openStream(entry, args) {
+  const Channel = (window.__TAURI__ || (window.parent !== window && window.parent.__TAURI__))?.core?.Channel;
+  if (!Channel) throw new Error('Open the dashboard in Dashledge');
+  const params = {};
+  for (const [key, value] of Object.entries(args?.params && typeof args.params === 'object' ? args.params : {}))
+    if (['string', 'number'].includes(typeof value)) params[key] = String(value);
+  let stream = null;
+  const early = [];
+  const forward = body => {
+    const buffer = toBuffer(body);
+    if (buffer) return post(entry, {type: 'stream', stream, event: 'binary', data: buffer}, [buffer]);
+    if (!body || typeof body !== 'object') return;
+    if (body.event === 'close') entry.streams.delete(stream);
+    post(entry, {type: 'stream', stream, event: String(body.event), text: body.text, message: body.message, code: body.code});
+  };
+  const channel = new Channel();
+  channel.onmessage = body => (stream === null ? early.length < 256 && early.push(body) : forward(body));
+  stream = await invoke('package_stream_open', {id: entry.feed, viewer: entry.viewer, stream: String(args?.stream ?? ''), params,
+    ...connectionIndex(args?.connection), channel});
+  entry.streams.add(stream);
+  queueMicrotask(() => early.splice(0).forEach(forward));
+  return stream;
 }
 
 export async function handleMessage(entry, message) {
@@ -233,7 +285,8 @@ export async function handleMessage(entry, message) {
         // A declarative action: the host checks it against the manifest again.
         if (message.name === 'action' && entry.actions.includes(message.args?.id)) {
           const args = message.args.args && typeof message.args.args === 'object' ? message.args.args : {};
-          return reply(await invoke('package_action', {id: entry.feed, viewer: entry.viewer, action: message.args.id, args}));
+          return reply(await invoke('package_action', {id: entry.feed, viewer: entry.viewer, action: message.args.id, args,
+            ...connectionIndex(message.args.connection)}));
         }
         // Capabilities, each only when the manifest declares it.
         if (message.name === 'settings.open' && granted(entry, 'settings') && entry.openSettings) {
@@ -253,9 +306,32 @@ export async function handleMessage(entry, message) {
         }
         if (message.name.startsWith('reminders.') && granted(entry, 'reminders'))
           return reply(await reminders(entry, message.name, message.args && typeof message.args === 'object' ? message.args : {}));
+        // images: Rust checks the path against the manifest's patterns and the bytes; the
+        // frame gets them by transfer and shows them from its own blob: URL.
+        if (message.name === 'image' && granted(entry, 'images')) {
+          const path = typeof message.args?.path === 'string' ? message.args.path.slice(0, 2048) : '';
+          const bytes = await invoke('package_image', {id: entry.feed, viewer: entry.viewer, path, fresh: message.args?.fresh === true,
+            ...connectionIndex(message.args?.connection)});
+          const buffer = bytes instanceof ArrayBuffer ? bytes : new Uint8Array(bytes).buffer;
+          return post(entry, {type: 'reply', id: message.id, value: {type: imageType(buffer), bytes: buffer}}, [buffer]);
+        }
+        // stream: a WebSocket the manifest declares, opened by Rust on the connection.
+        if (message.name === 'stream.open' && granted(entry, 'stream')) return reply(await openStream(entry, message.args));
+        if ((message.name === 'stream.send' || message.name === 'stream.close') && granted(entry, 'stream')) {
+          const stream = message.args?.stream;
+          if (!entry.streams.has(stream)) return reply(undefined, 'That stream is closed');
+          if (message.name === 'stream.close') {
+            entry.streams.delete(stream);
+            return reply(await invoke('package_stream_close', {id: entry.feed, viewer: entry.viewer, stream}) ?? true);
+          }
+          return reply(await invoke('package_stream_send', {id: entry.feed, viewer: entry.viewer, stream, text: String(message.args?.text ?? '')}) ?? true);
+        }
         if (message.name.startsWith('speech.') && granted(entry, 'speech'))
           return reply(await speech(entry, message.name, message.args && typeof message.args === 'object' ? message.args : {}));
         if (message.name === 'mac.metrics' && granted(entry, 'mac.metrics')) return reply(latestMetrics);
+        // A command the package's connector declares; Rust checks it again and waits for the answer.
+        if (entry.connectorCommands?.includes(message.name))
+          return reply(await invoke('package_command', {id: entry.feed, viewer: entry.viewer, name: message.name, args: message.args ?? null}));
         if (message.name === 'mac.subscribe' && granted(entry, 'mac.metrics')) {
           entry.metrics = true;
           return reply(latestMetrics);

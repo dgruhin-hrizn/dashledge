@@ -21,3 +21,8 @@ test('permission summary names every declared host and tier', () => {
   assert.match(lines.join(' '), /https:\/\/api\.example\.com/);
   assert.deepEqual(permissionSummary(base), ['Shows its own view only. It can’t reach the network.']);
 });
+
+test('the install sheet lists the servers a typed widget connects to', () => {
+  const lines = permissionSummary({...base, sources: {min: 1, max: 1, types: [{id: 'sabnzbd', label: 'SABnzbd'}, {id: 'nzbget', label: 'NZBGet'}, {id: 'qbittorrent', label: 'qBittorrent'}]}});
+  assert.ok(lines.includes('Connects to SABnzbd, NZBGet or qBittorrent.'), lines.join(' | '));
+});

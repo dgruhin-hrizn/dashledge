@@ -3,6 +3,7 @@
 // file access of its own. Its only way out is __host(op, json), which Rust checks.
 #import <Foundation/Foundation.h>
 #import <JavaScriptCore/JavaScriptCore.h>
+#import <Security/Security.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -60,6 +61,26 @@ void connector_free(void *pointer) {
 static NSURLSession *sessions;
 static NSMutableDictionary<NSNumber *, NSURLSessionWebSocketTask *> *sockets;
 static NSMutableDictionary<NSNumber *, NSArray<NSNumber *> *> *owners; // task id → [handle, socket]
+static NSMutableDictionary<NSNumber *, NSArray *> *anchors; // task id → the connection's saved CA certificates
+
+// The certificates in a PEM bundle, or nil when it holds none.
+static NSArray *certificates(const char *pem) {
+  if (!pem || !*pem) return nil;
+  NSString *text = @(pem);
+  NSMutableArray *found = [NSMutableArray new];
+  NSScanner *scanner = [NSScanner scannerWithString:text];
+  NSString *begin = @"-----BEGIN CERTIFICATE-----", *end = @"-----END CERTIFICATE-----";
+  while (![scanner isAtEnd]) {
+    NSString *body = nil;
+    [scanner scanUpToString:begin intoString:NULL];
+    if (![scanner scanString:begin intoString:NULL]) break;
+    if (![scanner scanUpToString:end intoString:&body] || ![scanner scanString:end intoString:NULL]) break;
+    NSData *der = [[NSData alloc] initWithBase64EncodedString:body options:NSDataBase64DecodingIgnoreUnknownCharacters];
+    SecCertificateRef certificate = der ? SecCertificateCreateWithData(NULL, (__bridge CFDataRef)der) : NULL;
+    if (certificate) [found addObject:(__bridge_transfer id)certificate];
+  }
+  return found.count ? found : nil;
+}
 
 static void event(NSURLSessionTask *task, const char *type, NSString *data) {
   NSArray<NSNumber *> *owner;
@@ -77,6 +98,22 @@ static void event(NSURLSessionTask *task, const char *type, NSString *data) {
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error {
   if (error) event(task, "error", error.localizedDescription);
   event(task, "close", @"1006");
+  @synchronized (sockets) { [anchors removeObjectForKey:@(task.taskIdentifier)]; }
+}
+// A connection with a saved CA trusts it alongside the system roots, as its https
+// requests do (connections::service_client). Other sockets get the default checks.
+- (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition, NSURLCredential *))completionHandler {
+  NSArray *roots;
+  @synchronized (sockets) { roots = anchors[@(task.taskIdentifier)]; }
+  SecTrustRef trust = challenge.protectionSpace.serverTrust;
+  if (!roots || !trust || ![challenge.protectionSpace.authenticationMethod isEqualToString:NSURLAuthenticationMethodServerTrust]) {
+    completionHandler(NSURLSessionAuthChallengePerformDefaultHandling, nil);
+    return;
+  }
+  SecTrustSetAnchorCertificates(trust, (__bridge CFArrayRef)roots);
+  SecTrustSetAnchorCertificatesOnly(trust, false);
+  if (SecTrustEvaluateWithError(trust, NULL)) completionHandler(NSURLSessionAuthChallengeUseCredential, [NSURLCredential credentialForTrust:trust]);
+  else completionHandler(NSURLSessionAuthChallengeCancelAuthenticationChallenge, nil);
 }
 // Redirects are refused, as for fetch.
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task willPerformHTTPRedirection:(NSHTTPURLResponse *)response newRequest:(NSURLRequest *)request completionHandler:(void (^)(NSURLRequest *))completionHandler {
@@ -93,7 +130,7 @@ static void receive(NSURLSessionWebSocketTask *task) {
   }];
 }
 
-void connector_ws_open(uintptr_t handle, long socket, const char *url, const char *header_name, const char *header_value) {
+void connector_ws_open(uintptr_t handle, long socket, const char *url, const char *header_name, const char *header_value, const char *ca) {
   @autoreleasepool {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
@@ -102,6 +139,7 @@ void connector_ws_open(uintptr_t handle, long socket, const char *url, const cha
       sessions = [NSURLSession sessionWithConfiguration:config delegate:[DLSocketDelegate new] delegateQueue:nil];
       sockets = [NSMutableDictionary new];
       owners = [NSMutableDictionary new];
+      anchors = [NSMutableDictionary new];
     });
     NSURL *address = [NSURL URLWithString:@(url)];
     if (!address) return;
@@ -112,6 +150,8 @@ void connector_ws_open(uintptr_t handle, long socket, const char *url, const cha
     @synchronized (sockets) {
       sockets[@(socket)] = task;
       owners[@(task.taskIdentifier)] = @[@(handle), @(socket)];
+      NSArray *roots = certificates(ca);
+      if (roots) anchors[@(task.taskIdentifier)] = roots;
     }
     [task resume];
     receive(task);
@@ -127,13 +167,25 @@ void connector_ws_send(long socket, const char *text) {
   }
 }
 
+void connector_ws_send_binary(long socket, const uint8_t *bytes, size_t length) {
+  @autoreleasepool {
+    NSURLSessionWebSocketTask *task;
+    @synchronized (sockets) { task = sockets[@(socket)]; }
+    NSData *data = [NSData dataWithBytes:bytes length:length];
+    if (task) [task sendMessage:[[NSURLSessionWebSocketMessage alloc] initWithData:data] completionHandler:^(NSError *error) { (void)error; }];
+  }
+}
+
 void connector_ws_close(long socket) {
   @autoreleasepool {
     NSURLSessionWebSocketTask *task;
     @synchronized (sockets) {
       task = sockets[@(socket)];
       [sockets removeObjectForKey:@(socket)];
-      if (task) [owners removeObjectForKey:@(task.taskIdentifier)];
+      if (task) {
+        [owners removeObjectForKey:@(task.taskIdentifier)];
+        [anchors removeObjectForKey:@(task.taskIdentifier)];
+      }
     }
     [task cancelWithCloseCode:NSURLSessionWebSocketCloseCodeNormalClosure reason:nil];
   }
