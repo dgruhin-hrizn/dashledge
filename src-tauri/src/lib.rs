@@ -305,6 +305,7 @@ pub fn run() {
             voice::reminders_voice,
             voice::reminders_voice_set,
             voice::reminders_voice_test,
+            voice::reminders_voice_more,
             google_desk::desk_open,
             widget_host::markets_watch,
             widget_host::widget_command,

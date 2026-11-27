@@ -109,7 +109,7 @@ declare namespace DashledgeView {
     quietEnd: number;
     /** 0–1, relative to the system volume. */
     volume: number;
-    /** An installed voice's id, or '' for the system voice. */
+    /** An installed voice's id, or '' for the best one installed (a Siri voice when there is one). */
     voice: string;
   }
   interface RemindersSnapshot {
@@ -183,11 +183,13 @@ declare namespace DashledgeView {
       onChange(callback: () => void): () => void;
       /** Spoken reminders. One setting for all of Dashledge, not per placement. */
       voice: {
-        get(): Promise<{settings: ReminderVoice; voices: {id: string; name: string; language: string; quality: 1 | 2 | 3}[]}>;
+        get(): Promise<{settings: ReminderVoice; voices: {id: string; name: string; language: string; quality: 1 | 2 | 3; siri: boolean; best: boolean}[]}>;
         /** Save the voice settings. Only while the widget is on screen. Resolves with the values as saved. */
         set(settings: ReminderVoice): Promise<ReminderVoice>;
         /** Say a sample, even while muted, with `settings` (an unsaved draft) or the saved voice. Only while the widget is on screen. */
         test(settings?: ReminderVoice): Promise<void>;
+        /** Open Accessibility › Spoken Content in System Settings, where Siri and Premium voices are downloaded. Only while the widget is on screen. */
+        more(): Promise<void>;
       };
     };
     /** Requires the `mac.metrics` permission. */

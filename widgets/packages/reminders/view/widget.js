@@ -435,12 +435,15 @@
     catch (error) { voice = {...voice, muted: !muted}; drawVoice(); say('Couldn’t change mute: ' + String(error?.message || error).replace(/^Error: /, '')); }
   };
 
-  // Installed voices, best quality first, with the system voice as ''.
-  function voiceChoices() {
-    const sorted = [...voices].sort((a, b) => (b.quality || 1) - (a.quality || 1) || a.name.localeCompare(b.name));
-    return [{id: '', name: 'System voice', quality: 0}, ...sorted];
-  }
+  // Installed voices, best first as Dashledge sorts them, after the automatic choice ''.
   const QUALITY = {2: 'Enhanced', 3: 'Premium'};
+  const voiceLabel = v => v.siri ? 'Siri · ' + v.name : v.name + (QUALITY[v.quality] ? ' · ' + QUALITY[v.quality] : '');
+  function voiceChoices() {
+    const best = voices.find(v => v.best);
+    // One entry per name: Siri can ship the same voice twice; the first is the better.
+    const seen = new Set(), unique = voices.filter(v => !seen.has(voiceLabel(v)) && seen.add(voiceLabel(v)));
+    return [{id: '', label: 'Best available' + (best ? ' (' + voiceLabel(best) + ')' : '')}, ...unique.map(v => ({id: v.id, label: voiceLabel(v)}))];
+  }
 
   function openVoice() {
     if (!voice) return;
@@ -460,7 +463,9 @@
     flip('voiceQuiet', d.quiet);
     $('voiceLead').replaceChildren(...M.LEADS.map(lead => choice(lead.label, d.lead === lead.value, () => { d.lead = lead.value; drawVoiceSheet(); })));
     const pick = voiceChoices().find(v => v.id === d.voice) || voiceChoices()[0];
-    $('voiceName').textContent = pick.name + (QUALITY[pick.quality] ? ' · ' + QUALITY[pick.quality] : '');
+    $('voiceName').textContent = pick.label;
+    // No Siri or Premium voice installed: point at where they download.
+    $('voiceHint').hidden = voices.some(v => v.siri || v.quality === 3);
     $('quietTimes').dataset.off = String(!d.quiet);
     $('quietStart').querySelector('.rm-stepper-value').textContent = M.clockText(d.quietStart);
     $('quietEnd').querySelector('.rm-stepper-value').textContent = M.clockText(d.quietEnd);
@@ -494,6 +499,7 @@
     catch (error) { say('Couldn’t save: ' + String(error?.message || error).replace(/^Error: /, '')); }
   };
   $('voiceCancel').onclick = closeVoice;
+  $('voiceMore').onclick = () => host.reminders.voice.more().catch(error => say(String(error?.message || error).replace(/^Error: /, '')));
   $('voiceClose').onclick = closeVoice;
   $('voiceLine').onclick = openVoice;
 
