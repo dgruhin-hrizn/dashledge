@@ -133,6 +133,24 @@ live.onmessage = ({data}) => typeof data === 'string' ? handshake(data) : append
 - **images** needs `"images"` in the manifest: up to 16 patterns, each a path under the connection's address or a full URL on a connector host, where `*` matches within one path segment. For example `["api/v3/mediacover/*/*.jpg", "https://image.tmdb.org/t/p/*/*"]`. Dashledge fetches the image (with the connection's credential only on the connection), accepts only JPEG, PNG, GIF and WebP, caches it for 10 minutes, and resolves with a `blob:` URL. A query such as `?h=360` may follow the path. Pass `{fresh: true}` for images that change, like camera snapshots. Paths are relative to the address, so strip a leading `/` and any URL base the server includes.
 - **stream** needs `"streams"` in the manifest: up to 8 `{"id", "path"}` routes on the connection, with `{placeholders}` in the path or query, such as `{"id": "live", "path": "live/mse/api/ws?src={camera}"}` for Frigate. Dashledge opens them as `ws`/`wss` with the connection's credential and saved certificate, and a widget may keep 4 open. Text frames arrive as strings, binary frames as ArrayBuffers; `send()` takes text up to 64 KiB. Streams close when the widget leaves the screen. To play fMP4 video, attach a `MediaSource` with `video.srcObject = mediaSource`: a `blob:` media URL doesn't play in the widget's sandboxed frame. `samples/mse-player.js` does this for go2rtc.
 
+### Live camera video (Frigate)
+
+Frigate serves each camera through go2rtc as fragmented MP4 over a WebSocket (MSE). Declare the route and copy `samples/mse-player.js` into your view:
+
+```json
+"sources": {"min": 1, "max": 1, "auth": "none", "addressLabel": "Frigate URL", "addressPlaceholder": "http://frigate.local:5000/"},
+"permissions": ["stream", "images"],
+"streams": [{"id": "live", "path": "live/mse/api/ws?src={camera}"}],
+"images": ["api/*/latest.jpg"]
+```
+
+```js
+const player = playLive(document.querySelector('video'), 'live', {camera: 'front_door'},
+  {onState: state => badge.textContent = state});   // connecting, live, reconnecting, paused, unavailable, unsupported
+```
+
+`playLive` offers go2rtc the codecs this Mac decodes, attaches the stream with `video.srcObject`, keeps about 10 seconds buffered near the live edge, reconnects with backoff, and pauses while the page is hidden. For a grid, show `Dashledge.image('api/<camera>/latest.jpg?h=360', {fresh: true})` snapshots and play live video only for the camera the user opens. A widget keeps at most 4 streams. go2rtc on its own port uses `api/ws?src={camera}`.
+
 ## Develop with an unpacked folder
 
 In **Widget Studio**, choose **Load unpacked package** and pick the folder that holds `widget.json`. Dashledge checks it like an install and runs it from that folder. When a file in it changes, open views reload and the connector restarts. After editing `widget.json`, choose **Reload** on the widget's page to pick up new settings or permissions. An unpacked folder takes the place of an installed package with the same ID. Removing it unlinks the folder and leaves your files where they are.
