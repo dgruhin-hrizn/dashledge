@@ -343,12 +343,20 @@ pub fn install_widget_package(
     request: tauri::ipc::Request<'_>,
 ) -> Result<PackageInfo, String> {
     settings_only(&window)?;
-    let (raw, files) = extract(raw_body(&request)?)?;
+    install_bytes(&installed_root(&app)?, raw_body(&request)?)
+}
+
+/// Check a package ZIP and install it under `root`, replacing an earlier version.
+/// Running views and connectors of that package reload. The Marketplace installs its
+/// verified downloads through this too.
+pub fn install_bytes(root: &Path, bytes: &[u8]) -> Result<PackageInfo, String> {
+    let (raw, files) = extract(bytes)?;
     let manifest = check_for_this_app(&raw, &files)?;
-    let root = installed_root(&app)?;
-    install_files(&root, &manifest, &files)?;
+    install_files(root, &manifest, &files)?;
     refresh();
-    Ok(info(manifest, Origin::Installed, &root.join(&raw["id"].as_str().unwrap_or_default())))
+    bump(&manifest.id);
+    let dir = root.join(&manifest.id);
+    Ok(info(manifest, Origin::Installed, &dir))
 }
 
 #[tauri::command]
@@ -411,6 +419,7 @@ pub fn remove_widget_package(window: tauri::WebviewWindow, app: tauri::AppHandle
         save_unpacked(&paths)?;
         *UNPACKED.lock().unwrap() = paths;
         refresh();
+        bump(&id);
         return Ok(());
     }
     let rest = id.strip_prefix("plugin.").unwrap_or("");
@@ -422,6 +431,7 @@ pub fn remove_widget_package(window: tauri::WebviewWindow, app: tauri::AppHandle
         _ => Ok(()),
     };
     refresh();
+    bump(&id);
     result
 }
 
@@ -520,6 +530,19 @@ mod tests {
         assert!(listed[0].icon_data.as_deref().unwrap().starts_with("data:image/png;base64,"));
         let names: Vec<_> = fs::read_dir(root.path()).unwrap().flatten().map(|e| e.file_name()).collect();
         assert_eq!(names, ["plugin.status"], "no staging or previous folders are left behind");
+    }
+
+    #[test]
+    fn installing_reloads_running_views_and_connectors() {
+        let root = tempfile::tempdir().unwrap();
+        let before = revision("plugin.status");
+        let installed = install_bytes(root.path(), &good("")).unwrap();
+        assert_eq!(installed.manifest.id, "plugin.status");
+        assert!(root.path().join("plugin.status/widget.json").is_file());
+        assert!(revision("plugin.status") > before, "an install raises the revision views and connectors watch");
+        let again = revision("plugin.status");
+        install_bytes(root.path(), &good("")).unwrap();
+        assert!(revision("plugin.status") > again, "an update reloads them again");
     }
 
     #[test]
