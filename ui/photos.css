@@ -1,7 +1,7 @@
 /* ================= Apple Photos widget ================= */
 .tile.ph-widget{display:block;position:relative;isolation:isolate;padding:0;background:#0d0c0d;overflow:hidden;container-type:size;color:#fff}
 .dashboard.full-widget .ph-widget{border:0;border-radius:0}
-.ph-stage{position:absolute;inset:0;overflow:hidden}
+.ph-stage,.ph-run{position:absolute;inset:0;overflow:hidden}
 
 /* A photo in an opening. Cover with the subject kept in frame, or, when that would
    crop too much, the whole photo over a blurred fill of itself. */

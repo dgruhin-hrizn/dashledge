@@ -62,7 +62,11 @@ test('justified rows fill the box at each photo’s own shape',()=>{
 });
 
 test('image size follows the opening and pixel density',()=>{
-  assert.equal(sizeFor(2560,720,16/9,1),2560);
+  assert.equal(sizeFor(2560,720,32/9,1),2560);
+  // Shown whole (a 16:9 photo on 32:9), so only as large as it's drawn.
+  assert.equal(sizeFor(2560,720,16/9,1),1600);
+  // A portrait contained on the Edge is drawn 720 tall, not 4500.
+  assert.equal(sizeFor(2560,720,.56,1),1024);
   assert.equal(sizeFor(300,200,1.5,2),1024);
   assert.equal(sizeFor(9000,9000,1,2),3072);
 });

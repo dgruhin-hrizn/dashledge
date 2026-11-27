@@ -95,9 +95,12 @@ export function focusPosition(focus){
   const c=v=>Math.round(Math.max(0,Math.min(1,v))*100);
   return c(focus.x)+'% '+c(focus.y)+'%';
 }
-// Smallest image the bridge should send for an opening, in device pixels.
+// Smallest image the bridge should send for an opening, in device pixels: its long
+// edge as it will be drawn, covering the opening or shown whole inside it.
 export function sizeFor(cssW,cssH,ratio,dpr=1){
-  const need=Math.max(cssW,cssH*ratio,cssH,cssW/ratio)*dpr;
+  const slot=cssW/Math.max(1,cssH),cover=fitMode(ratio,slot)==='cover';
+  const w=cover?Math.max(cssW,cssH*ratio):Math.min(cssW,cssH*ratio);
+  const need=Math.max(w,w/ratio)*dpr;
   return [512,1024,1600,2048,2560,3072].find(b=>b>=need*.9)||3072;
 }
 // Rows of photos at their own shapes, filling the width: each row's height follows

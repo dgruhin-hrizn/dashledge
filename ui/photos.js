@@ -4,7 +4,7 @@ import {icon} from './admin-icons.js';
 import {openTouchKeyboard} from './search-keyboard.js';
 import {themes,sources,speeds,normalize,rememberNames,blocker,albumLabel,searchAlbums,ratioOf,assign,focusPosition} from './photo-settings.js';
 import {createDeck,createPacer} from './photo-deck.js';
-import {stageThemes,picture} from './photo-stage.js';
+import {stageThemes,picture,takeDistinct} from './photo-stage.js';
 
 const read=request=>invoke('photos_read',{request});
 const sourceHelp={
@@ -177,49 +177,65 @@ export function mountPhotos(box,slot,save){
   const theme=reduced&&(themes[settings.theme].scroll||settings.theme==='daydream')?'cinema':settings.theme;
   box.classList.add('ph-widget');box.dataset.theme=theme;
   const stage=el('div','ph-stage'),controls=el('div','ph-controls'),message=el('div','ph-message');
-  const deck=createDeck(settings,slot.id||'photos'),pacer=createPacer();
+  const deck=createDeck(settings,slot.id||'photos');
   const configure=()=>editPhotos(settings,save,{touch:true,title:'Apple Photos · This placement'});
-  let paused=false,visible=false,started=false,disposed=false,noticeTimer,runner=null;
+  // Each run draws into its own layer with its own clock, so a restart (after a resize
+  // or a retry) can't be written into by the run it replaced.
+  let paused=false,visible=false,disposed=false,noticeTimer,run=null,size='';
   const pause=button('',()=>{paused=!paused;sync();reveal()});
   // Next also resumes, so the change it asks for is seen.
-  const skip=button('',()=>{if(paused){paused=false;sync()}runner?.next?.();reveal()});skip.setAttribute('aria-label','Next photo');skip.append(glyph('next'));
+  const skip=button('',()=>{if(paused){paused=false;sync()}run?.runner?.next?.();reveal()});skip.setAttribute('aria-label','Next photo');skip.append(glyph('next'));
   const edit=button('',configure);edit.append(icon('general'));edit.setAttribute('aria-label','Configure Apple Photos');
   controls.append(pause,...(stageThemes[theme]?[skip]:[]),edit);box.append(stage,message,controls);
+  const running=()=>!paused&&visible&&!document.hidden;
   function sync(){
     pause.replaceChildren(glyph(paused?'play':'pause'));pause.setAttribute('aria-label',paused?'Resume slideshow':'Pause slideshow');
     pause.setAttribute('aria-pressed',String(paused));
-    const running=!paused&&visible&&!document.hidden;
-    pacer.set(running);runner?.setRunning?.(running);
-    if(running&&!started)start();
+    run?.pacer.set(running());run?.runner?.setRunning?.(running());
+    if(running()&&!run&&!message.dataset.failed)start();
   }
   function info(text,action,label){
     message.replaceChildren(el('p','',text));
     if(action)message.append(button(label,action,'primary'));
   }
-  function fail(e){
-    if(disposed)return;
-    runner?.stop?.();runner=null;started=false;stage.replaceChildren();
-    const text=String(e?.message||e);
+  function stop(){
+    if(!run)return;
+    run.runner?.stop?.();run.pacer.dispose();run.observer.disconnect();run.layer.remove();run=null;
+  }
+  function fail(current,e){
+    if(disposed||run!==current)return;
+    stop();message.dataset.failed='1';
+    const text=String(e?.message||e),retry=()=>{delete message.dataset.failed;message.replaceChildren();sync()};
     if(/Allow Photos/.test(text))info(text,configure,'Open settings');
     else if(/^No |no photos/.test(text))info(text,configure,'Choose photos');
-    else info(text,()=>{message.replaceChildren();sync()},'Retry');
+    else info(text,retry,'Retry');
   }
   function start(){
-    if(started||disposed)return;started=true;info('Loading photos…');
-    const ctx={deck,pacer,settings,reduced,fail};
-    const ready=new MutationObserver(()=>{if(stage.childElementCount){if(runner)message.replaceChildren();ready.disconnect()}});
-    ready.observe(stage,{childList:true,subtree:true});
-    if(stageThemes[theme])runner=stageThemes[theme](stage,ctx);
-    else if(theme==='daydream')runner=daydream(stage,ctx);
-    else runner=scroller(stage,ctx,theme);
-    runner?.setRunning?.(pacer.running);
+    if(run||disposed)return;
+    const layer=el('div','ph-run'),pacer=createPacer();stage.append(layer);
+    const current={layer,pacer,runner:null};run=current;
+    if(!stage.querySelector('.ph-run img'))info('Loading photos…');
+    // Clear the loading note once the run shows its first photograph.
+    const observer=new MutationObserver(()=>{if(layer.querySelector('img')){if(run===current&&!message.dataset.failed)message.replaceChildren();observer.disconnect()}});
+    observer.observe(layer,{childList:true,subtree:true});current.observer=observer;
+    const ctx={deck,pacer,settings,reduced,fail:e=>fail(current,e)};
+    current.runner=stageThemes[theme]?stageThemes[theme](layer,ctx):theme==='daydream'?daydream(layer,ctx):scroller(layer,ctx,theme);
+    pacer.set(running());current.runner?.setRunning?.(running());
   }
+  // Layouts are measured when built; rebuild them when the placement changes size.
+  let resizeTimer;
+  const resized=new ResizeObserver(([entry])=>{
+    const next=Math.round(entry.contentRect.width/8)+'x'+Math.round(entry.contentRect.height/8);
+    if(next===size)return;const first=!size;size=next;if(first)return;
+    clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{if(run&&!disposed){stop();sync()}},450);
+  });
+  resized.observe(box);
   function reveal(){controls.classList.add('shown');clearTimeout(noticeTimer);noticeTimer=setTimeout(()=>controls.classList.remove('shown'),3500)}
   box.addEventListener('click',reveal);
   const observer=new IntersectionObserver(entries=>{visible=entries[0].isIntersecting;sync()});
   observer.observe(box);document.addEventListener('visibilitychange',sync);sync();reveal();
-  return ()=>{disposed=true;observer.disconnect();document.removeEventListener('visibilitychange',sync);box.removeEventListener('click',reveal);
-    clearTimeout(noticeTimer);runner?.stop?.();pacer.dispose();deck.dispose()};
+  return ()=>{disposed=true;observer.disconnect();resized.disconnect();clearTimeout(resizeTimer);document.removeEventListener('visibilitychange',sync);box.removeEventListener('click',reveal);
+    clearTimeout(noticeTimer);stop();deck.dispose()};
 }
 function glyph(kind){
   const ns='http://www.w3.org/2000/svg',svg=document.createElementNS(ns,'svg');svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('aria-hidden','true');
@@ -231,7 +247,7 @@ function glyph(kind){
 // ---------- Gliding galleries (montage, instant prints, filmstrip, panorama) ----------
 function scroller(stage,ctx,theme){
   const {deck,pacer,settings}=ctx,right=settings.direction==='right';
-  const track=el('div','ph-track');stage.append(track);
+  const track=el('div','ph-track');
   let ready=null,loading=false,stopped=false,animation=null;
   async function scene(){
     const W=stage.clientWidth,H=Math.max(1,stage.clientHeight),aspect=W/H,compact=aspect<1.55;
@@ -242,7 +258,7 @@ function scroller(stage,ctx,theme){
     else if(theme==='montage')slots=[1.65/3.5*aspect,aspect/3.5*2,aspect/3.5*2,.85/3.5*aspect];
     else if(theme==='panorama')slots=[2.5/3.5*aspect,aspect/3.5];
     else if(theme==='instant')slots=new Array(count).fill(1.03);
-    const assets=[];for(let i=0;i<slots.length;i++){try{assets.push(await deck.take())}catch(e){if(!assets.length)throw e;break}}
+    const assets=await takeDistinct(deck,slots.length);
     const fitted=theme==='film'?assets:assign(assets,slots.slice(0,assets.length));
     const frames=await Promise.all(fitted.map(async(a,i)=>{
       if(!a)return null;
@@ -280,7 +296,7 @@ function scroller(stage,ctx,theme){
   }
   (async()=>{
     try{
-      const first=await scene();if(stopped)return;track.append(first);
+      const first=await scene();if(stopped)return;track.append(first);stage.append(track);
       const second=await scene().catch(()=>first.cloneNode(true));if(stopped)return;
       if(right)track.prepend(second);else track.append(second);
       cycle();

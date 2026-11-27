@@ -18,9 +18,15 @@ static NSString *accessState(void){
         default:return @"denied";
     }
 }
-static PHFetchOptions *imageOptions(void){
+// Library-wide sources keep PhotoKit's default (your own library). Album contents and
+// lookups by id also reach shared-album and synced photos.
+static PHFetchOptions *libraryOptions(void){
     PHFetchOptions *opts=[PHFetchOptions new];
     opts.predicate=[NSPredicate predicateWithFormat:@"mediaType == %d",PHAssetMediaTypeImage];
+    return opts;
+}
+static PHFetchOptions *imageOptions(void){
+    PHFetchOptions *opts=libraryOptions();
     opts.includeAssetSourceTypes=PHAssetSourceTypeUserLibrary|PHAssetSourceTypeCloudShared|PHAssetSourceTypeiTunesSynced;
     return opts;
 }
@@ -39,7 +45,9 @@ static void walk(PHCollectionList *list,NSString *path,NSMutableArray *rows,NSUI
     for(PHCollection *child in children){
         if([child isKindOfClass:PHAssetCollection.class]){
             PHAssetCollection *album=(PHAssetCollection *)child;
-            if(album.assetCollectionType==PHAssetCollectionTypeAlbum)[rows addObject:albumRow(album,path,@"album")];
+            // Shared albums are listed once, in their own group.
+            if(album.assetCollectionType==PHAssetCollectionTypeAlbum&&album.assetCollectionSubtype!=PHAssetCollectionSubtypeAlbumCloudShared)
+                [rows addObject:albumRow(album,path,@"album")];
         }else if([child isKindOfClass:PHCollectionList.class]&&depth<8){
             NSString *name=child.localizedTitle?:@"Folder";
             walk((PHCollectionList *)child,path.length?[NSString stringWithFormat:@"%@ › %@",path,name]:name,rows,depth+1);
@@ -80,13 +88,13 @@ static PHFetchResult *onThisDay(NSInteger spread){
         NSDate *to=[cal dateByAddingUnit:NSCalendarUnitDay value:spread+1 toDate:day options:0];
         [ranges addObject:[NSPredicate predicateWithFormat:@"creationDate >= %@ AND creationDate < %@",from,to]];
     }
-    PHFetchOptions *opts=imageOptions();
+    PHFetchOptions *opts=libraryOptions();
     opts.predicate=[NSCompoundPredicate andPredicateWithSubpredicates:@[opts.predicate,[NSCompoundPredicate orPredicateWithSubpredicates:ranges]]];
     return [PHAsset fetchAssetsWithOptions:opts];
 }
 static NSDictionary *selection(NSDictionary *args){
-    PHFetchOptions *opts=imageOptions();
     NSString *source=args[@"source"];
+    PHFetchOptions *opts=[source isEqual:@"albums"]?imageOptions():libraryOptions();
     BOOL skipScreenshots=[args[@"skipScreenshots"] boolValue];
     NSMutableArray *groups=[NSMutableArray array];
     if([source isEqual:@"albums"]){

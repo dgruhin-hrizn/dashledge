@@ -38,6 +38,18 @@ function loop(ctx,body){
   return {next(){current?.skip()},stop(){stopped=true}};
 }
 
+// Up to n different photos; a small album gives fewer rather than repeating on one screen.
+export async function takeDistinct(deck,n){
+  const out=[],ids=new Set();
+  for(let i=0;i<n;i++){
+    let a;try{a=await deck.take()}catch(e){if(!out.length)throw e;break}
+    if(ids.has(a.id)){deck.putBack([a]);break}
+    ids.add(a.id);out.push(a);
+  }
+  return out;
+}
+const lastingErrors=/^No |no photos|Allow Photos/;
+
 // ---------- Cinema ----------
 // One photo fills the display with a slow push toward its subject. When a photo's
 // shape is far from the display's, like portraits on the wide Edge, it shares the
@@ -47,22 +59,32 @@ export function cinema(stage,ctx){
   stage.classList.add('ph-cinema');
   const hold={slow:16000,medium:11000,fast:7000}[settings.speed]||16000;
   let zoomIn=true;
+  // A photo iCloud can't deliver is skipped; an empty selection is reported.
   async function compose(){
+    let last;
+    for(let i=0;i<4;i++){try{return await composeOnce()}catch(e){if(lastingErrors.test(String(e?.message||e)))throw e;last=e}}
+    throw last;
+  }
+  async function composeOnce(){
     const {W,H}=size(stage),box=W/H,gap=Math.max(6,H*.012);
-    const first=await deck.next(box,W,H,{focus:true});
-    const r=ratioOf(first.asset),vertical=r>box;
+    // Choose the photos first, then load each at the size it will be drawn.
+    const firstAsset=await deck.take(box);
+    const r=ratioOf(firstAsset),vertical=r>box;
     let n=1;
     if(fitMode(r,box)==='contain')n=Math.max(1,Math.min(3,Math.round(vertical?r/box:box/Math.max(r,.55))));
     const panelRatio=vertical?W/((H-gap*(n-1))/n):((W-gap*(n-1))/n)/H;
-    const entries=[first],avoid=new Set([first.asset.id]);
+    const chosen=[firstAsset],avoid=new Set([firstAsset.id]);
     for(let i=1;i<n;i++){
       try{
         const a=await deck.take(panelRatio,{avoid});
-        // Only pair photos that suit the shared shape; save the others for their own turn.
-        if(fitMode(ratioOf(a),panelRatio)==='contain'){deck.putBack([a]);break}
-        entries.push({asset:a,...await deck.image(a,vertical?W:W/n,vertical?H/n:H,{focus:true})});avoid.add(a.id);
+        // Only pair distinct photos that suit the shared shape; save the others for their own turn.
+        if(avoid.has(a.id)||fitMode(ratioOf(a),panelRatio)==='contain'){deck.putBack([a]);break}
+        chosen.push(a);avoid.add(a.id);
       }catch{break}
     }
+    const count=chosen.length,pw=vertical?W:(W-gap*(count-1))/count,ph=vertical?(H-gap*(count-1))/count:H;
+    const entries=(await Promise.all(chosen.map(a=>deck.image(a,pw,ph,{focus:true}).then(d=>({asset:a,...d}),()=>null)))).filter(Boolean);
+    if(!entries.length)throw Error('Photos could not load these images. Check your iCloud connection.');
     const layer=el('div','ph-cine-layer');layer.style.gap=gap+'px';
     layer.classList.toggle('stack',vertical);
     const ratio=entries.length===1?box:vertical?W/((H-gap*(entries.length-1))/entries.length):((W-gap*(entries.length-1))/entries.length)/H;
@@ -113,7 +135,7 @@ export function mosaic(stage,ctx){
   async function build(){
     const {W,H}=size(stage),box=W/H,gap=Math.max(4,Math.min(W,H)*.01);
     const rows=box>=1.5?2:box>=.85?3:4;
-    const assets=[];for(let i=0;i<rows*Math.ceil(box*2/rows+2)+4;i++){try{assets.push(await deck.take())}catch(e){if(!assets.length)throw e;break}}
+    const assets=await takeDistinct(deck,rows*Math.ceil(box*2/rows+2)+4);
     const {rects,used}=justify(assets.map(ratioOf),W,H,{rows,gap});
     deck.putBack(assets.slice(used));
     const tiles=await Promise.all(rects.map(async r=>{
@@ -208,7 +230,7 @@ export function gallery(stage,ctx){
   async function hang(){
     const {W,H}=size(stage),box=W/H;
     const count=box>=3?5:box>=2.2?4:box>=1.5?3:box>=.95?2:1;
-    const assets=[];for(let i=0;i<count;i++){try{assets.push(await deck.take())}catch(e){if(!assets.length)throw e;break}}
+    const assets=await takeDistinct(deck,count);
     const ratios=assets.map(a=>Math.max(.62,Math.min(2,ratioOf(a))));
     const base=H*.5,mat=base*.09,frame=Math.max(3,H*.012),g=W*.035;
     const total=ratios.reduce((s,r)=>s+r*base+2*(mat+frame),0)+g*(ratios.length-1);
