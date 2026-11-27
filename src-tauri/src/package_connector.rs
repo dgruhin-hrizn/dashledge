@@ -32,6 +32,7 @@ extern "C" {
     fn connector_free(context: *mut c_void);
     fn connector_ws_open(handle: usize, socket: i64, url: *const c_char, name: *const c_char, value: *const c_char, ca: *const c_char);
     fn connector_ws_send(socket: i64, text: *const c_char);
+    fn connector_ws_send_binary(socket: i64, data: *const u8, length: usize);
     fn connector_ws_close(socket: i64);
     fn free(pointer: *mut c_void);
 }
@@ -206,7 +207,7 @@ struct Request {
     url: Url,
     method: String,
     headers: Vec<(String, String)>,
-    body: Option<String>,
+    body: Option<Vec<u8>>,
 }
 
 async fn send(kind: &str, connection: Option<&Target>, auth: &Auth, request: Request) -> Result<Value, String> {
@@ -256,7 +257,14 @@ async fn deliver(client: &reqwest::Client, to_connection: bool, auth: &Auth, sec
         }
         body.extend_from_slice(&chunk);
     }
-    Ok(json!({"status": status, "headers": headers, "body": scrub(&String::from_utf8_lossy(&body), credential.as_ref(), &secret.key)}))
+    // Text stays text (with any echoed credential scrubbed); other bodies go as base64.
+    Ok(match String::from_utf8(body) {
+        Ok(text) => json!({"status": status, "headers": headers, "body": scrub(&text, credential.as_ref(), &secret.key)}),
+        Err(bytes) => {
+            use base64::Engine;
+            json!({"status": status, "headers": headers, "base64": base64::engine::general_purpose::STANDARD.encode(bytes.into_bytes())})
+        }
+    })
 }
 
 // ------------------------------------------------------- tier 1: declarative --
@@ -377,7 +385,14 @@ fn host_op(rt: &Runtime, op: &str, args: Value) -> Result<Value, String> {
             if !matches!(method.as_str(), "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD") {
                 return Err(format!("{method} isn’t allowed."));
             }
-            let body = args["body"].as_str().map(str::to_string);
+            let body = match (args["body"].as_str(), args["bodyBase64"].as_str()) {
+                (_, Some(encoded)) => {
+                    use base64::Engine;
+                    Some(base64::engine::general_purpose::STANDARD.decode(encoded).map_err(|_| "Invalid binary body")?)
+                }
+                (Some(text), None) => Some(text.as_bytes().to_vec()),
+                (None, None) => None,
+            };
             if body.as_ref().is_some_and(|b| b.len() > BODY_LIMIT) {
                 return Err("Request bodies are limited to 1 MiB.".into());
             }
@@ -485,6 +500,15 @@ fn host_op(rt: &Runtime, op: &str, args: Value) -> Result<Value, String> {
             let global = rt.sockets.lock().unwrap().iter().find(|(_, l)| **l == local).map(|(g, _)| *g);
             let Some(global) = global else { return Ok(Value::Null) };
             if op == "wsSend" {
+                if let Some(encoded) = args["base64"].as_str() {
+                    use base64::Engine;
+                    let data = base64::engine::general_purpose::STANDARD.decode(encoded).map_err(|_| "Invalid binary message")?;
+                    if data.len() > 4 * 1024 * 1024 {
+                        return Err("Messages are limited to 4 MiB.".into());
+                    }
+                    unsafe { connector_ws_send_binary(global, data.as_ptr(), data.len()) };
+                    return Ok(Value::Null);
+                }
                 let text = args["text"].as_str().unwrap_or("");
                 if text.len() > 4 * 1024 * 1024 {
                     return Err("Messages are limited to 4 MiB.".into());
@@ -801,7 +825,7 @@ pub async fn package_action(id: String, viewer: String, action: String, args: Ma
     let declared = manifest.actions.iter().find(|a| a.id == action).ok_or("This widget didn’t declare that action.")?;
     let target = Target::new(&kind, &connection.ok_or("Choose a connection")?.address)?;
     let path = fill(&declared.path, &args)?;
-    let body = declared.body.as_ref().map(|b| fill_body(b, &args)).transpose()?.map(|b| b.to_string());
+    let body = declared.body.as_ref().map(|b| fill_body(b, &args)).transpose()?.map(|b| b.to_string().into_bytes());
     let method = match declared.method { Method::Post => "POST", Method::Put => "PUT", Method::Delete => "DELETE" };
     let mut headers = vec![("Accept".to_string(), "application/json".to_string())];
     if body.is_some() {
@@ -1008,6 +1032,60 @@ mod tests {
         assert!(wait_for(&output, |o| o.data.get("ok").is_some()), "error: {:?}", output.lock().unwrap().error);
         assert_eq!(output.lock().unwrap().data["address"], base.as_str());
         assert!(server.join().unwrap().starts_with("GET /api/status "));
+        stop.store(true, Ordering::SeqCst);
+    }
+
+    /// Answer one request with raw bytes; returns the request's bytes.
+    fn serve_bytes(content_type: &'static str, body: Vec<u8>) -> (String, std::thread::JoinHandle<Vec<u8>>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = format!("http://{}", listener.local_addr().unwrap());
+        let handle = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream.set_read_timeout(Some(Duration::from_millis(300))).unwrap();
+            let mut request = Vec::new();
+            let mut chunk = [0u8; 4096];
+            while let Ok(n) = stream.read(&mut chunk) {
+                if n == 0 { break; }
+                request.extend_from_slice(&chunk[..n]);
+            }
+            write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()).unwrap();
+            stream.write_all(&body).unwrap();
+            request
+        });
+        (address, handle)
+    }
+
+    #[test]
+    fn binary_bodies_reach_a_connector_intact_and_text_decodes_as_utf8() {
+        // A PNG signature plus bytes that aren't valid UTF-8.
+        let image = vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0x00, 0xfe, 0x80];
+        let (address, server) = serve_bytes("image/png", image.clone());
+        let source = r#"
+            fetch(dashledge.connection.address + 'poster.png').then(r => r.arrayBuffer())
+              .then(buffer => dashledge.emit({bytes: Array.from(new Uint8Array(buffer))}))
+              .catch(e => dashledge.emit({failed: String(e)}));
+        "#;
+        let (output, stop) = start(source, Some(Url::parse(&format!("{address}/")).unwrap()), &[]);
+        assert!(wait_for(&output, |o| o.data.get("bytes").is_some() || o.data.get("failed").is_some()), "{:?}", output.lock().unwrap().error);
+        assert_eq!(output.lock().unwrap().data["bytes"], json!(image));
+        server.join().unwrap();
+        stop.store(true, Ordering::SeqCst);
+
+        let text = "héllo ✓ 😀";
+        let (address, server) = serve_bytes("text/plain; charset=utf-8", text.as_bytes().to_vec());
+        let source = r#"
+            fetch(dashledge.connection.address + 'note', {method: 'POST', body: new Uint8Array([0, 255, 1, 128])}).then(async r => {
+              const bytes = new Uint8Array(await r.arrayBuffer());
+              dashledge.emit({text: await r.text(), length: bytes.length});
+            }).catch(e => dashledge.emit({failed: String(e)}));
+        "#;
+        let (output, stop) = start(source, Some(Url::parse(&format!("{address}/")).unwrap()), &[]);
+        assert!(wait_for(&output, |o| o.data.get("text").is_some() || o.data.get("failed").is_some()), "{:?}", output.lock().unwrap().error);
+        let data = output.lock().unwrap().data.clone();
+        assert_eq!(data["text"], text, "{data}");
+        assert_eq!(data["length"], text.len());
+        let request = server.join().unwrap();
+        assert!(request.ends_with(&[0, 255, 1, 128]), "the binary request body arrives as sent");
         stop.store(true, Ordering::SeqCst);
     }
 

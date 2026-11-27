@@ -167,6 +167,15 @@ void connector_ws_send(long socket, const char *text) {
   }
 }
 
+void connector_ws_send_binary(long socket, const uint8_t *bytes, size_t length) {
+  @autoreleasepool {
+    NSURLSessionWebSocketTask *task;
+    @synchronized (sockets) { task = sockets[@(socket)]; }
+    NSData *data = [NSData dataWithBytes:bytes length:length];
+    if (task) [task sendMessage:[[NSURLSessionWebSocketMessage alloc] initWithData:data] completionHandler:^(NSError *error) { (void)error; }];
+  }
+}
+
 void connector_ws_close(long socket) {
   @autoreleasepool {
     NSURLSessionWebSocketTask *task;

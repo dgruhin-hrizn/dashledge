@@ -209,14 +209,16 @@ declare namespace DashledgeConnector {
     readonly headers: {get(name: string): string | null};
     text(): Promise<string>;
     json<T = unknown>(): Promise<T>;
+    /** The body's bytes, for images and other binary responses. */
+    arrayBuffer(): Promise<ArrayBuffer>;
   }
   interface RequestInit {
     method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
     headers?: Record<string, string>;
-    body?: string;
+    body?: string | ArrayBuffer | ArrayBufferView;
   }
 
-  /** Text-frame WebSocket to the connection or a declared host. Binary frames arrive base64-encoded. */
+  /** WebSocket to the connection or a declared host. Text frames arrive as strings, binary frames as ArrayBuffers. */
   class WebSocket {
     static readonly CONNECTING: 0;
     static readonly OPEN: 1;
@@ -225,11 +227,12 @@ declare namespace DashledgeConnector {
     constructor(url: string);
     readonly url: string;
     readonly readyState: 0 | 1 | 2 | 3;
+    readonly binaryType: 'arraybuffer';
     onopen: ((event: {type: 'open'}) => void) | null;
-    onmessage: ((event: {type: 'message'; data: string}) => void) | null;
+    onmessage: ((event: {type: 'message'; data: string | ArrayBuffer}) => void) | null;
     onclose: ((event: {type: 'close'; code: number}) => void) | null;
     onerror: ((event: {type: 'error'; message: string}) => void) | null;
-    send(text: string): void;
+    send(data: string | ArrayBuffer | ArrayBufferView): void;
     close(): void;
   }
 
