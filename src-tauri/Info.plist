@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Display photos from your chosen library or albums in Dashledge.</string>
+	<string>Display photos from your chosen library or albums in Dashledge, and mark a photo as a Favorite when you tap its heart.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>Show your upcoming meetings on the Dashledge display.</string>
 	<key>NSCalendarsUsageDescription</key>

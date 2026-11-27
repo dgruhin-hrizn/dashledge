@@ -184,6 +184,22 @@ static NSDictionary *thumbnail(NSString *identifier,NSInteger size,BOOL focus){
     if(point)out[@"focus"]=point;
     return out;
 }
+// Mark or unmark one photo as a Favorite. Shared-album photos belong to their owner,
+// so Photos won't change them; say so instead of failing vaguely.
+static NSDictionary *setFavorite(id identifier,BOOL favorite){
+    if(![identifier isKindOfClass:NSString.class])return failure(@"Not a Photos id.");
+    PHAsset *asset=[PHAsset fetchAssetsWithLocalIdentifiers:@[identifier] options:imageOptions()].firstObject;
+    if(!asset)return failure(@"That photo is no longer in your library.");
+    if(![asset canPerformEditOperation:PHAssetEditOperationProperties])
+        return failure(asset.sourceType==PHAssetSourceTypeCloudShared?@"Photos in shared albums can’t be marked as Favorites.":@"Photos won’t let Dashledge change this photo.");
+    if(asset.favorite==favorite)return @{@"favorite":@(favorite)};
+    NSError *error=nil;
+    BOOL ok=[PHPhotoLibrary.sharedPhotoLibrary performChangesAndWait:^{
+        [PHAssetChangeRequest changeRequestForAsset:asset].favorite=favorite;
+    } error:&error];
+    if(!ok)return failure(error.localizedDescription?:@"Photos couldn’t update this Favorite.");
+    return @{@"favorite":@(favorite)};
+}
 char *dash_photos(const char *json){
     @autoreleasepool{
         NSDictionary *response=nil;
@@ -192,6 +208,7 @@ char *dash_photos(const char *json){
             if([args[@"action"] isEqual:@"catalog"])response=catalog([args[@"ask"] boolValue]);
             else if(![accessState() isEqual:@"allowed"])response=failure(@"Allow Photos access in System Settings → Privacy & Security → Photos.");
             else if([args[@"action"] isEqual:@"select"])response=selection(args);
+            else if([args[@"action"] isEqual:@"favorite"])response=setFavorite(args[@"id"],[args[@"favorite"] boolValue]);
             else{
                 NSInteger size=[args[@"size"] isKindOfClass:NSNumber.class]?[args[@"size"] integerValue]:1600;
                 response=thumbnail(args[@"id"],MAX(160,MIN(3072,size)),[args[@"focus"] boolValue]);

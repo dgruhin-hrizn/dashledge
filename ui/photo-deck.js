@@ -1,7 +1,7 @@
 // Supplies a placement's photos: shuffled, shape-aware, sized for their opening,
 // and with recently shown photos held back across restarts.
 import {invoke} from './common.js';
-import {bestFit,freshFirst,remember,ratioOf,sizeFor} from './photo-settings.js';
+import {bestFit,freshFirst,remember,ratioOf,sizeFor,withoutIds} from './photo-settings.js';
 
 const read=request=>invoke('photos_read',{request});
 function shuffled(items){
@@ -15,9 +15,12 @@ function loadSeen(id){try{const v=JSON.parse(localStorage.getItem(seenKey(id)));
 export function createDeck(settings,placementId){
   let pool=[],total=0,refilling=null,seen=loadSeen(placementId),saveTimer;
   const cache=new Map();   // id → {size,src,focus}; bounded, newest last
+  // Photos held out of this deck, such as one un-hearted on a Favorites placement. Kept
+  // across refills, which can race the change reaching Photos.
+  const dropped=new Set();
   async function refill(){
     refilling??=read({action:'select',source:settings.source,albums:settings.albums,skipScreenshots:settings.skipScreenshots})
-      .then(data=>{total=data.assets.length;pool=freshFirst(shuffled(data.assets),seen)})
+      .then(data=>{const assets=withoutIds(data.assets,dropped);total=assets.length;pool=freshFirst(shuffled(assets),seen)})
       .finally(()=>{refilling=null});
     return refilling;
   }
@@ -36,7 +39,10 @@ export function createDeck(settings,placementId){
       return asset;
     },
     // Return photos a layout didn't use, so they come up next.
-    putBack(assets){pool.unshift(...assets)},
+    putBack(assets){pool.unshift(...withoutIds(assets,dropped))},
+    // Stop offering a photo (it stays wherever it is showing now), or offer it again.
+    drop(id){dropped.add(id);pool=withoutIds(pool,dropped)},
+    restore(id){dropped.delete(id)},
     // Decoded image data sized for a box of cssW × cssH.
     async image(asset,cssW,cssH,{focus=false}={}){
       const size=sizeFor(cssW,cssH,ratioOf(asset),Math.min(2,window.devicePixelRatio||1));

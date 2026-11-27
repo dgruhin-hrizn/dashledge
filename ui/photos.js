@@ -2,7 +2,7 @@ import {el,button,invoke} from './common.js';
 import {daydreamCount,startDaydream} from './photo-daydream.js';
 import {icon} from './admin-icons.js';
 import {openTouchKeyboard} from './search-keyboard.js';
-import {themes,sources,speeds,normalize,rememberNames,blocker,albumLabel,searchAlbums,ratioOf,assign,focusPosition} from './photo-settings.js';
+import {themes,sources,speeds,normalize,rememberNames,blocker,albumLabel,searchAlbums,ratioOf,assign,focusPosition,heartState,favoriteError} from './photo-settings.js';
 import {createDeck,createPacer} from './photo-deck.js';
 import {stageThemes,picture,takeDistinct} from './photo-stage.js';
 
@@ -188,6 +188,32 @@ export function mountPhotos(box,slot,save){
   const edit=button('',configure);edit.append(icon('general'));edit.setAttribute('aria-label','Configure Apple Photos');
   controls.append(pause,...(stageThemes[theme]?[skip]:[]),edit);box.append(stage,message,controls);
   const running=()=>!paused&&visible&&!document.hidden;
+  // Favorite the showing photo. The heart changes at once; a failed write puts it back
+  // and says why in a brief note that doesn't stop the slideshow.
+  const toast=el('p','ph-toast');toast.setAttribute('role','status');box.append(toast);
+  let toastTimer;const pending=new Set();
+  function note(text){toast.textContent=text;toast.classList.add('shown');clearTimeout(toastTimer);toastTimer=setTimeout(()=>toast.classList.remove('shown'),4500)}
+  function paintHearts(asset){
+    for(const b of box.querySelectorAll('.ph-fav'))if(b.dataset.id===asset.id)paintHeart(b,asset);
+  }
+  function paintHeart(b,asset){
+    const {pressed,label}=heartState(asset.fav);
+    b.setAttribute('aria-pressed',pressed);b.setAttribute('aria-label',label);b.setAttribute('aria-busy',String(pending.has(asset.id)));
+    b.replaceChildren(heartGlyph(!!asset.fav));
+  }
+  async function toggleFavorite(asset){
+    if(pending.has(asset.id))return;
+    const was=!!asset.fav,want=!was;
+    // On a Favorites placement an un-hearted photo stays until the slideshow moves on, then isn't shown again.
+    const hold=on=>{if(settings.source==='favorites'){if(on)deck.restore(asset.id);else deck.drop(asset.id)}};
+    pending.add(asset.id);asset.fav=want;hold(want);paintHearts(asset);
+    try{asset.fav=await invoke('photos_set_favorite',{id:asset.id,favorite:want})!==false;hold(asset.fav)}
+    catch(e){asset.fav=was;hold(was);note(favoriteError(e))}
+    finally{pending.delete(asset.id);paintHearts(asset)}
+  }
+  const heart=asset=>{
+    const b=button('',()=>{toggleFavorite(asset);reveal()},'ph-fav');b.dataset.id=asset.id;paintHeart(b,asset);return b;
+  };
   function sync(){
     pause.replaceChildren(glyph(paused?'play':'pause'));pause.setAttribute('aria-label',paused?'Resume slideshow':'Pause slideshow');
     pause.setAttribute('aria-pressed',String(paused));
@@ -218,7 +244,8 @@ export function mountPhotos(box,slot,save){
     // Clear the loading note once the run shows its first photograph.
     const observer=new MutationObserver(()=>{if(layer.querySelector('img')){if(run===current&&!message.dataset.failed)message.replaceChildren();observer.disconnect()}});
     observer.observe(layer,{childList:true,subtree:true});current.observer=observer;
-    const ctx={deck,pacer,settings,reduced,fail:e=>fail(current,e)};
+    // Only Cinema has a showing photo to heart; the other themes show many at once.
+    const ctx={deck,pacer,settings,reduced,fail:e=>fail(current,e),heart:theme==='cinema'?heart:null};
     current.runner=stageThemes[theme]?stageThemes[theme](layer,ctx):theme==='daydream'?daydream(layer,ctx):scroller(layer,ctx,theme);
     pacer.set(running());current.runner?.setRunning?.(running());
   }
@@ -230,12 +257,23 @@ export function mountPhotos(box,slot,save){
     clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{if(run&&!disposed){stop();sync()}},450);
   });
   resized.observe(box);
-  function reveal(){controls.classList.add('shown');clearTimeout(noticeTimer);noticeTimer=setTimeout(()=>controls.classList.remove('shown'),3500)}
+  function reveal(){
+    controls.classList.add('shown');box.classList.add('ph-revealed');clearTimeout(noticeTimer);
+    noticeTimer=setTimeout(()=>{controls.classList.remove('shown');box.classList.remove('ph-revealed')},3500);
+  }
   box.addEventListener('click',reveal);
   const observer=new IntersectionObserver(entries=>{visible=entries[0].isIntersecting;sync()});
   observer.observe(box);document.addEventListener('visibilitychange',sync);sync();reveal();
   return ()=>{disposed=true;observer.disconnect();resized.disconnect();clearTimeout(resizeTimer);document.removeEventListener('visibilitychange',sync);box.removeEventListener('click',reveal);
-    clearTimeout(noticeTimer);stop();deck.dispose()};
+    clearTimeout(noticeTimer);clearTimeout(toastTimer);stop();deck.dispose()};
+}
+// Filled when the photo is a Favorite, outlined when not; the same shape either way so it doesn't shift.
+function heartGlyph(filled){
+  const ns='http://www.w3.org/2000/svg',svg=document.createElementNS(ns,'svg');svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('aria-hidden','true');
+  const path=document.createElementNS(ns,'path');
+  path.setAttribute('d','M12 20.3 10.6 19C5.6 14.5 2.6 11.8 2.6 8.4 2.6 5.7 4.7 3.6 7.4 3.6c1.8 0 3.5.9 4.6 2.3 1.1-1.4 2.8-2.3 4.6-2.3 2.7 0 4.8 2.1 4.8 4.8 0 3.4-3 6.1-8 10.6z');
+  path.setAttribute('fill',filled?'currentColor':'none');path.setAttribute('stroke','currentColor');path.setAttribute('stroke-width','2');path.setAttribute('stroke-linejoin','round');
+  svg.append(path);return svg;
 }
 function glyph(kind){
   const ns='http://www.w3.org/2000/svg',svg=document.createElementNS(ns,'svg');svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('aria-hidden','true');
