@@ -368,9 +368,9 @@ pub fn verify(bytes: &[u8], signature_b64: &str, keys: &[&str], min_sequence: u6
     Ok(catalog)
 }
 
-#[cfg(test)]
-pub mod tests {
-    use super::*;
+/// Small valid packages for this crate's tests and the CLI's.
+#[doc(hidden)]
+pub mod fixtures {
     use std::io::{Cursor, Write};
     use zip::{write::FileOptions, ZipWriter};
 
@@ -387,6 +387,12 @@ pub mod tests {
         }
         zip.finish().unwrap().into_inner()
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fixtures::{package, PNG};
 
     pub fn submitted(id: &str, version: &str, publisher: &str, extra: serde_json::Value) -> Submitted {
         let package = package(id, version, extra);
