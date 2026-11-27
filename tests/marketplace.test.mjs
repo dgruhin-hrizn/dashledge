@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {marketplaceGroups, pluginStatus, pluginAction} from '../ui/marketplace.js';
+import {marketplaceGroups, pluginStatus, pluginAction, submissionSteps} from '../ui/marketplace.js';
 
 const plugin = (over = {}) => ({id: 'plugin.alice.queue', title: 'Queue', publisher: 'alice', summary: 'Downloads now.',
   category: 'Music & media', available: '1.1.0', versions: [{version: '1.1.0', published: 0}], ...over});
@@ -47,4 +47,13 @@ test('each plugin shows where it stands and offers the right action', () => {
   assert.equal(pluginStatus(newer).label, 'Needs a newer Dashledge');
   assert.equal(pluginAction(newer), null);
   assert.equal(pluginAction(plugin({installed: '1.1.0', origin: 'marketplace'})), null, 'up to date');
+});
+
+test('the submission sheet walks the author from release to review', () => {
+  const steps = submissionSteps({id: 'plugin.alice.queue', version: '1.2.0', size: 20481, sha256: 'abcdef0123456789',
+    listing: {source: {repo: 'alice/queue', tag: 'v1.2.0', asset: 'queue-1.2.0.zip'}}});
+  assert.equal(steps.length, 4);
+  assert.equal(steps[0], 'Saved queue-1.2.0.zip (21 KiB, sha256 abcdef012345…).');
+  assert.match(steps[1], /tagged v1\.2\.0 in github\.com\/alice\/queue and attach queue-1\.2\.0\.zip/);
+  assert.match(steps[2], /listings\/plugin\.alice\.queue\/1\.2\.0\.json/);
 });

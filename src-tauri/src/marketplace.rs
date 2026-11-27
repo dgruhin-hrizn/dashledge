@@ -412,6 +412,102 @@ pub async fn marketplace_check(window: tauri::WebviewWindow, app: tauri::AppHand
     check(&Registry::pinned()?, &data_dir(&app)?, &package_store::installed_root(&app)?).await
 }
 
+/// The registry's GitHub repository, where authors open listing pull requests.
+const REGISTRY_REPO: &str = "https://github.com/dgruhin-hrizn/dashledge-plugins";
+
+/// A package ready to submit: its ZIP, and the listing file the author proposes.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Submission {
+    pub id: String,
+    pub version: String,
+    pub publisher: String,
+    pub file_name: String,
+    pub sha256: String,
+    pub size: usize,
+    pub listing: Value,
+    /// GitHub's new-file page in the registry with the listing filled in. GitHub forks
+    /// the registry and opens the pull request for authors who can't push to it.
+    pub new_file_url: String,
+    #[serde(skip)]
+    pub bytes: Vec<u8>,
+}
+
+/// Prepare a package folder's files for the Marketplace, refusing what registry CI
+/// would refuse: an ID outside `plugin.<github-login>.<name>`, a version that isn't
+/// `major.minor.patch`, or a package the validator rejects.
+pub fn submission(raw: &Value, files: &package_store::Files) -> Result<Submission, String> {
+    let manifest = package_store::check_for_this_app(raw, files)?;
+    let parts: Vec<&str> = manifest.id.splitn(3, '.').collect();
+    let [_, publisher, name] = parts.as_slice() else {
+        return Err("A Marketplace ID is plugin.<your GitHub login>.<name>, such as plugin.alice.radarr-queue.".into());
+    };
+    let version = manifest.version.clone().filter(|v| semver::Version::parse(v).is_ok_and(|s| s.build.is_empty()))
+        .ok_or("Give widget.json a version such as 1.0.0 before you submit.")?;
+    let bytes = dashledge_package_core::archive::pack(files)?;
+    let sha256 = catalog::sha256_hex(&bytes);
+    let file_name = format!("{name}-{version}.zip");
+    let summary = manifest.description.clone().filter(|d| d.chars().count() <= 140);
+    let listing = catalog::Listing {
+        id: manifest.id.clone(),
+        version: version.clone(),
+        publisher: publisher.to_string(),
+        source: catalog::Source { repo: format!("{publisher}/{name}"), tag: format!("v{version}"), asset: file_name.clone() },
+        sha256: sha256.clone(),
+        summary,
+        screenshots: vec![],
+        notes: None,
+    };
+    // The same check registry CI runs. Maintainers' `plugin.dashledge.` IDs pass here and
+    // are checked against the maintainer list there.
+    catalog::check_listing(&listing, &bytes, &[publisher.to_string()])?;
+    let listing = serde_json::to_value(&listing).map_err(|e| e.to_string())?;
+    let text = serde_json::to_string_pretty(&listing).map_err(|e| e.to_string())? + "\n";
+    let new_file_url = Url::parse_with_params(
+        &format!("{REGISTRY_REPO}/new/main"),
+        &[("filename", format!("listings/{}/{version}.json", manifest.id)), ("value", text)],
+    )
+    .map_err(|e| e.to_string())?
+    .to_string();
+    Ok(Submission { id: manifest.id.clone(), version, publisher: publisher.to_string(), file_name, sha256, size: bytes.len(), listing, new_file_url, bytes })
+}
+
+/// Pack an unpacked package for the Marketplace and save the ZIP where the author
+/// chooses. Returns `None` when they cancel the save dialog.
+#[tauri::command]
+pub async fn marketplace_prepare_submission(window: tauri::WebviewWindow, id: String) -> Result<Option<Value>, String> {
+    package_store::settings_only(&window)?;
+    let (_, dir) = package_store::lookup_any(&id)
+        .filter(|(p, _)| p.origin == "unpacked")
+        .ok_or("Load the package’s folder in Widget Studio, then submit it from there.")?;
+    let (raw, files) = package_store::read_folder(&dir)?;
+    let prepared = submission(&raw, &files)?;
+    let Some(file) = rfd::AsyncFileDialog::new()
+        .set_title("Save the package to attach to your GitHub release")
+        .set_file_name(&prepared.file_name)
+        .add_filter("ZIP", &["zip"])
+        .save_file()
+        .await
+    else {
+        return Ok(None);
+    };
+    fs::write(file.path(), &prepared.bytes).map_err(|e| e.to_string())?;
+    let mut value = serde_json::to_value(&prepared).map_err(|e| e.to_string())?;
+    value["savedTo"] = json!(file.path().to_string_lossy());
+    Ok(Some(value))
+}
+
+/// Open a page of the registry repository in the browser, and nothing else.
+#[tauri::command]
+pub fn open_registry_page(window: tauri::WebviewWindow, url: String) -> Result<(), String> {
+    package_store::settings_only(&window)?;
+    let ok = Url::parse(&url).is_ok_and(|u| u.scheme() == "https" && u.host_str() == Some("github.com") && u.path().starts_with("/dgruhin-hrizn/dashledge-plugins"));
+    if !ok || !url.starts_with(REGISTRY_REPO) {
+        return Err("Only the Marketplace registry opens from here.".into());
+    }
+    std::process::Command::new("/usr/bin/open").arg(url).spawn().map(|_| ()).map_err(|e| e.to_string())
+}
+
 /// IDs installed from the Marketplace, so Widget Studio can label the rest Unverified.
 /// Reads only this Mac's record; nothing is fetched.
 #[tauri::command]
@@ -637,6 +733,29 @@ pub mod tests {
         save(dir.path(), &record).unwrap();
         let checked = block(check(&server.registry, dir.path(), root.path())).unwrap();
         assert!(checked.pulled.is_empty() && package_store::read_disabled(root.path()).is_empty(), "nothing installed is pulled now");
+    }
+
+    #[test]
+    fn a_submission_carries_the_zip_and_a_listing_registry_ci_accepts() {
+        let package = fixtures::package("plugin.alice.queue", "1.2.0", json!({"description": "Downloads now."}));
+        let (raw, files) = package_store::extract(&package).unwrap();
+        let s = submission(&raw, &files).unwrap();
+        assert_eq!((s.publisher.as_str(), s.file_name.as_str(), s.size), ("alice", "queue-1.2.0.zip", s.bytes.len()));
+        assert_eq!(s.listing["source"], json!({"repo": "alice/queue", "tag": "v1.2.0", "asset": "queue-1.2.0.zip"}));
+        assert_eq!(s.listing["sha256"], catalog::sha256_hex(&s.bytes));
+        assert_eq!(s.listing["summary"], "Downloads now.");
+        let listing: catalog::Listing = serde_json::from_value(s.listing.clone()).unwrap();
+        assert!(catalog::check_listing(&listing, &s.bytes, &[]).is_ok(), "registry CI accepts it as is");
+        let url = Url::parse(&s.new_file_url).unwrap();
+        assert!(s.new_file_url.starts_with("https://github.com/dgruhin-hrizn/dashledge-plugins/new/main?"));
+        let query: BTreeMap<_, _> = url.query_pairs().into_owned().collect();
+        assert_eq!(query["filename"], "listings/plugin.alice.queue/1.2.0.json");
+        assert_eq!(serde_json::from_str::<Value>(&query["value"]).unwrap(), s.listing);
+
+        for (id, version, message) in [("plugin.queue", "1.0.0", "plugin.<your GitHub login>"), ("plugin.alice.queue", "1.0", "1.0.0")] {
+            let (raw, files) = package_store::extract(&fixtures::package(id, version, json!({}))).unwrap();
+            assert!(submission(&raw, &files).unwrap_err().contains(message), "{id} {version}");
+        }
     }
 
     #[test]

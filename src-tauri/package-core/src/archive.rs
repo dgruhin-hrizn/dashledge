@@ -106,6 +106,24 @@ pub fn check(raw: &Value, files: &Files) -> Result<Manifest, String> {
     Ok(manifest)
 }
 
+/// Write a package's files as a ZIP, the same bytes every time for the same files: names
+/// in order, a fixed timestamp and no folder entries. `extract` reads it back.
+pub fn pack(files: &Files) -> Result<Vec<u8>, String> {
+    use std::io::Write;
+    use zip::{write::FileOptions, CompressionMethod, ZipWriter};
+    let mut zip = ZipWriter::new(Cursor::new(Vec::new()));
+    let options = FileOptions::default().compression_method(CompressionMethod::Deflated).unix_permissions(0o644);
+    for (name, bytes) in files {
+        zip.start_file(name.as_str(), options).map_err(|e| e.to_string())?;
+        zip.write_all(bytes).map_err(|e| e.to_string())?;
+    }
+    let bytes = zip.finish().map_err(|e| e.to_string())?.into_inner();
+    if bytes.len() > MAX_PACKAGE {
+        return Err("The package is larger than 8 MiB once zipped.".into());
+    }
+    Ok(bytes)
+}
+
 /// A package icon as a data URI: a PNG, or an SVG, up to 256 KiB.
 pub fn icon_data(path: &str, bytes: &[u8]) -> Option<String> {
     let png = bytes.starts_with(b"\x89PNG\r\n\x1a\n");
@@ -116,4 +134,22 @@ pub fn icon_data(path: &str, bytes: &[u8]) -> Option<String> {
     }
     let mime = if png { "image/png" } else { "image/svg+xml" };
     Some(format!("data:{mime};base64,{}", STANDARD.encode(bytes)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_packed_folder_reads_back_and_packs_to_the_same_bytes() {
+        let mut files = Files::new();
+        files.insert("widget.json".into(), br#"{"apiVersion": 2, "id": "plugin.alice.queue", "title": "Queue", "icon": "icon.svg", "view": {"entry": "view/index.html"}}"#.to_vec());
+        files.insert("icon.svg".into(), b"<svg xmlns='http://www.w3.org/2000/svg'/>".to_vec());
+        files.insert("view/index.html".into(), b"<!doctype html>".to_vec());
+        let packed = pack(&files).unwrap();
+        assert_eq!(pack(&files).unwrap(), packed, "packing is deterministic");
+        let (raw, read) = extract(&packed).unwrap();
+        assert_eq!(read, files);
+        assert_eq!(check(&raw, &read).unwrap().id, "plugin.alice.queue");
+    }
 }

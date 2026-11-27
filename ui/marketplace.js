@@ -50,6 +50,27 @@ export function pluginAction(plugin) {
   return null;
 }
 
+// What an author does after Widget Studio saves their package for the Marketplace.
+export function submissionSteps(prepared) {
+  const {repo, tag, asset} = prepared.listing.source;
+  return [
+    'Saved ' + asset + ' (' + Math.ceil(prepared.size / 1024) + ' KiB, sha256 ' + prepared.sha256.slice(0, 12) + '…).',
+    'Publish a release tagged ' + tag + ' in github.com/' + repo + ' and attach ' + asset + ' to it. If your code lives in another repository, change "source" in the listing below to match.',
+    'Open GitHub to propose listings/' + prepared.id + '/' + prepared.version + '.json. GitHub copies the registry to your account and opens the pull request.',
+    'Registry checks run on the pull request, then a maintainer reviews it. Once it merges, the plugin appears in every Marketplace within a few minutes.',
+  ];
+}
+
+// The submission sheet's contents, for the editor's form dialog.
+export function submissionFields(el, prepared) {
+  const steps = el('ol', 'market-steps');
+  for (const step of submissionSteps(prepared)) steps.append(el('li', '', step));
+  const listing = el('pre', 'market-listing', JSON.stringify(prepared.listing, null, 2));
+  listing.tabIndex = 0;
+  listing.setAttribute('aria-label', 'Listing file');
+  return [steps, listing];
+}
+
 export const publishedDate = seconds => new Date(seconds * 1000).toLocaleDateString(undefined, {year: 'numeric', month: 'short', day: 'numeric'});
 
 // Render the tab. `ui` carries the Settings page's helpers so this module has no

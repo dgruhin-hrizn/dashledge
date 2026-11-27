@@ -14,7 +14,7 @@ import {connectionLabel} from './display-name.js';
 import {guestRows,parseGuests} from './proxmox-guests.js';
 import {general,loadGeneral,updateGeneral,fitDashboard,dimensions,onGeneral} from './general.js';
 import {icon} from './admin-icons.js';
-import {renderMarketplace} from './marketplace.js';
+import {renderMarketplace,submissionFields} from './marketplace.js';
 import {appendPage,assignWidget,pickWidget} from './page-actions.js';
 import {presets,titles,id,resize,split,removeSection,layout,plugin} from './model.js';
 import {addBundledDmdPage,ensure,state,current,activate,save,invoke,el,button,field,select} from './common.js';
@@ -552,6 +552,13 @@ function widgetDetail(kind){
       try{
         const next=await invoke('reload_unpacked_package',{id:kind});
         change(()=>recordPackage(config,next),false);syncSourceTables();notice(next.title+' reloaded.');
+      }catch(e){notice(e.message||String(e))}
+    }),
+    button('Submit to Marketplace…',async()=>{
+      try{
+        const prepared=await invoke('marketplace_prepare_submission',{id:kind});
+        if(!prepared)return;
+        formDialog('Submit '+info.title,submissionFields(el,prepared),()=>invoke('open_registry_page',{url:prepared.newFileUrl}),'Open GitHub');
       }catch(e){notice(e.message||String(e))}
     })));
   if(info.apiVersion===2&&info.tier==='connector')main.append(panel('Connector log',
