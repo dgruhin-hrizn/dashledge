@@ -141,7 +141,8 @@
 .ph-dialog>header h2{font-size:22px}
 .ph-scope{font-size:13px;color:#b8adb4}
 .ph-cols{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr)}
-.ph-col{min-height:0;overflow:auto;padding:6px 24px 24px;scrollbar-width:thin}
+/* Scoped to the dialog so the Settings window's own `section` padding can't strip the gutters. */
+.ph-dialog .ph-col{min-height:0;overflow:auto;padding:6px 24px 24px;border-bottom:0;scrollbar-width:thin}
 .ph-how{border-left:1px solid var(--line);background:#1f1d21}
 .ph-dialog h3{margin:20px 0 10px;font-size:15px;font-weight:650;color:#e5dbe0}
 .ph-dialog h4{margin:16px 0 8px;font-size:12px;font-weight:650;text-transform:uppercase;letter-spacing:.09em;color:#a89ca3}
