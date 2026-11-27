@@ -2,6 +2,7 @@
 //! with the same rules the Dashledge app applies.
 //!
 //! ```text
+//! dashledge-package pack <folder> --out <package.zip>
 //! dashledge-package check <package.zip>
 //! dashledge-package check-listing <listings/<id>/<version>.json> <package.zip> [--maintainers a,b]
 //! dashledge-package keygen --out <private.key>
@@ -27,7 +28,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-const USAGE: &str = "usage: dashledge-package <check|check-listing|keygen|public-key|sign|verify|sources|catalog> …\nSee the comment at the top of src/bin/dashledge-package.rs.";
+const USAGE: &str = "usage: dashledge-package <pack|check|check-listing|keygen|public-key|sign|verify|sources|catalog> …\nSee the comment at the top of src/bin/dashledge-package.rs.";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -116,6 +117,14 @@ fn run(args: &[String]) -> Result<String, String> {
     let Some((command, rest)) = args.split_first() else { return Err(USAGE.into()) };
     let a = parse(rest)?;
     match command.as_str() {
+        "pack" => {
+            // The same files, rules and bytes as Submit to Marketplace in Widget Studio.
+            let (raw, files) = archive::read_folder(Path::new(a.arg(0, "package folder")?))?;
+            archive::check(&raw, &files)?;
+            let bytes = archive::pack(&files)?;
+            write(Path::new(a.option("out")?), &bytes)?;
+            check(&bytes)
+        }
         "check" => check(&read(a.arg(0, "package ZIP")?)?),
         "check-listing" => {
             let listing: Listing = read_json(a.arg(0, "listing JSON")?)?;
@@ -252,6 +261,37 @@ mod tests {
 
     fn strings(args: &[&str]) -> Vec<String> {
         args.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn pack_makes_the_same_package_from_a_folder_every_time() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let (_, files) = archive::extract(&catalog::fixtures::package("plugin.alice.queue", "1.0.0", json!({}))).unwrap();
+        for (name, bytes) in &files {
+            write(&root.join("queue").join(name), bytes).unwrap();
+        }
+        for junk in [".DS_Store", ".git/config", "node_modules/left-pad/index.js", "build.sh"] {
+            write(&root.join("queue").join(junk), b"junk").unwrap();
+        }
+        let p = |s: &str| root.join(s).to_string_lossy().into_owned();
+        let packed = run(&strings(&["pack", &p("queue"), "--out", &p("out/queue-1.0.0.zip")])).unwrap();
+        assert!(packed.contains("\"id\": \"plugin.alice.queue\""), "{packed}");
+        let first = read(p("out/queue-1.0.0.zip")).unwrap();
+        let (_, read_back) = archive::extract(&first).unwrap();
+        assert_eq!(read_back, files, "hidden files, node_modules and other file types stay out");
+        run(&strings(&["pack", &p("queue"), "--out", &p("out/again.zip")])).unwrap();
+        assert_eq!(read(p("out/again.zip")).unwrap(), first, "the same bytes every time");
+        assert!(packed.contains(&catalog::sha256_hex(&first)));
+
+        fs::remove_file(root.join("queue/widget.json")).unwrap();
+        assert!(run(&strings(&["pack", &p("queue"), "--out", &p("out/none.zip")])).unwrap_err().contains("widget.json"));
+        #[cfg(unix)]
+        {
+            write(&root.join("queue/widget.json"), &files["widget.json"]).unwrap();
+            std::os::unix::fs::symlink("/etc/hosts", root.join("queue/hosts.txt")).unwrap();
+            assert!(run(&strings(&["pack", &p("queue"), "--out", &p("out/link.zip")])).unwrap_err().contains("link"));
+        }
     }
 
     #[test]

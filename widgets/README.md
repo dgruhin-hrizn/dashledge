@@ -310,6 +310,8 @@ The Marketplace lists plugins that passed the registry's checks and a maintainer
 2. Publish a release tagged `v<version>` in your repository and attach that ZIP.
 3. Choose **Open GitHub**. GitHub fills in the listing, forks the registry and opens your pull request.
 
+**Packing in CI.** To build release ZIPs in a workflow instead, build the CLI from the Dashledge repository and run `dashledge-package pack <folder> --out <name>-<version>.zip`. It keeps the same files Studio does, applies the same checks and makes the same bytes each time. It prints the id, version, sha256 and grants for your listing.
+
 **What happens next.**
 1. The pull request's check downloads your ZIP and verifies its sha256. It validates the package with the same Rust code the app runs and lists everything the plugin may do.
 2. A maintainer reviews that list and your code. They look hardest at a connector that reads the user's server and also declares an outside host.

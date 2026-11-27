@@ -20,7 +20,7 @@ Every widget with its own view is a **package**: a folder with a `widget.json` m
 | `src-tauri/package-core/src/archive.rs` | Reading package ZIPs (`extract`, limits, allowed files), `check`, `icon_data`, deterministic `pack` |
 | `src-tauri/package-core/src/grants.rs` | Everything a manifest may do, as a set; `added_grants` for the update sheet and automatic updates |
 | `src-tauri/package-core/src/catalog.rs` | The Marketplace catalog: listing rules, `build`, Ed25519 `sign`/`verify`, sequence and expiry |
-| `src-tauri/package-core/src/bin/dashledge-package.rs` | The registry's CLI: `check`, `check-listing`, `keygen`, `sign`, `verify`, `sources`, `catalog` |
+| `src-tauri/package-core/src/bin/dashledge-package.rs` | The registry's CLI: `pack`, `check`, `check-listing`, `keygen`, `sign`, `verify`, `sources`, `catalog` |
 | `src-tauri/src/package_store.rs` | Install (`install_bytes`), list, look up; unpacked folders and their watcher; pulled versions in `<packages>/.disabled.json` |
 | `src-tauri/src/marketplace.rs` | Pinned registry and keys; verified catalog, downloads, installs, daily checks, automatic updates, pulled versions, submissions |
 | `<app_data>/marketplace.json` | Highest catalog sequence seen, automatic updates switch, IDs and versions installed from the Marketplace |
