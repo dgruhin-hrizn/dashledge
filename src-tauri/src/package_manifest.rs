@@ -168,13 +168,104 @@ pub struct View {
     pub theme: bool,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
+/// How a connection's saved credential goes on each request. Dashledge adds it; package
+/// code never sees it. In widget.json: `"bearer"`, `"emby-token"`, `"pve-token"`,
+/// `"basic"` (the saved username and key), `"none"`, `{"header": "X-Api-Key"}` with an
+/// optional `"format": "MediaBrowser Token=\"{key}\""`, or `{"query": "apikey"}`.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Auth {
     Bearer,
     EmbyToken,
     PveToken,
+    Basic,
     None,
+    Header { name: String, format: Option<String> },
+    Query { name: String },
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct HeaderAuth {
+    header: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    format: Option<String>,
+}
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct QueryAuth {
+    query: String,
+}
+#[derive(Deserialize, Serialize)]
+#[serde(untagged)]
+enum AuthForm {
+    Named(String),
+    Header(HeaderAuth),
+    Query(QueryAuth),
+}
+
+impl Serialize for Auth {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let named = |n: &str| AuthForm::Named(n.into());
+        match self {
+            Auth::Bearer => named("bearer"),
+            Auth::EmbyToken => named("emby-token"),
+            Auth::PveToken => named("pve-token"),
+            Auth::Basic => named("basic"),
+            Auth::None => named("none"),
+            Auth::Header { name, format } => AuthForm::Header(HeaderAuth { header: name.clone(), format: format.clone() }),
+            Auth::Query { name } => AuthForm::Query(QueryAuth { query: name.clone() }),
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Auth {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::Error;
+        let form = AuthForm::deserialize(deserializer)
+            .map_err(|_| D::Error::custom("auth must be bearer, emby-token, pve-token, basic, none, {\"header\": …} or {\"query\": …}"))?;
+        Ok(match form {
+            AuthForm::Named(name) => match name.as_str() {
+                "bearer" => Auth::Bearer,
+                "emby-token" => Auth::EmbyToken,
+                "pve-token" => Auth::PveToken,
+                "basic" => Auth::Basic,
+                "none" => Auth::None,
+                other => return Err(D::Error::custom(format!("unknown auth “{other}”"))),
+            },
+            AuthForm::Header(h) => Auth::Header { name: h.header, format: h.format },
+            AuthForm::Query(q) => Auth::Query { name: q.query },
+        })
+    }
+}
+
+/// Request headers the app owns. A package's credential header may not be one of them.
+pub const RESERVED_HEADERS: &[&str] = &["host", "cookie", "content-length", "content-type", "connection", "transfer-encoding", "origin", "proxy-authorization", "upgrade"];
+
+fn check_auth(auth: &Auth) -> Result<(), String> {
+    match auth {
+        Auth::Header { name, format } => {
+            if name.is_empty() || name.len() > 64 || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
+                return fail("An auth header name is 1–64 letters, digits or hyphens.");
+            }
+            if RESERVED_HEADERS.contains(&name.to_ascii_lowercase().as_str()) {
+                return fail(format!("“{name}” can’t carry the credential."));
+            }
+            if let Some(format) = format {
+                text(format, "Auth header format", 120)?;
+                if format.matches("{key}").count() != 1 || format.matches("{user}").count() > 1 {
+                    return fail("An auth header format holds {key} once and {user} at most once.");
+                }
+            }
+        }
+        Auth::Query { name } => {
+            if name.is_empty() || name.len() > 40 || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b)) {
+                return fail("An auth query parameter is 1–40 letters, digits, _ . or -.");
+            }
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -479,6 +570,7 @@ pub fn validate(raw: &Value, origin: Origin) -> Result<Manifest, String> {
         if sources.test.len() > 8 {
             return fail("Declare at most 8 Test routes.");
         }
+        check_auth(&sources.auth)?;
         for test in &sources.test {
             route(test, "Test route", false, true)?;
         }
@@ -780,6 +872,23 @@ mod tests {
         assert!(validate(&extra, Origin::Installed).is_err());
         assert!(validate(&with(installed(), "/title", json!("  ")), Origin::Installed).is_err());
         assert!(validate(&with(installed(), "/title", json!("x".repeat(65))), Origin::Installed).is_err());
+    }
+
+    #[test]
+    fn auth_takes_a_named_style_a_header_or_a_query_parameter() {
+        let auth = |value: Value| validate(&with(installed(), "/sources/auth", value), Origin::Installed).map(|m| m.sources.unwrap().auth);
+        assert_eq!(auth(json!("basic")).unwrap(), Auth::Basic);
+        assert_eq!(auth(json!({"header": "X-Api-Key"})).unwrap(), Auth::Header { name: "X-Api-Key".into(), format: None });
+        assert_eq!(auth(json!({"header": "Authorization", "format": "MediaBrowser Token=\"{key}\""})).unwrap(),
+            Auth::Header { name: "Authorization".into(), format: Some("MediaBrowser Token=\"{key}\"".into()) });
+        assert_eq!(auth(json!({"query": "apikey"})).unwrap(), Auth::Query { name: "apikey".into() });
+        for bad in [json!("token"), json!({"header": "Cookie"}), json!({"header": "X Api"}), json!({"header": "X-Key", "format": "no key"}),
+                    json!({"header": "X-Key", "format": "{key}{key}"}), json!({"query": "api key"}), json!({"query": "k", "header": "X"}), json!({"cookie": "sid"})] {
+            assert!(auth(bad.clone()).is_err(), "{bad}");
+        }
+        // Serialized back the way widget.json spells it, for the settings window.
+        assert_eq!(serde_json::to_value(Auth::Query { name: "apikey".into() }).unwrap(), json!({"query": "apikey"}));
+        assert_eq!(serde_json::to_value(Auth::EmbyToken).unwrap(), json!("emby-token"));
     }
 
     #[test]

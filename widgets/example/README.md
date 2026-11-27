@@ -51,7 +51,19 @@ Every view runs isolated. It can't reach the network, other widgets, Dashledge's
 - **`id`** starts with `plugin.` and uses lowercase letters, digits, `-` and `.`.
 - **`view.theme`**: `true` when your view follows Dashledge's text and highlight colours (`state.theme`, also the CSS variables `--text` and `--accent`). Pages & layouts then lets each placement choose its own colours, and your view receives them in the same theme.
 - **`view.viewport`**: `native` renders at the Edge's real size (2560 × 720) when the widget fills a page; `reference` uses the scaled 1920 × 540 canvas. Size type with `clamp()` and viewport units so the widget reads well in a narrow tile too.
-- **`sources`** asks for connections. `auth` is `bearer`, `emby-token`, `pve-token` or `none`. `test` lists routes the Test button reads. Omit `sources` for a widget that needs no connection, like this example.
+- **`sources`** asks for connections. `test` lists routes the Test button reads. Omit `sources` for a widget that needs no connection, like this example. `auth` says how Dashledge sends the saved credential to the connection, and only to it:
+
+  | `auth` | Sends | For example |
+  | --- | --- | --- |
+  | `"bearer"` | `Authorization: Bearer <key>` | Home Assistant, Unraid |
+  | `{"header": "X-Api-Key"}` | `X-Api-Key: <key>` | Radarr, Sonarr, Prowlarr |
+  | `{"header": "Authorization", "format": "MediaBrowser Token=\"{key}\""}` | the format, with `{key}` (and `{user}`) filled in | Jellyfin |
+  | `{"query": "apikey"}` | `?apikey=<key>` on every request | SABnzbd |
+  | `"basic"` | `Authorization: Basic` with the saved username and key | NZBGet |
+  | `"emby-token"`, `"pve-token"` | `X-Emby-Token`, `Authorization: PVEAPIToken=` | Emby, Proxmox |
+  | `"none"` | nothing | |
+
+  Add `"usernameLabel": "Username"` to ask for a username beside the key. Your code never sees either value: a package can't set the credential's header, Dashledge replaces any query parameter of the same name, and an echoed credential (in a redirect's `Location` or a response body) reaches your connector as `[credential]`.
 - **`displayName.serverField`** is a dot path into your data where the server reports its own name. Dashledge shows the name the user typed for the connection, else this, else the address's host.
 - **`data`** routes are relative to the connection address, polled every 2–3600 seconds. They must return JSON.
 - **`actions`** are `POST`, `PUT` or `DELETE` routes. `{name}` placeholders, in the route or as whole string values in `body`, take 1–128 letters, digits, `.`, `_`, `:` or `-` from the view.

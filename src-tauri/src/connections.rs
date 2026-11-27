@@ -52,16 +52,14 @@ pub(crate) fn account_ids(kind: &str, base: &Url) -> Vec<String> {
 pub(crate) fn plain_client() -> Client {
     http().clone()
 }
-/// The stored credential for a connection, or an empty string.
-pub(crate) fn credential(kind: &str, base: &Url) -> Result<String, String> {
-    String::from_utf8(secret_for(kind, base)?.unwrap_or_default()).map_err(|_| "Invalid credential".into())
+/// The stored username and key for a connection; empty when none are saved.
+pub(crate) fn secret(kind: &str, base: &Url) -> Result<crate::package_connector::Secret, String> {
+    Ok(secret_and_ca(kind, base)?.0)
 }
-fn secret_for(kind: &str, base: &Url) -> Result<Option<Vec<u8>>, String> {
-    Ok(crate::vault::get(kind, base)?.key.map(String::into_bytes))
-}
-/// The stored username for a connection, or an empty string.
-pub(crate) fn username(kind: &str, base: &Url) -> Result<String, String> {
-    Ok(crate::vault::get(kind, base)?.user.unwrap_or_default())
+/// The stored username, key and CA certificate for a connection.
+pub(crate) fn secret_and_ca(kind: &str, base: &Url) -> Result<(crate::package_connector::Secret, Option<String>), String> {
+    let value = crate::vault::get(kind, base)?;
+    Ok((crate::package_connector::Secret { user: value.user.unwrap_or_default(), key: value.key.unwrap_or_default() }, value.ca))
 }
 pub(crate) fn widget_credentials(
     kind: &str,
@@ -192,7 +190,7 @@ fn auth_for(kind: &str) -> crate::package_manifest::Auth {
         .unwrap_or(crate::package_manifest::Auth::Bearer)
 }
 
-async fn get(kind: &str, account: &Url, base: &Url, path: &str, key: &str) -> Result<Value, String> {
+async fn get(kind: &str, account: &Url, base: &Url, path: &str, secret: &crate::package_connector::Secret) -> Result<Value, String> {
     let client = service_client(kind, account)?;
     let mut url = base.clone();
     if !path.is_empty() {
@@ -202,9 +200,11 @@ async fn get(kind: &str, account: &Url, base: &Url, path: &str, key: &str) -> Re
         url.set_path(&format!("{}/{}", base.path().trim_end_matches('/'), route));
         url.set_query(query);
     }
+    // The same credential the widget's connector, declarative routes and actions send.
+    let credential = crate::package_connector::Credential::for_auth(&auth_for(kind), secret);
+    let header = credential.as_ref().and_then(|c| c.apply(&mut url));
     let mut request = client.get(url);
-    // The same header the widget's connector, declarative routes and actions send.
-    if let Some((name, value)) = crate::package_connector::credential_header(auth_for(kind), key) {
+    if let Some((name, value)) = header {
         request = request.header(name, value);
     }
     let mut res = request
@@ -249,8 +249,7 @@ pub async fn widget_source_read(kind:String,address:String)->Result<Value,String
 #[tauri::command]
 pub async fn source_read(kind: String, address: String) -> Result<Value, String> {
     let base = endpoint(&address)?;
-    let key = String::from_utf8(secret_for(&kind, &base)?.unwrap_or_default())
-        .map_err(|_| "Invalid credential")?;
+    let key = secret(&kind, &base)?;
     if kind == "json" {
         return get(&kind, &base, &base, "", &key).await;
     }

@@ -125,23 +125,81 @@ fn same_origin(url: &Url, connection: Option<&Url>) -> bool {
     })
 }
 
-/// The credential header for a request to the connection, never for other hosts.
-pub fn credential_header(auth: Auth, key: &str) -> Option<(&'static str, String)> {
-    if key.is_empty() {
-        return None;
+/// A connection's saved credential, placed on a request to that connection only.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Credential {
+    Header(String, String),
+    /// A query parameter Rust sets on the URL, replacing any the package wrote.
+    Query(String, String),
+}
+
+/// The saved username and key, as the manifest's auth sends them.
+#[derive(Clone, Default)]
+pub struct Secret {
+    pub user: String,
+    pub key: String,
+}
+
+impl Credential {
+    pub fn for_auth(auth: &Auth, secret: &Secret) -> Option<Credential> {
+        use base64::Engine;
+        let (user, key) = (secret.user.as_str(), secret.key.as_str());
+        let header = |name: &str, value: String| Some(Credential::Header(name.into(), value));
+        match auth {
+            Auth::None => None,
+            Auth::Basic if user.is_empty() && key.is_empty() => None,
+            Auth::Basic => header("Authorization", format!("Basic {}", base64::engine::general_purpose::STANDARD.encode(format!("{user}:{key}")))),
+            _ if key.is_empty() => None,
+            Auth::Bearer => header("Authorization", format!("Bearer {key}")),
+            Auth::EmbyToken => header("X-Emby-Token", key.into()),
+            Auth::PveToken => header("Authorization", format!("PVEAPIToken={key}")),
+            Auth::Header { name, format } => header(name, format.as_deref().map_or_else(|| key.into(), |f| f.replace("{user}", user).replace("{key}", key))),
+            Auth::Query { name } => Some(Credential::Query(name.clone(), key.into())),
+        }
     }
-    match auth {
-        Auth::Bearer => Some(("Authorization", format!("Bearer {key}"))),
-        Auth::EmbyToken => Some(("X-Emby-Token", key.to_string())),
-        Auth::PveToken => Some(("Authorization", format!("PVEAPIToken={key}"))),
-        Auth::None => None,
+
+    /// Put the credential on `url`. Returns the header to send, if it is one.
+    pub fn apply(&self, url: &mut Url) -> Option<(String, String)> {
+        match self {
+            Credential::Header(name, value) => Some((name.clone(), value.clone())),
+            Credential::Query(name, value) => {
+                let kept: Vec<(String, String)> = url.query_pairs().filter(|(k, _)| k != name.as_str()).map(|(k, v)| (k.into_owned(), v.into_owned())).collect();
+                url.query_pairs_mut().clear().extend_pairs(kept).append_pair(name, value);
+                None
+            }
+        }
+    }
+
+    /// The secret text to keep out of anything a package reads back.
+    fn secret(&self) -> &str {
+        match self {
+            Credential::Header(_, value) | Credential::Query(_, value) => value,
+        }
     }
 }
 
-/// Headers a package may not set itself.
-fn forbidden_header(name: &str) -> bool {
+/// Replace a credential the server echoed (in a redirect's Location, a body…) before a
+/// package sees it. Short values aren't scrubbed: they would mangle ordinary text.
+fn scrub(text: &str, credential: Option<&Credential>, key: &str) -> String {
+    let mut out = text.to_string();
+    for secret in [credential.map(Credential::secret).unwrap_or(""), key] {
+        if secret.len() >= 6 {
+            // As `Credential::apply` writes it into a query string.
+            let mut form = Url::parse("http://x/").unwrap();
+            form.query_pairs_mut().append_pair("k", secret);
+            let encoded = form.query().unwrap_or("k=")[2..].to_string();
+            out = out.replace(secret, "[credential]").replace(&encoded, "[credential]");
+        }
+    }
+    out
+}
+
+/// Headers a package may not set itself: the app's own, and the one its credential uses.
+fn forbidden_header(name: &str, auth: &Auth) -> bool {
     let lower = name.to_ascii_lowercase();
-    matches!(lower.as_str(), "authorization" | "cookie" | "host" | "x-emby-token" | "proxy-authorization" | "content-length")
+    matches!(lower.as_str(), "authorization" | "x-emby-token")
+        || package_manifest::RESERVED_HEADERS.contains(&lower.as_str())
+        || matches!(auth, Auth::Header { name: own, .. } if own.eq_ignore_ascii_case(name))
 }
 
 struct Request {
@@ -151,37 +209,45 @@ struct Request {
     body: Option<String>,
 }
 
-async fn send(kind: &str, connection: Option<&Target>, auth: Auth, request: Request) -> Result<Value, String> {
+async fn send(kind: &str, connection: Option<&Target>, auth: &Auth, request: Request) -> Result<Value, String> {
     // Only an authenticated connection has vault data (its key and any CA). Reading the
     // vault for one without auth could ask the user to unlock their connections.
-    let connection = connection.filter(|t| auth != Auth::None && same_origin(&request.url, Some(&t.base)));
-    let client = match connection {
-        Some(t) => crate::connections::service_client(kind, &t.account)?,
-        None => crate::connections::plain_client(),
-    };
+    let connection = connection.filter(|t| *auth != Auth::None && same_origin(&request.url, Some(&t.base)));
+    match connection {
+        Some(t) => {
+            let client = crate::connections::service_client(kind, &t.account)?;
+            deliver(&client, true, auth, &crate::connections::secret(kind, &t.account)?, request).await
+        }
+        None => deliver(&crate::connections::plain_client(), false, auth, &Secret::default(), request).await,
+    }
+}
+
+/// Send a request; `to_connection` adds the credential, which `send` decides by origin.
+async fn deliver(client: &reqwest::Client, to_connection: bool, auth: &Auth, secret: &Secret, request: Request) -> Result<Value, String> {
+    let credential = to_connection.then(|| Credential::for_auth(auth, secret)).flatten();
+    let mut url = request.url.clone();
+    let header = credential.as_ref().and_then(|c| c.apply(&mut url));
     let method = reqwest::Method::from_bytes(request.method.as_bytes()).map_err(|_| "Unsupported method")?;
-    let mut builder = client.request(method, request.url.clone()).timeout(Duration::from_secs(15));
+    let mut builder = client.request(method, url).timeout(Duration::from_secs(15));
     for (name, value) in &request.headers {
-        if !forbidden_header(name) {
+        if !forbidden_header(name, auth) {
             builder = builder.header(name.as_str(), value.as_str());
         }
     }
-    if let Some(t) = connection {
-        let key = crate::connections::credential(kind, &t.account)?;
-        if let Some((name, value)) = credential_header(auth, &key) {
-            builder = builder.header(name, value);
-        }
+    if let Some((name, value)) = header {
+        builder = builder.header(name, value);
     }
     if let Some(body) = request.body {
         builder = builder.body(body);
     }
+    // Errors are fixed text: a reqwest error names the URL, which may carry a query key.
     let mut response = builder.send().await.map_err(|_| "Server unreachable".to_string())?;
     let status = response.status().as_u16();
     let headers: Map<String, Value> = response
         .headers()
         .iter()
         .filter(|(name, _)| !matches!(name.as_str(), "set-cookie" | "www-authenticate"))
-        .filter_map(|(name, value)| Some((name.as_str().to_string(), Value::String(value.to_str().ok()?.to_string()))))
+        .filter_map(|(name, value)| Some((name.as_str().to_string(), Value::String(scrub(value.to_str().ok()?, credential.as_ref(), &secret.key)))))
         .collect();
     let mut body = Vec::new();
     while let Some(chunk) = response.chunk().await.map_err(|_| "Connection interrupted")? {
@@ -190,7 +256,7 @@ async fn send(kind: &str, connection: Option<&Target>, auth: Auth, request: Requ
         }
         body.extend_from_slice(&chunk);
     }
-    Ok(json!({"status": status, "headers": headers, "body": String::from_utf8_lossy(&body)}))
+    Ok(json!({"status": status, "headers": headers, "body": scrub(&String::from_utf8_lossy(&body), credential.as_ref(), &secret.key)}))
 }
 
 // ------------------------------------------------------- tier 1: declarative --
@@ -230,7 +296,7 @@ fn route_url(base: &Url, route: &str) -> Url {
 }
 
 fn run_declarative(kind: String, manifest: Manifest, target: Target, output: Arc<Mutex<Output>>, stop: Arc<AtomicBool>) {
-    let auth = manifest.sources.as_ref().map_or(Auth::Bearer, |s| s.auth);
+    let auth = manifest.sources.as_ref().map_or(Auth::Bearer, |s| s.auth.clone());
     std::thread::spawn(move || {
         let mut due: HashMap<String, Instant> = HashMap::new();
         while !stop.load(Ordering::SeqCst) {
@@ -240,7 +306,7 @@ fn run_declarative(kind: String, manifest: Manifest, target: Target, output: Arc
                 }
                 due.insert(poll.id.clone(), Instant::now() + Duration::from_secs(poll.every.into()));
                 let request = Request { url: route_url(&target.base, &poll.path), method: "GET".into(), headers: vec![("Accept".into(), "application/json".into())], body: None };
-                let result = tauri::async_runtime::block_on(send(&kind, Some(&target), auth, request)).and_then(|r| {
+                let result = tauri::async_runtime::block_on(send(&kind, Some(&target), &auth, request)).and_then(|r| {
                     let status = r["status"].as_u64().unwrap_or(0);
                     if !(200..300).contains(&status) {
                         return Err(format!("Server returned HTTP {status}"));
@@ -318,9 +384,9 @@ fn host_op(rt: &Runtime, op: &str, args: Value) -> Result<Value, String> {
             let headers = args["headers"].as_object().map(|h| {
                 h.iter().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_string()))).take(32).collect()
             }).unwrap_or_default();
-            let (kind, connection, auth, tx) = (rt.kind.clone(), rt.connection.clone(), rt.auth, rt.tx.clone());
+            let (kind, connection, auth, tx) = (rt.kind.clone(), rt.connection.clone(), rt.auth.clone(), rt.tx.clone());
             tauri::async_runtime::spawn(async move {
-                let result = send(&kind, connection.as_ref(), auth, Request { url, method, headers, body }).await;
+                let result = send(&kind, connection.as_ref(), &auth, Request { url, method, headers, body }).await;
                 let _ = tx.send(Event::Fetch { id, result });
             });
             Ok(Value::Null)
@@ -400,12 +466,12 @@ fn host_op(rt: &Runtime, op: &str, args: Value) -> Result<Value, String> {
             }
             let global = NEXT_SOCKET.fetch_add(1, Ordering::SeqCst);
             sockets.insert(global, local);
-            let (mut name, mut value, mut ca) = (String::new(), String::new(), String::new());
+            let (mut url, mut name, mut value, mut ca) = (url, String::new(), String::new(), String::new());
             if let Some(t) = rt.connection.as_ref().filter(|t| rt.auth != Auth::None && same_origin(&url, Some(&t.base))) {
                 // The connection's saved CA is trusted for wss, as `send` trusts it for https.
-                let (key, saved_ca) = crate::connections::widget_credentials(&rt.kind, &t.account)?;
-                if let Some((n, v)) = credential_header(rt.auth, &key) {
-                    (name, value) = (n.to_string(), v);
+                let (secret, saved_ca) = crate::connections::secret_and_ca(&rt.kind, &t.account)?;
+                if let Some((n, v)) = Credential::for_auth(&rt.auth, &secret).and_then(|c| c.apply(&mut url)) {
+                    (name, value) = (n, v);
                 }
                 ca = saved_ca.unwrap_or_default();
             }
@@ -514,7 +580,7 @@ pub(crate) fn run_connector(setup: ConnectorSetup, output: Arc<Mutex<Output>>, s
             handle,
             kind: setup.kind.clone(),
             origins: allowed_origins(connection_url.as_ref().map(|t| &t.base), &setup.manifest),
-            auth: setup.manifest.sources.as_ref().map_or(Auth::None, |s| s.auth),
+            auth: setup.manifest.sources.as_ref().map_or(Auth::None, |s| s.auth.clone()),
             connection: connection_url,
             tx,
             output: output.clone(),
@@ -741,8 +807,8 @@ pub async fn package_action(id: String, viewer: String, action: String, args: Ma
     if body.is_some() {
         headers.push(("Content-Type".into(), "application/json".into()));
     }
-    let auth = manifest.sources.as_ref().map_or(Auth::Bearer, |s| s.auth);
-    let response = send(&kind, Some(&target), auth, Request { url: route_url(&target.base, &path), method: method.into(), headers, body }).await?;
+    let auth = manifest.sources.as_ref().map_or(Auth::Bearer, |s| s.auth.clone());
+    let response = send(&kind, Some(&target), &auth, Request { url: route_url(&target.base, &path), method: method.into(), headers, body }).await?;
     let status = response["status"].as_u64().unwrap_or(0);
     if !(200..300).contains(&status) {
         return Err(format!("Server returned HTTP {status}"));
@@ -781,13 +847,65 @@ mod tests {
         assert!(same_origin(&Url::parse("https://ha.local:8123/api").unwrap(), Some(&connection)));
         assert!(same_origin(&Url::parse("wss://ha.local:8123/ws").unwrap(), Some(&connection)));
         assert!(!same_origin(&Url::parse("https://api.example.com/").unwrap(), Some(&connection)));
-        assert_eq!(credential_header(Auth::Bearer, "k").unwrap(), ("Authorization", "Bearer k".to_string()));
-        assert_eq!(credential_header(Auth::EmbyToken, "k").unwrap().0, "X-Emby-Token");
-        assert!(credential_header(Auth::Bearer, "").is_none() && credential_header(Auth::None, "k").is_none());
-        for header in ["Authorization", "cookie", "X-Emby-Token", "Host"] {
-            assert!(forbidden_header(header));
+        let key = |key: &str| Secret { user: String::new(), key: key.into() };
+        let header = |auth: &Auth, secret: &Secret| Credential::for_auth(auth, secret).and_then(|c| c.apply(&mut connection.clone()));
+        assert_eq!(header(&Auth::Bearer, &key("k")).unwrap(), ("Authorization".into(), "Bearer k".into()));
+        assert_eq!(header(&Auth::EmbyToken, &key("k")).unwrap().0, "X-Emby-Token");
+        assert!(Credential::for_auth(&Auth::Bearer, &key("")).is_none() && Credential::for_auth(&Auth::None, &key("k")).is_none());
+        for name in ["Authorization", "cookie", "X-Emby-Token", "Host", "Content-Length"] {
+            assert!(forbidden_header(name, &Auth::Bearer), "{name}");
         }
-        assert!(!forbidden_header("Accept"));
+        assert!(!forbidden_header("Accept", &Auth::Bearer) && !forbidden_header("X-Api-Key", &Auth::Bearer));
+        assert!(forbidden_header("x-api-key", &Auth::Header { name: "X-Api-Key".into(), format: None }), "a package can't replace its own credential header");
+    }
+
+    #[test]
+    fn header_query_and_basic_credentials_take_their_place() {
+        let secret = Secret { user: "admin".into(), key: "s3cret-key".into() };
+        let mut url = Url::parse("http://sab.local:8080/api?mode=queue&apikey=forged&output=json").unwrap();
+        let query = Credential::for_auth(&Auth::Query { name: "apikey".into() }, &secret).unwrap();
+        assert!(query.apply(&mut url).is_none(), "a query key isn't a header");
+        assert_eq!(url.query(), Some("mode=queue&output=json&apikey=s3cret-key"), "the package's own apikey is replaced");
+        let mut plain = Url::parse("http://h/").unwrap();
+        let header = |auth: Auth| Credential::for_auth(&auth, &secret).unwrap().apply(&mut plain.clone()).unwrap();
+        assert_eq!(header(Auth::Header { name: "X-Api-Key".into(), format: None }), ("X-Api-Key".into(), "s3cret-key".into()));
+        assert_eq!(header(Auth::Header { name: "Authorization".into(), format: Some("MediaBrowser Token=\"{key}\"".into()) }).1, "MediaBrowser Token=\"s3cret-key\"");
+        assert_eq!(header(Auth::Basic), ("Authorization".into(), "Basic YWRtaW46czNjcmV0LWtleQ==".into()));
+        assert!(Credential::for_auth(&Auth::Basic, &Secret::default()).is_none());
+        assert!(plain.query().is_none());
+        plain.set_path("/x");
+    }
+
+    #[test]
+    fn an_echoed_credential_is_scrubbed_before_a_package_reads_it() {
+        let credential = Credential::Query("apikey".into(), "abc/123+key".into());
+        let location = "https://sab.local/api?mode=queue&apikey=abc%2F123%2Bkey";
+        assert_eq!(scrub(location, Some(&credential), "abc/123+key"), "https://sab.local/api?mode=queue&apikey=[credential]");
+        assert_eq!(scrub("{\"apikey\": \"abc/123+key\"}", Some(&credential), "abc/123+key"), "{\"apikey\": \"[credential]\"}");
+        assert_eq!(scrub("a 1 b", Some(&Credential::Query("k".into(), "1".into())), "1"), "a 1 b", "short values are left alone");
+    }
+
+    #[test]
+    fn a_query_key_reaches_the_server_but_not_the_connector() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = format!("http://{}", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0u8; 4096];
+            let n = stream.read(&mut request).unwrap();
+            let body = "{\"apikey\":\"sab-test-key\"}";
+            write!(stream, "HTTP/1.1 302 Found\r\nLocation: https://x/api?apikey=sab-test-key\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+            String::from_utf8_lossy(&request[..n]).into_owned()
+        });
+        let base = Url::parse(&format!("{address}/")).unwrap();
+        let result = tauri::async_runtime::block_on(deliver(
+            &crate::connections::plain_client(), true, &Auth::Query { name: "apikey".into() }, &Secret { user: String::new(), key: "sab-test-key".into() },
+            Request { url: base.join("api?mode=queue").unwrap(), method: "GET".into(), headers: vec![], body: None },
+        )).unwrap();
+        assert!(server.join().unwrap().starts_with("GET /api?mode=queue&apikey=sab-test-key "));
+        assert!(!result.to_string().contains("sab-test-key"), "{result}");
+        assert_eq!(result["status"], 302);
     }
 
     #[test]

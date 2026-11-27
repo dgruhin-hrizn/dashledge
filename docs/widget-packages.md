@@ -93,7 +93,8 @@ Settings and colours are left out of the dashboard's page signature, so changing
 - `view.theme: true`: the view follows Dashledge's colours (`state.theme`, also set as `--text` and `--accent`). Only then does Pages & layouts offer per-placement colours.
 - `sources`:
   - `min`/`max`: how many connections a placement takes.
-  - `auth`: which header carries the credential.
+  - `auth`: how the credential travels: a named style (`bearer`, `emby-token`, `pve-token`, `basic`, `none`), `{"header", "format"?}` or `{"query"}`. `package_connector::Credential::for_auth` is the one place that turns it and the saved `Secret` (username and key) into a header or query parameter, for connector fetches and sockets, declarative routes, actions and Test alike. Credential headers and the app's own headers (`RESERVED_HEADERS`) can't be set by a package; a query key replaces the package's parameter of that name; `scrub` replaces an echoed credential in returned headers and bodies.
+  - `usernameLabel`: the connection form asks for a username, stored beside the key in the vault.
   - `address`: `path` keeps the address's path as the base; `origin` drops it.
   - `test`: the routes the **Test** button reads.
   - The labels shown in the connection form.
