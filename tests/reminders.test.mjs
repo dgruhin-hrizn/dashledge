@@ -48,6 +48,15 @@ test('a reminder just checked keeps its place until the hold ends', () => {
   assert.deepEqual(rows.sort(M.compare).map(i => i.id), ['a', 'b', 'c']);
 });
 
+test('a held reminder stays in place with finished ones hidden and in the due arrangement', () => {
+  const snap = {lists, items: [item('held', 'L-HOME', {due: '2026-11-27', completed: true, sortDone: false}), item('open', 'L-HOME')]};
+  const hidden = M.sections(snap, {lists: ['L-HOME'], finished: false}, now);
+  assert.deepEqual(hidden[0].items.map(i => i.id), ['held', 'open'], 'not dropped under the finger');
+  const due = M.sections(snap, {lists: ['*'], finished: true, group: 'due'}, now);
+  assert.deepEqual(due.map(g => [g.id, g.items.map(i => i.id)]), [['week', ['held']], ['later', ['open']]], 'not moved to Finished yet');
+  assert.equal(M.counts(snap, {lists: ['*']}, now).open, 1, 'the count changes at once');
+});
+
 test('due labels read relative to now and flag what is overdue', () => {
   assert.equal(M.dueLabel(item('a', 'x', {due: '2026-11-24'}), now).tone, 'overdue');
   assert.equal(M.dueLabel(item('a', 'x', {due: '2026-11-26'}), now).tone, 'today');

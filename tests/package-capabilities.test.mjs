@@ -128,7 +128,7 @@ test('Reminders reach only views that declare them, with checked arguments', asy
 
     assert.equal((await command(entry, posted, 'reminders.add', {title: '   '})).error, 'Error: Type a reminder first');
     await command(entry, posted, 'reminders.add', {title: 'x'.repeat(400)});
-    assert.deepEqual(calls.at(-1), ['reminders_create', {title: 'x'.repeat(300), list: null}]);
+    assert.deepEqual(calls.at(-1), ['reminders_create', {title: 'x'.repeat(400), list: null}], 'Rust caps the length by character');
     await command(entry, posted, 'reminders.add', {title: 'Milk', list: 'LIST-1'});
     assert.deepEqual(calls.at(-1), ['reminders_create', {title: 'Milk', list: 'LIST-1'}]);
   } finally {

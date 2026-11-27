@@ -60,7 +60,7 @@
 
   // The due-date sections of the "By due date" arrangement.
   function dueSection(item, now = new Date()) {
-    if (item.completed) return 'done';
+    if (item.sortDone ?? item.completed) return 'done';
     if (!item.due) return 'later';
     const today = dayKey(now);
     if (item.due < today || (item.due === today && item.dueTime && dueLabel(item, now).tone === 'overdue')) return 'overdue';
@@ -76,7 +76,7 @@
     const lists = chosenLists(snapshot.lists || [], settings.lists);
     const shown = new Set(lists.map(list => list.id));
     const items = (snapshot.items || [])
-      .filter(item => shown.has(item.listId) && (settings.finished !== false || !item.completed))
+      .filter(item => shown.has(item.listId) && (settings.finished !== false || !(item.sortDone ?? item.completed)))
       .sort(compare);
     if (settings.group === 'due') {
       const byId = new Map();
@@ -95,7 +95,7 @@
   function counts(snapshot, settings = {}, now = new Date()) {
     const shown = new Set(chosenLists(snapshot.lists || [], settings.lists).map(list => list.id));
     const open = (snapshot.items || []).filter(item => !item.completed && shown.has(item.listId));
-    const kinds = open.map(item => dueSection(item, now));
+    const kinds = open.map(item => dueSection({...item, sortDone: undefined}, now));
     return {open: open.length, today: kinds.filter(k => k === 'today').length, overdue: kinds.filter(k => k === 'overdue').length};
   }
 

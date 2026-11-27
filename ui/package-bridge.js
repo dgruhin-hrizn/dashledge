@@ -114,7 +114,7 @@ function claim(source) {
 }
 
 // Apple Reminders for bundled views that declare `reminders`. Asking macOS for access
-// and changing reminders happen only while the widget is on screen, after a tap.
+// and changing reminders happen only while the widget is on screen.
 async function reminders(entry, name, args) {
   const visible = onScreen(entry);
   if (name === 'reminders.read') return invoke('reminders_read', {request: args.request === true && visible});
@@ -126,7 +126,8 @@ async function reminders(entry, name, args) {
   if (name === 'reminders.add') {
     if (typeof args.title !== 'string' || !args.title.trim()) throw new Error('Type a reminder first');
     const list = typeof args.list === 'string' ? args.list : '';
-    return invoke('reminders_create', {title: args.title.slice(0, 300), list: list || null});
+    // Rust trims and caps the title by character.
+    return invoke('reminders_create', {title: args.title, list: list || null});
   }
   if (name === 'reminders.privacy') return invoke('reminders_privacy');
   throw new Error('Unknown widget command');

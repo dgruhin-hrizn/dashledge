@@ -5,6 +5,15 @@
 // Apple Reminders through EventKit, for package views that declare the `reminders`
 // permission. Every entry point returns a JSON string the caller frees with free().
 
+// One long-lived store: Apple documents EKEventStore as expensive to create, and every
+// placement polls. EventKit stores are safe to use from several threads.
+static EKEventStore *sharedStore(void) {
+    static EKEventStore *store;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ store = [[EKEventStore alloc] init]; });
+    return store;
+}
+
 static BOOL canRead(EKAuthorizationStatus status) {
     if (@available(macOS 14.0, *)) return status == EKAuthorizationStatusFullAccess;
 #if __MAC_OS_X_VERSION_MIN_REQUIRED < 140000
@@ -77,14 +86,14 @@ static NSDictionary *item(EKReminder *r) {
 }
 
 static NSDictionary *snapshot(BOOL request) {
-    EKEventStore *store = [[EKEventStore alloc] init];
+    EKEventStore *store = sharedStore();
     EKAuthorizationStatus status = [EKEventStore authorizationStatusForEntityType:EKEntityTypeReminder];
     if (request && status == EKAuthorizationStatusNotDetermined) {
         NSDictionary *problem = requestAccess(store);
         if (problem) return problem;
         status = [EKEventStore authorizationStatusForEntityType:EKEntityTypeReminder];
-        // A fresh store sees the new grant.
-        store = [[EKEventStore alloc] init];
+        // Drop what the store cached before the grant.
+        [store reset];
     }
     if (!canRead(status)) return @{@"permission":permissionName(status)};
 
@@ -120,7 +129,7 @@ char *reminders_snapshot(int request) {
 // Check off or reopen one reminder. Returns {"ok":true} or {"error":"…"}.
 char *reminders_set_completed(const char *identifier, int completed) {
     @autoreleasepool {
-        EKEventStore *store = [[EKEventStore alloc] init];
+        EKEventStore *store = sharedStore();
         if (!canRead([EKEventStore authorizationStatusForEntityType:EKEntityTypeReminder]))
             return encode(@{@"error":@"Allow Reminders for Dashledge in System Settings."});
         EKCalendarItem *found = [store calendarItemWithIdentifier:[NSString stringWithUTF8String:identifier]];
@@ -138,7 +147,7 @@ char *reminders_set_completed(const char *identifier, int completed) {
 // Add a reminder to the given list, or to the default list when the id is empty.
 char *reminders_add(const char *title, const char *listIdentifier) {
     @autoreleasepool {
-        EKEventStore *store = [[EKEventStore alloc] init];
+        EKEventStore *store = sharedStore();
         if (!canRead([EKEventStore authorizationStatusForEntityType:EKEntityTypeReminder]))
             return encode(@{@"error":@"Allow Reminders for Dashledge in System Settings."});
         NSString *wanted = [NSString stringWithUTF8String:listIdentifier];

@@ -78,7 +78,7 @@
   };
   // reminders (bundled widgets only): Apple Reminders through EventKit. read() returns
   // {permission: 'allowed'|'request'|'denied', lists, defaultList, items}; request: true
-  // asks macOS once, after a tap. Changes resolve with {ok, item}.
+  // asks macOS once, while the widget is on screen. Changes resolve with {ok, item}.
   api.reminders = {
     read: ({request = false} = {}) => api.command('reminders.read', {request: request === true}),
     setCompleted: (id, completed) => api.command('reminders.complete', {id, completed: !!completed}),
