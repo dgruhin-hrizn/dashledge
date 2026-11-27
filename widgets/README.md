@@ -14,6 +14,7 @@ This guide walks through building, testing and sharing a plugin. The complete AP
 - [Artwork and live video](#artwork-and-live-video)
 - [Designing for the Edge](#designing-for-the-edge)
 - [Package, install, update and share](#package-install-update-and-share)
+- [Publish to the Marketplace](#publish-to-the-marketplace)
 - [Troubleshooting](#troubleshooting)
 
 ## How a plugin works
@@ -290,9 +291,36 @@ Packages are limited to 8 MiB, 4 MiB per file and 256 files. Allowed files are H
 
 **Install.** Choose **Widget Studio → Install package** and pick the ZIP. The install sheet lists where the data comes from, the hosts, and every capability.
 
-**Update.** Keep the same `id` and raise `version`. Installing over the old version keeps every placement, and the sheet marks capabilities that are new.
+**Update.** Keep the same `id` and raise `version`. Installing over the old version keeps every placement. The sheet marks everything the new version may do that the old one couldn't, such as a new host, image route, stream, command, connection type, sign-in form or capability.
 
-**Share.** A ZIP is the whole distribution. Attach it to a GitHub release of your repository, together with its source. Tell users which server versions you tested, and how to find the API key or account the widget needs.
+**Share.** A ZIP is the whole distribution. Attach it to a GitHub release of your repository, together with its source. Tell users which server versions you tested, and how to find the API key or account the widget needs. A ZIP installed this way shows as **Unverified** in Widget Studio. To reach people through **Settings → Marketplace** instead, publish it there.
+
+## Publish to the Marketplace
+
+The Marketplace lists plugins that passed the registry's checks and a maintainer's review. Its registry is [dgruhin-hrizn/dashledge-plugins](https://github.com/dgruhin-hrizn/dashledge-plugins). The rules and the reviewers' checklist are in its [CONTRIBUTING.md](https://github.com/dgruhin-hrizn/dashledge-plugins/blob/main/CONTRIBUTING.md).
+
+**Before you submit:**
+- **ID:** use your namespace, `plugin.<your GitHub login>.<name>`, such as `plugin.alice.radarr-queue`.
+- **Version:** give `widget.json` a version such as `1.0.0`. Each release raises it.
+- **Source:** keep it in a public GitHub repository.
+- **Optional fields:** add `homepage` and `license`. Add `minAppVersion` if you use something only newer Dashledge has.
+
+**Submit from Widget Studio:**
+1. Load your folder with **Load unpacked package**, open the widget and choose **Submit to Marketplace…**. Dashledge runs the registry's own checks and saves a ZIP. It then shows the listing file it will propose, `listings/<id>/<version>.json`.
+2. Publish a release tagged `v<version>` in your repository and attach that ZIP.
+3. Choose **Open GitHub**. GitHub fills in the listing, forks the registry and opens your pull request.
+
+**What happens next.**
+1. The pull request's check downloads your ZIP and verifies its sha256. It validates the package with the same Rust code the app runs and lists everything the plugin may do.
+2. A maintainer reviews that list and your code. They look hardest at a connector that reads the user's server and also declares an outside host.
+3. After the merge, the registry signs a new catalog. The plugin appears in the Marketplace within a few minutes.
+
+**Updates.** Submit each version the same way.
+- **Automatic:** people who installed your plugin from the Marketplace get an update on their own if it asks for nothing new.
+- **Approval needed:** an update that adds a grant waits in **Needs your attention** until they approve it, with each new grant marked.
+- **Can't change:** a published version is never edited.
+
+**Pulled versions.** If a version turns out to be harmful or broken, maintainers pull it. Every Mac turns it off at its next daily check and shows the reason on the widget. Publishing a fixed version turns the widget back on.
 
 ## Troubleshooting
 

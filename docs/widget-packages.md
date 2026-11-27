@@ -4,7 +4,7 @@ Read this before you build a new widget or change how widgets load, talk to Dash
 
 ## The model in one paragraph
 
-Every widget with its own view is a **package**: a folder with a `widget.json` manifest, a `view/`, and optionally a collector or connector that gets its data. The app has no per-widget code paths. It reads everything it needs, such as title, icon, connections, auth, Test routes, outputs, commands, display-name field, viewport and theme, from the manifest, which `src-tauri/src/package_manifest.rs` validates. Every view runs in a sandboxed iframe with an opaque origin and reaches Dashledge only by `postMessage` through the package bridge. Data reaches a view in one of three trust tiers, and each placement of a widget on a page keeps its own connection, settings and colours.
+Every widget with its own view is a **package**: a folder with a `widget.json` manifest, a `view/`, and optionally a collector or connector that gets its data. The app has no per-widget code paths. It reads everything it needs, such as title, icon, connections, auth, Test routes, outputs, commands, display-name field, viewport and theme, from the manifest, which `src-tauri/package-core/src/manifest.rs` validates. Every view runs in a sandboxed iframe with an opaque origin and reaches Dashledge only by `postMessage` through the package bridge. Data reaches a view in one of three trust tiers, and each placement of a widget on a page keeps its own connection, settings and colours.
 
 ## Where things live
 
@@ -16,8 +16,14 @@ Every widget with its own view is a **package**: a folder with a `widget.json` m
 | `<app_data>/packages-unpacked.json` | Folders loaded with **Load unpacked package**, served in place |
 | `widgets/README.md` | The walkthrough for widget authors outside the project, linked from the main README |
 | `widgets/example/` | The downloadable example package, its reference guide (compiled into the ZIP by `widget_package.rs`), `samples/`, `dashledge.d.ts` |
-| `src-tauri/src/package_manifest.rs` | The manifest schema and **the only validator** |
-| `src-tauri/src/package_store.rs` | Install, extract, list, look up; unpacked folders and their watcher |
+| `src-tauri/package-core/src/manifest.rs` | The manifest schema and **the only validator**. The app uses it as `crate::package_manifest` |
+| `src-tauri/package-core/src/archive.rs` | Reading package ZIPs (`extract`, limits, allowed files), `check`, `icon_data`, deterministic `pack` |
+| `src-tauri/package-core/src/grants.rs` | Everything a manifest may do, as a set; `added_grants` for the update sheet and automatic updates |
+| `src-tauri/package-core/src/catalog.rs` | The Marketplace catalog: listing rules, `build`, Ed25519 `sign`/`verify`, sequence and expiry |
+| `src-tauri/package-core/src/bin/dashledge-package.rs` | The registry's CLI: `check`, `check-listing`, `keygen`, `sign`, `verify`, `sources`, `catalog` |
+| `src-tauri/src/package_store.rs` | Install (`install_bytes`), list, look up; unpacked folders and their watcher; pulled versions in `<packages>/.disabled.json` |
+| `src-tauri/src/marketplace.rs` | Pinned registry and keys; verified catalog, downloads, installs, daily checks, automatic updates, pulled versions, submissions |
+| `<app_data>/marketplace.json` | Highest catalog sequence seen, automatic updates switch, IDs and versions installed from the Marketplace |
 | `src-tauri/src/widget_host.rs` | Bundled collectors (Node), view file serving, view CSP |
 | `src-tauri/src/package_connector.rs` + `connector.m` + `connector_prelude.js` | Installed packages: declarative polls and actions, sandboxed JavaScriptCore connectors, connector commands and logs. The request path for every plugin request: `Credential::for_auth`, `exchange`, `scrub`, `link_for` for several connections, `open_socket` |
 | `src-tauri/src/sessions.rs` | `login` auth: signs in, keeps the cookie or token session per connection in memory, and signs in again when it's refused |
@@ -32,7 +38,8 @@ Every widget with its own view is a **package**: a folder with a `widget.json` m
 | `ui/package-sdk.js` | Injected into every view as `window.Dashledge` |
 | `ui/package-settings.js`, `ui/placement-colors.js` | Per-placement settings and colours: resolution and the shared editors |
 | `ui/package-choices.js` | Options views offer for `dynamic` settings, kept per widget and connection; Check now |
-| `ui/package-manifest.js` | Install-sheet text (`permissionSummary`) and tier names |
+| `ui/package-manifest.js` | Install-sheet text (`permissionSummary`, `packageFacts`) and tier names |
+| `ui/marketplace.js` | The Marketplace tab and the submission sheet |
 | `ui/package-ui.css` | The `ui` capability's stylesheet |
 
 ## Trust tiers
@@ -181,6 +188,36 @@ Live video (Frigate cameras through go2rtc) reaches a view as fragmented MP4 tha
 - **go2rtc's WebSocket doesn't need an `Origin` header.** Its server uses gorilla/websocket, whose default origin check allows a request without one. The Rust client sends none. Confirm this against a live Frigate before relying on it.
 
 So: the view CSP stays as it is, the SDK's player attaches with `srcObject` (never a `blob:` URL), and the stream capability relays frames from Rust through the bridge with transfer lists.
+
+## Marketplace
+
+The Marketplace distributes reviewed plugins from the registry repository [dgruhin-hrizn/dashledge-plugins](https://github.com/dgruhin-hrizn/dashledge-plugins). Its README and CONTRIBUTING.md describe submission and review.
+
+**Trust chain.**
+- **Registry CI.** It builds `dashledge-package` from this repository and checks each listing: namespace, semver, sha256 and the validator. On merge it builds `v1/catalog.json` with a sequence one higher than the last. It signs the exact bytes with the Ed25519 key in its `CATALOG_SIGNING_KEY` secret and publishes to GitHub Pages. Published ZIPs are reused, so a release asset can't be swapped later.
+- **The app.**
+  - It pins `REGISTRY` and `KEYS` in `marketplace.rs`; more than one key allows rotation.
+  - It refuses a catalog with a bad signature, a lower sequence than `marketplace.json` remembers, or an unknown schema.
+  - It downloads only paths inside the registry folder, with no redirects and size caps, and checks each file's sha256.
+  - It installs only bytes it verified itself, through `package_store::install_bytes`. The settings UI never passes package bytes or URLs to the Marketplace commands.
+- **Expiry.** The catalog expires after 30 days, and the registry re-signs it weekly. An expired catalog still applies pulled versions but offers no installs or updates. Until it is re-signed, a replayed copy can hide a pull for at most that long.
+
+**Origins.** Widget Studio labels installed packages:
+- **Marketplace:** recorded in `marketplace.json` at that version.
+- **Unverified:** installed from a file. A file install over a Marketplace package clears its record.
+- **Unpacked**.
+- **Pulled.**
+
+**Updates and pulled versions.** `marketplace::check` runs a minute after launch, then every 24 hours, and from **Check for updates**.
+- **Pulled versions:** it writes `<packages>/.disabled.json` for installed versions the catalog revokes. `package_store::lookup` hides those, so their views, connectors, polls, images and streams stop; `lookup_any` still lists them with `disabled`. An entry names a version, so installing any other version lifts it.
+- **Updates:** for each Marketplace package with a newer version this app can run, it compares the catalog's grants with the installed manifest's. With nothing new and automatic updates on, it installs. Otherwise the Marketplace tab lists the update as needing approval.
+- **The layout:** `syncInstalled` in `ui/widget-catalog.js` brings `config.plugins` entries in line on the next load.
+
+**Rules.**
+- Package rules live in `package-core` only. A manifest field, limit or archive rule changed there reaches the app and the registry's checker together.
+- Keep `package-core` free of Tauri, so the registry can build `dashledge-package` on Linux.
+- When a change makes the checker accept packages that older apps refuse, ship the app first, then move the registry's `DASHLEDGE_REF`.
+- Never add a Marketplace command that takes package bytes, a URL or a path from the UI.
 
 ## Verifying a change
 
