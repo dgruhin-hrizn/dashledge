@@ -132,7 +132,9 @@ export function renderMarketplace(ui, state) {
   const autoLabel = el('label', 'market-auto', 'Update automatically');
   autoLabel.htmlFor = 'market-auto';
   autoLabel.prepend(auto);
-  main.append(heading('Marketplace', row(autoLabel, check)));
+  const actions = row(autoLabel, check);
+  actions.classList.add('market-actions');
+  main.append(heading('Marketplace', actions));
 
   if (!state.view && !state.error) {
     main.append(el('p', 'market-empty', 'Loading the Marketplace…'));
@@ -172,8 +174,11 @@ export function renderMarketplace(ui, state) {
     open.setAttribute('aria-label', 'Open ' + plugin.title);
     name.append(open);
     title.append(image(plugin.icon, '', 'market-icon'), name);
-    article.append(title, el('p', 'card-description', plugin.summary || ''), el('small', 'card-meta', 'by ' + plugin.publisher + (plugin.available ? ' · v' + plugin.available : '')));
+    article.append(title, el('p', 'card-description', plugin.summary || ''));
     const status = pluginStatus(plugin), action = pluginAction(plugin);
+    // A pulled version or an update that asks for more says why on the card itself.
+    if (status && (status.tone === 'danger' || status.tone === 'warning')) article.append(el('p', 'market-status ' + status.tone, status.text));
+    article.append(el('small', 'card-meta', 'by ' + plugin.publisher + (plugin.available ? ' · v' + plugin.available : '')));
     const actions = row();
     if (status) {
       const badge = el('span', 'market-badge ' + status.tone, status.label);
@@ -231,7 +236,7 @@ export function renderMarketplace(ui, state) {
       plugin.screenshots.forEach((path, i) => shots.append(image(path, plugin.title + ' screenshot ' + (i + 1), 'market-shot')));
       section.append(shots);
     }
-    const history = el('ol', 'market-versions');
+    const history = el('ul', 'market-versions');
     for (const v of plugin.versions) {
       const item = el('li');
       item.append(el('strong', '', v.version), el('span', 'card-meta', ' · ' + publishedDate(v.published)));

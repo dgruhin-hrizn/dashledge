@@ -101,7 +101,8 @@
 .settings .studio-card>.row {padding-top:9px;border-top:1px solid var(--border);justify-content:space-between}
 /* Marketplace */
 .market-icon {width:40px;height:40px;flex:none;border-radius:10px;object-fit:contain;background:#262c2e}.market-icon.large {width:64px;height:64px;border-radius:14px}.market-icon.missing {visibility:hidden}
-.market-open {all:unset;cursor:pointer;font:inherit;min-height:44px;display:inline-flex;align-items:center}.market-open:hover {text-decoration:underline}.market-open:focus-visible {outline:2px solid var(--lime);outline-offset:2px;border-radius:4px}
+.settings .market-open {min-height:44px;padding:0;border:0;background:none;color:var(--fg);font:inherit;text-align:left;display:inline-flex;align-items:center;cursor:pointer}.settings .market-open:hover {background:none;text-decoration:underline}.settings .market-open:focus-visible {outline:2px solid var(--lime);outline-offset:2px;border-radius:4px}
+.market-card .market-status {margin:0;font-size:13px;line-height:1.4}
 .market-search {width:min(100%,420px);min-height:44px;margin:4px 0 14px;padding:0 12px}
 .market-auto {display:inline-flex;align-items:center;gap:8px;min-height:44px;color:var(--sub)}.market-auto input {width:20px;height:20px;accent-color:var(--lime)}
 .market-badge {display:inline-flex;align-items:center;min-height:26px;padding:0 9px;border-radius:999px;border:1px solid var(--border);color:var(--sub);font-size:12px;white-space:nowrap}
@@ -109,7 +110,9 @@
 .market-empty,.market-note {color:var(--sub)}.market-note {padding:10px 12px;border:1px solid #5a4a1d;border-radius:8px}
 .market-detail {display:grid;gap:12px;max-width:820px}.market-detail h2 {margin:0}
 .market-shots {display:flex;gap:10px;overflow-x:auto;padding-bottom:6px}.market-shot {height:180px;border-radius:8px;border:1px solid var(--border)}
-.market-versions {display:grid;gap:8px;padding-left:1.2em}.market-versions p {margin:.2em 0 0;color:var(--sub)}
+.market-versions {display:grid;gap:8px;margin:0;padding:0;list-style:none}.market-versions p {margin:.2em 0 0;color:var(--sub)}
+.market-detail {margin-top:12px}
+.admin-heading:has(.market-auto) {flex-wrap:wrap}.admin-heading .market-actions {flex-wrap:wrap;justify-content:flex-end}
 .market-steps {display:grid;gap:8px;padding-left:1.3em;line-height:1.45}.market-listing {max-height:220px;overflow:auto;padding:10px;border:1px solid var(--border);border-radius:8px;color:var(--sub);font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
 .settings .back-link,.settings .placement-link {background:transparent;border:0;color:#c4d5bd}
 .settings .back-link {padding-left:0;margin-bottom:10px}

@@ -789,6 +789,32 @@ pub mod tests {
         }
     }
 
+    /// The real registry, end to end: fetch and verify the published catalog with the
+    /// pinned key, then download, check and install its first plugin into a temporary
+    /// folder. Needs the network, so it runs only when asked:
+    /// `cargo test --manifest-path src-tauri/Cargo.toml -- --ignored live_registry`.
+    #[test]
+    #[ignore]
+    fn live_registry() {
+        let registry = Registry::pinned().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let catalog = block(fetch_catalog(&registry, dir.path())).expect("the published catalog verifies with the pinned key");
+        assert!(!catalog.expired(now()), "the registry re-signs before expiry");
+        let plugin = catalog.plugins.first().expect("the registry lists at least one plugin");
+        let version = newest_for_this_app(&catalog, plugin).expect("a version this app can run").version.clone();
+        let sheet = block(inspect(&registry, dir.path(), &plugin.id, &version)).unwrap();
+        assert_eq!(sheet["id"], plugin.id.as_str());
+        let icon = block(image(&registry, dir.path(), &plugin.icon.path)).unwrap();
+        assert!(icon.starts_with("data:image/"));
+        let info = block(install(&registry, dir.path(), root.path(), &plugin.id, &version)).unwrap();
+        assert_eq!(info.manifest.version.as_deref(), Some(version.as_str()));
+        assert_eq!(load(dir.path()).installed[&plugin.id].version, version);
+        let shown = view(&catalog, &load(dir.path()), |_| Some(Here { origin: "installed".into(), version: version.clone(), grants: grants(&info.manifest) }));
+        assert_eq!(shown["plugins"][0]["origin"], "marketplace");
+        println!("installed {} {version} from sequence {}", plugin.id, catalog.sequence);
+    }
+
     #[test]
     fn a_dev_registry_needs_both_its_address_and_key() {
         assert!(dev_registry_from(None, Some("k".into())).is_none());
