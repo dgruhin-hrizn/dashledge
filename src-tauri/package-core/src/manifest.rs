@@ -1296,7 +1296,7 @@ mod tests {
     fn connection_types_bring_their_own_auth_and_test_routes() {
         let mut p = installed();
         p["sources"]["types"] = json!([
-            {"id": "sabnzbd", "label": "SABnzbd", "auth": {"query": "apikey"}, "test": ["api?mode=version&output=json"]},
+            {"id": "sabnzbd", "label": "SABnzbd", "auth": {"query": "apikey"}, "test": ["api?mode=queue&output=json&limit=1"]},
             {"id": "nzbget", "label": "NZBGet", "auth": "basic", "usernameLabel": "Username"},
             {"id": "plain", "label": "Plain"}
         ]);
@@ -1307,7 +1307,7 @@ mod tests {
         assert_eq!(s.auth_for(Some("plain")), Auth::Bearer, "a type without auth uses the widget's");
         assert_eq!(s.auth_for(None), Auth::Query { name: "apikey".into() }, "no type means the first");
         assert_eq!(s.auth_for(Some("removed")), Auth::Query { name: "apikey".into() });
-        assert_eq!(s.test_for(Some("sabnzbd")), vec!["api?mode=version&output=json"]);
+        assert_eq!(s.test_for(Some("sabnzbd")), vec!["api?mode=queue&output=json&limit=1"]);
         assert_eq!(s.test_for(Some("nzbget")), vec!["api/status"], "a type without Test routes uses the widget's");
         assert_eq!(m.auth_for(Some("nzbget")), Auth::Basic);
         for bad in [json!([{"id": "A", "label": "A"}]), json!([{"id": "a", "label": ""}]), json!([{"id": "a", "label": "A"}, {"id": "a", "label": "B"}]),

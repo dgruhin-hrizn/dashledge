@@ -59,7 +59,7 @@ Every view runs isolated. It can't reach the network, other widgets, Dashledge's
 - **`homepage`** (optional, https) and **`license`** (optional, such as `MIT`) appear on the install sheet.
 - **`view.theme`**: `true` when your view follows Dashledge's text and highlight colours (`state.theme`, also the CSS variables `--text` and `--accent`). Pages & layouts then lets each placement choose its own colours, and your view receives them in the same theme.
 - **`view.viewport`**: `native` renders at the Edge's real size (2560 × 720) when the widget fills a page; `reference` uses the scaled 1920 × 540 canvas. Size type with `clamp()` and viewport units so the widget reads well in a narrow tile too.
-- **`sources`** asks for connections. `test` lists routes the Test button reads. Omit `sources` for a widget that needs no connection, like this example. `auth` says how Dashledge sends the saved credential to the connection, and only to it:
+- **`sources`** asks for connections. `test` lists routes the Test button reads. Each must answer 2xx with JSON, so pick routes the server refuses without a valid credential. Omit `sources` for a widget that needs no connection, like this example. `auth` says how Dashledge sends the saved credential to the connection, and only to it:
 
   | `auth` | Sends | For example |
   | --- | --- | --- |
@@ -86,7 +86,7 @@ Every view runs isolated. It can't reach the network, other widgets, Dashledge's
 
   ```json
   "sources": {"min": 1, "max": 1, "auth": "none", "types": [
-    {"id": "sabnzbd", "label": "SABnzbd", "auth": {"query": "apikey"}, "test": ["api?mode=version&output=json"], "credentialLabel": "API key"},
+    {"id": "sabnzbd", "label": "SABnzbd", "auth": {"query": "apikey"}, "test": ["api?mode=queue&output=json&limit=1"], "credentialLabel": "API key"},
     {"id": "nzbget", "label": "NZBGet", "auth": "basic", "test": ["jsonrpc/version"], "usernameLabel": "Username", "credentialLabel": "Password"}
   ]}
   ```
